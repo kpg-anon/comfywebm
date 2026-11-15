@@ -5,6 +5,54 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Work on the `exp` branch.
+
+### Added
+
+- GIF output: Format GIF, one palette per clip. In size mode the picture
+  size is chosen to fit (GIF has no bitrate setting). New platform preset
+  "GIF (4 MiB)"; existing installs get it from Restore platform presets.
+- Cut only (no re-encode): copies one range's video and audio into WebM or
+  MP4 when the codecs fit. Fast and lossless; the cut starts on a key frame.
+- Timeline filmstrip (60 thumbnails) and audio waveform, cached, with
+  buttons to turn each off. Zoom to the selected range.
+- The queue is saved and survives a restart. A job that was encoding when
+  the app closed is marked "Interrupted"; waiting jobs wait for Start.
+- Queue: Retry / Encode again, Edit (opens the source with the job's ranges
+  and crop), move waiting jobs up and down, Pause after the running job, a
+  short summary per job.
+- Each finished output is probed and compared with the plan (video stream,
+  audio, picture size, length); differences are shown on the job and in the
+  notification.
+- Reopening a file restores its ranges, output order and crop (last 40
+  files); Ctrl+Z removes the restored edit.
+- Settings: cache size with Clear and Clear downloads; Search again for
+  ffmpeg, ffprobe and yt-dlp.
+- The sidebar can be resized by dragging its edge; double-click resets.
+- The size field takes units: MB, KB, GB are decimal, MiB, KiB, GiB (or a
+  bare number) binary. Up and Down step 0.5 MiB (Shift: 5 MiB).
+- CI workflow: frontend typecheck and build, engine tests.
+
+### Fixed
+
+- Closing the app left ffmpeg running when a job, sample or download was
+  active; all child processes are now stopped on exit.
+- A finished output or saved frame could replace a file that appeared at
+  the same name during the encode (for example from a second instance).
+  Names are now reserved with an exclusive create before the rename.
+- A failed or canceled yt-dlp download could delete partial files of
+  another download in the same folder. Each download now keeps its partial
+  files in its own temp folder.
+- A new sample deleted the files of a sample still playing, and closing the
+  sample dialog did not stop the encode.
+- A file changed on disk kept its old probe result until restart.
+- Opening two files quickly could show the first one after the second.
+- Double-clicking Encode added the job twice.
+- Preview copies and timeline pictures above 4 GiB are deleted at start,
+  oldest first.
+
 ## [1.2.0] - 2026-11-15
 
 ### Added

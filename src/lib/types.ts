@@ -83,6 +83,8 @@ export type EncodeSpec = {
   playback: Playback;
   deinterlace: boolean;
   denoise: boolean;
+  stabilize?: boolean;
+  smoothSlowmo?: boolean;
   tonemap: boolean;
   fadeIn: number;
   fadeOut: number;

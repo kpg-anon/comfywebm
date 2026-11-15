@@ -301,6 +301,13 @@ pub struct EncodeSpec {
     pub deinterlace: bool,
     #[serde(default)]
     pub denoise: bool,
+    /// steadies a shaky picture (deshake), per range
+    #[serde(default)]
+    pub stabilize: bool,
+    /// slow motion (speed below 1) gets new in-between frames (minterpolate)
+    /// instead of repeated ones
+    #[serde(default)]
+    pub smooth_slowmo: bool,
     #[serde(default)]
     pub tonemap: bool,
     #[serde(default)]

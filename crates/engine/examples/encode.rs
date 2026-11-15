@@ -111,7 +111,7 @@ fn real_main() -> Result<(), String> {
         max_height: None,
         auto_scale: codec.is_image(),
         fps: if codec.is_image() { Some(15.0) } else { None },
-        speed: 1.0,
+        speed: std::env::var("CWM_SPEED").ok().and_then(|s| s.parse().ok()).unwrap_or(1.0),
         playback: Playback::Forward,
         deinterlace: info.video.interlaced,
         denoise: false,
@@ -130,6 +130,8 @@ fn real_main() -> Result<(), String> {
         output_name: None,
         stream_copy: false,
         caption,
+        stabilize: std::env::var("CWM_STAB").is_ok(),
+        smooth_slowmo: std::env::var("CWM_SMOOTH").is_ok(),
         output_dir: None,
     };
     let zscale = st.filters.zscale;

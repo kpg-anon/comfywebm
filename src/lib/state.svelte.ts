@@ -65,7 +65,7 @@ const intOrNull = (v: number | null | undefined): number | null => {
 /** Option fields remembered in localStorage between runs (not tied to one source). */
 const REMEMBERED = [
   "presetName", "container", "codec", "rateMode", "maxBytes", "crf", "maxBitrateK", "autoScale",
-  "maxWidth", "maxHeight", "fps", "speed", "playback", "denoise", "fadeIn", "fadeOut", "effort",
+  "maxWidth", "maxHeight", "fps", "speed", "playback", "denoise", "stabilize", "smoothSlowmo", "fadeIn", "fadeOut", "effort",
   "twoPass", "audioOn", "audioBitrateK", "volumeDb", "normalize", "separate", "aspect",
   "resMode", "resStep", "resPct", "exactEdge", "exactVal", "stepBy", "adjustPreview",
 ] as const;
@@ -222,6 +222,8 @@ class AppState {
   playback = $state<Playback>("forward");
   deinterlace = $state(false);
   denoise = $state(false);
+  stabilize = $state(false);
+  smoothSlowmo = $state(false);
   tonemap = $state(false);
   rotate = $state<Rotate>(0);
   mirror = $state(false);
@@ -330,7 +332,11 @@ class AppState {
   baseH = $derived.by(() => this.baseSize()[1]);
   /** Frame rate of the output (source fps x speed, or the cap). */
   outFps = $derived.by(() => {
-    const r = this.fpsSrc * (this.speed || 1);
+    const sp = this.speed || 1;
+    // smooth slow motion makes frames up to the source rate (or the cap)
+    if (this.smoothSlowmo && sp < 1 && this.container !== "gif" && this.container !== "webp")
+      return this.fps && this.fps > 0 ? Math.min(this.fps, this.fpsSrc) : this.fpsSrc;
+    const r = this.fpsSrc * sp;
     return this.fps && this.fps > 0 && this.fps < r - 0.01 ? this.fps : r;
   });
   motionIssues = $derived(this.media ? motionWarnings(this.fpsSrc, this.speed || 1, numOrNull(this.fps), this.refreshHz) : []);
@@ -390,6 +396,8 @@ class AppState {
       playback: this.playback,
       deinterlace: own ? this.deinterlace : m.video.interlaced,
       denoise: this.denoise,
+      stabilize: this.stabilize,
+      smoothSlowmo: this.smoothSlowmo,
       tonemap: own ? this.tonemap : m.video.hdr && !!this.tools?.filters.zscale,
       fadeIn: Math.max(0, this.fadeIn || 0),
       fadeOut: Math.max(0, this.fadeOut || 0),

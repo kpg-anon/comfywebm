@@ -74,7 +74,8 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   crop, resolution, speed and filters do nothing.
 - **Size field**: a number is MiB; `10 MB` means 10,000,000 bytes, and KB, GB,
   KiB, GiB work too. Up and Down change it by 0.5 MiB.
-- **Filters**: deinterlace, denoise, HDR to SDR tone mapping, rotate, flip
+- **Filters**: deinterlace, denoise, stabilize, smooth slow motion (new
+  in-between frames below 1x speed), HDR to SDR tone mapping, rotate, flip
   horizontal and vertical, reverse, boomerang (forward then reverse), fade in
   and out.
 - **Caption**: text drawn on the picture, top or bottom, white with a black

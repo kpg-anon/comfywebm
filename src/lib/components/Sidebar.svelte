@@ -107,6 +107,8 @@
     [
       app.deinterlace !== !!app.media?.video.interlaced && "deinterlace",
       app.denoise && "denoise",
+      app.stabilize && "stabilize",
+      app.smoothSlowmo && "smooth slow motion",
       app.tonemap !== hdrAuto && "tone map",
       app.rotate !== 0 && `${app.rotate}°`,
       app.mirror && "flip horizontal",
@@ -129,6 +131,8 @@
     [
       app.deinterlace && "deinterlace",
       app.denoise && "denoise",
+      app.stabilize && "stabilize",
+      app.smoothSlowmo && app.speed < 1 && "smooth slow-mo",
       app.tonemap && "tone map",
       app.rotate && `${app.rotate}°`,
       app.mirror && "flip H",
@@ -312,6 +316,8 @@
         <div class="checks">
           <label class="check" title="Removes the comb lines of interlaced video (TV recordings, old camcorders). Turned on by itself when the source is interlaced."><input type="checkbox" bind:checked={app.deinterlace} /> Deinterlace</label>
           <label class="check" title="Smooths out grain and noise (hqdn3d). Noise costs bits, so this can help at small sizes; it also softens fine detail."><input type="checkbox" bind:checked={app.denoise} /> Denoise</label>
+          <label class="check" title="Steadies a shaky hand-held picture (ffmpeg deshake). The edges move, so crop a little."><input type="checkbox" bind:checked={app.stabilize} /> Stabilize</label>
+          <label class="check" title="At speeds below 1x, makes new in-between frames by motion estimation (minterpolate) instead of showing each frame several times. Slow to encode; fast motion can show warping."><input type="checkbox" bind:checked={app.smoothSlowmo} /> Smooth slow motion</label>
           <label class="check" class:off={!zscale} title="Converts HDR video to normal (SDR) colors, so it does not look gray and washed out. Turned on by itself for HDR sources.">
             <input type="checkbox" bind:checked={app.tonemap} disabled={!zscale} /> Tone map HDR
           </label>

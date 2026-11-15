@@ -20,6 +20,9 @@ Work on the `exp` branch.
 - A queued job keeps the output folder that was set when it was added.
 - Settings: Interface size (80-150%), since browser zoom is turned off.
 - Queue: Copy error on a failed job.
+- Filters: Stabilize (ffmpeg deshake, per range, before the crop) and Smooth
+  slow motion (at speeds below 1x, minterpolate makes in-between frames up to
+  the source rate or the cap instead of repeating frames; slow to encode).
 - Caption: text on the picture (Advanced > Caption), top or bottom,
   white with a black outline, sized as a share of the output height, with
   several lines allowed. The player shows where it goes.

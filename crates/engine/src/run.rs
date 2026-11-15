@@ -462,6 +462,7 @@ pub fn export_frame(ffmpeg: &Path, info: &MediaInfo, time: f64, crop: Option<Cro
         &SegmentFilters {
             deinterlace: false,
             denoise: false,
+            stabilize: false,
             tonemap: v.hdr && zscale,
             anamorphic: v.anamorphic,
             crop: g.crop,

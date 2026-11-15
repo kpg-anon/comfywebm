@@ -392,6 +392,7 @@ pub const TONEMAP: &str =
 pub struct SegmentFilters<'a> {
     pub deinterlace: bool,
     pub denoise: bool,
+    pub stabilize: bool,
     pub tonemap: bool,
     pub anamorphic: bool,
     pub crop: Option<(u32, u32, u32, u32)>,
@@ -410,6 +411,10 @@ pub fn segment_chain(sf: &SegmentFilters, start: f64) -> Vec<String> {
     let mut f: Vec<String> = vec!["setpts=PTS-STARTPTS".into()];
     if sf.deinterlace {
         f.push("bwdif=mode=send_frame".into());
+    }
+    if sf.stabilize {
+        // before the crop, so the borders it pulls in can be cropped away
+        f.push("deshake".into());
     }
     if sf.denoise {
         f.push("hqdn3d".into());
@@ -479,6 +484,8 @@ pub struct PostFilters {
     pub scale: Option<(u32, u32)>,
     /// a complete drawtext filter, drawn after the scale
     pub caption: Option<String>,
+    /// make in-between frames up to this rate after the speed change (replaces `fps`)
+    pub interpolate: Option<f64>,
     pub speed: f64,
     pub fps: Option<f64>,
     pub playback: Playback,
@@ -500,7 +507,9 @@ pub fn video_post(p: &PostFilters) -> String {
     if (p.speed - 1.0).abs() > 1e-9 {
         lin.push(format!("setpts=PTS/{}", fmt_num(p.speed)));
     }
-    if let Some(fps) = p.fps {
+    if let Some(f) = p.interpolate {
+        lin.push(format!("minterpolate=fps={}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1", fmt_num(f)));
+    } else if let Some(fps) = p.fps {
         lin.push(format!("fps={}", fmt_num(fps)));
     }
     match p.playback {
@@ -638,7 +647,13 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     // GIF frame delays are whole centiseconds and players treat under 2 as
     // slow, so a GIF is capped at 50 fps
     let fps_cap = if codec.is_image() && fps_cap.unwrap_or(src_fps_out) > 50.0 { Some(50.0) } else { fps_cap };
-    let out_fps = fps_cap.unwrap_or(if src_fps_out > 0.0 { src_fps_out } else { 30.0 });
+    // smooth slow motion: frames are made up to the source rate (or the cap)
+    let interpolate = (spec.smooth_slowmo && speed < 1.0 - 1e-9 && v.fps > 0.0 && !codec.is_image())
+        .then(|| fps_cap.map_or(v.fps, |c| c.min(v.fps)));
+    let out_fps = interpolate.unwrap_or(fps_cap.unwrap_or(if src_fps_out > 0.0 { src_fps_out } else { 30.0 }));
+    if interpolate.is_some() && duration_out > 20.0 {
+        warnings.push("Smooth slow motion computes every new frame and is slow: expect minutes per second of output.".into());
+    }
     if codec.is_image() && out_fps > 25.0 {
         warnings.push(format!(
             "An animated {} at {} fps is large. 10 to 20 fps is usual; set a frame rate cap.",
@@ -752,6 +767,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     let sf = SegmentFilters {
         deinterlace: spec.deinterlace,
         denoise: spec.denoise,
+        stabilize: spec.stabilize,
         tonemap,
         anamorphic: v.anamorphic,
         crop: g.crop,
@@ -771,6 +787,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         // every 3 frames at 30 fps instead of all of them at 45 fps. Naming
         // the new rate keeps every frame (they already sit on its grid).
         fps: fps_cap.or(((speed - 1.0).abs() > 1e-9 && src_fps_out > 0.0).then_some(src_fps_out)),
+        interpolate,
         playback: spec.playback,
         fade_in: spec.fade_in.max(0.0),
         fade_out: spec.fade_out.max(0.0),
@@ -1302,6 +1319,8 @@ mod tests {
             playback: Playback::Forward,
             deinterlace: false,
             denoise: false,
+            stabilize: false,
+            smooth_slowmo: false,
             tonemap: false,
             fade_in: 0.0,
             fade_out: 0.0,
@@ -1373,6 +1392,7 @@ mod tests {
         let sf = SegmentFilters {
             deinterlace: true,
             denoise: false,
+            stabilize: false,
             tonemap: false,
             anamorphic: false,
             crop: Some((0, 0, 640, 720)),
@@ -1388,6 +1408,7 @@ mod tests {
         );
         let post = video_post(&PostFilters {
             caption: None,
+            interpolate: None,
             scale: Some((320, 360)),
             speed: 2.0,
             fps: Some(24.0),

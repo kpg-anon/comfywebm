@@ -41,7 +41,7 @@
       <div class="err msg">{s.error}</div>
     {:else if s.path}
       <!-- svelte-ignore a11y_media_has_caption -->
-      {#if s.path.toLowerCase().endsWith(".gif")}
+      {#if /\.(gif|webp)$/i.test(s.path)}
         <img src={convertFileSrc(s.path)} alt="Sample" />
       {:else}
         <video src={convertFileSrc(s.path)} autoplay loop controls playsinline></video>

@@ -61,7 +61,9 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
 - **Quality mode**: CRF on the codec's own scale, with an optional bitrate cap.
 - **Codecs**: WebM with VP9, VP8 or AV1 (Opus audio, Vorbis with VP8); MP4 with
   H.264, HEVC or AV1 (AAC audio); GIF (one palette per clip, no sound). GIF has
-  no bitrate setting, so in size limit mode the picture size is chosen to fit.
+  no bitrate setting, so in size limit mode the picture size is chosen to fit;
+  animated WebP (libwebp, no sound) works the same way, with a quality setting
+  in quality mode.
 - **Cut only (no re-encode)**: copies one range's video and audio as they are
   into WebM or MP4, when the source's codecs fit that container. Fast and
   lossless, but the clip starts on the key frame at or before the in point, and

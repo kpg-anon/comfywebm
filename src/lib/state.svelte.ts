@@ -936,7 +936,7 @@ class AppState {
 
   codecAvailable(c: Codec): boolean {
     // ToolsStatus from a build without the gif field: ffmpeg always has the GIF encoder
-    return !this.tools || (this.tools.encoders[c] ?? c === "gif");
+    return !this.tools || (this.tools.encoders[c as keyof ToolsStatus["encoders"]] ?? c === "gif");
   }
 
   /** WebM or MP4, whichever can hold the source's streams as they are (plan.rs `copy_container`). */

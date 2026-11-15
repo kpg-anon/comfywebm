@@ -45,8 +45,8 @@ export type Rate =
   | { mode: "size"; maxBytes: number }
   | { mode: "crf"; crf: number; maxBitrateK: number | null };
 
-export type Container = "webm" | "mp4" | "gif";
-export type Codec = "vp9" | "vp8" | "av1" | "h264" | "hevc" | "gif";
+export type Container = "webm" | "mp4" | "gif" | "webp";
+export type Codec = "vp9" | "vp8" | "av1" | "h264" | "hevc" | "gif" | "webp";
 export type Effort = "fast" | "balanced" | "best";
 export type Rotate = 0 | 90 | 180 | 270;
 export type Playback = "forward" | "reverse" | "boomerang";
@@ -167,7 +167,7 @@ export type ToolsStatus = {
   version: string | null;
   ytdlp: string | null;
   ytdlpVersion: string | null;
-  encoders: { vp8: boolean; vp9: boolean; av1: boolean; h264: boolean; hevc: boolean; gif: boolean; opus: boolean; vorbis: boolean; aac: boolean };
+  encoders: { vp8: boolean; vp9: boolean; av1: boolean; h264: boolean; hevc: boolean; gif: boolean; webp?: boolean; opus: boolean; vorbis: boolean; aac: boolean };
   filters: { zscale: boolean; subtitles: boolean };
 };
 

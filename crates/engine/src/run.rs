@@ -298,7 +298,7 @@ pub fn run_job(
 
         let (Some(max), Some(k)) = (max_bytes, planned.video_kbps) else { break };
         // a GIF's size follows only the picture size, which only auto size changes
-        if spec.codec == crate::spec::Codec::Gif && !spec.auto_scale {
+        if spec.codec.is_image() && !spec.auto_scale {
             break;
         }
         if attempt >= MAX_ATTEMPTS {

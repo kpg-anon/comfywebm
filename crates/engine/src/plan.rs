@@ -122,6 +122,8 @@ pub fn bpp_floor(codec: Codec) -> f64 {
         Codec::Vp8 => 0.055,
         // GIF is palette-coded and compresses far worse than video codecs
         Codec::Gif => 1.0,
+        // lossy WebP codes each frame (or changed rectangle) as a still picture
+        Codec::Webp => 0.35,
     }
 }
 
@@ -504,6 +506,7 @@ fn codec_label(c: Codec) -> &'static str {
         Codec::H264 => "H.264",
         Codec::Hevc => "HEVC",
         Codec::Gif => "GIF",
+        Codec::Webp => "WebP",
     }
 }
 
@@ -530,8 +533,10 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     match (spec.container, codec) {
         (Container::Webm, Codec::Vp9 | Codec::Vp8 | Codec::Av1)
         | (Container::Mp4, Codec::H264 | Codec::Hevc | Codec::Av1)
-        | (Container::Gif, Codec::Gif) => {}
+        | (Container::Gif, Codec::Gif)
+        | (Container::Webp, Codec::Webp) => {}
         (Container::Gif, _) | (_, Codec::Gif) => return Err("GIF output needs the GIF format and codec together.".into()),
+        (Container::Webp, _) | (_, Codec::Webp) => return Err("WebP output needs the WebP format and codec together.".into()),
         (Container::Webm, c) => return Err(format!("{} cannot be stored in WebM. Choose MP4.", codec_label(c))),
         (Container::Mp4, c) => return Err(format!("{} cannot be stored in MP4. Choose WebM.", codec_label(c))),
     }
@@ -562,17 +567,22 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         .filter(|f| src_fps_out <= 0.0 || *f < src_fps_out - 0.01);
     // GIF frame delays are whole centiseconds and players treat under 2 as
     // slow, so a GIF is capped at 50 fps
-    let fps_cap = if codec == Codec::Gif && fps_cap.unwrap_or(src_fps_out) > 50.0 { Some(50.0) } else { fps_cap };
+    let fps_cap = if codec.is_image() && fps_cap.unwrap_or(src_fps_out) > 50.0 { Some(50.0) } else { fps_cap };
     let out_fps = fps_cap.unwrap_or(if src_fps_out > 0.0 { src_fps_out } else { 30.0 });
-    if codec == Codec::Gif && out_fps > 25.0 {
-        warnings.push(format!("A GIF at {} fps is large. 10 to 20 fps is usual; set a frame rate cap.", out_fps.round()));
+    if codec.is_image() && out_fps > 25.0 {
+        warnings.push(format!(
+            "An animated {} at {} fps is large. 10 to 20 fps is usual; set a frame rate cap.",
+            codec_label(codec),
+            out_fps.round()
+        ));
     }
 
     // --- audio ---
     let gif = codec == Codec::Gif;
+    let image = codec.is_image();
     let audio = match spec.audio {
-        Some(_) if gif => {
-            warnings.push("GIF has no sound, so audio is left out.".into());
+        Some(_) if image => {
+            warnings.push(format!("{} has no sound, so audio is left out.", codec_label(codec)));
             None
         }
         Some(_) if boomerang => {
@@ -627,11 +637,11 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         auto_scaled = (ng.out_w, ng.out_h) != (g.out_w, g.out_h);
         g = ng;
     }
-    if gif && size_mode && !spec.auto_scale {
-        warnings.push(
-            "GIF has no bitrate setting: the size limit can only be met by the picture size. Choose Auto resolution, or the file may end over the limit."
-                .into(),
-        );
+    if image && size_mode && !spec.auto_scale {
+        warnings.push(format!(
+            "{} has no bitrate setting: the size limit can only be met by the picture size. Choose Auto resolution, or the file may end over the limit.",
+            codec_label(codec)
+        ));
     }
     let bpp = video_kbps.map(|k| bits_per_pixel(k, g.out_w, g.out_h, out_fps));
     let qual = bpp.map(|b| quality(b, codec));
@@ -716,7 +726,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             Codec::Av1 => false,
             Codec::H264 | Codec::Hevc => size_mode,
             Codec::Vp9 | Codec::Vp8 => size_mode || spec.two_pass,
-            Codec::Gif => false,
+            Codec::Gif | Codec::Webp => false,
         };
     let reuse_pass1 = matches!(codec, Codec::Vp9 | Codec::Vp8 | Codec::H264);
     // GIF: one palette per clip from the frames' differences, then dithered
@@ -773,6 +783,15 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
                 }
             }
             Codec::Gif => push(&mut a, &["-c:v", "gif"]),
+            Codec::Webp => {
+                // CRF mode: crf 0-100, lower = better, as quality 100 - crf.
+                // Size mode: quality 75; the picture size is what changes.
+                let q = match spec.rate {
+                    Rate::Crf { crf, .. } => 100.0 - crf.clamp(0.0, 100.0).round(),
+                    Rate::Size { .. } => 75.0,
+                };
+                push(&mut a, &["-c:v", "libwebp_anim", "-lossless", "0", "-q:v", &fmt_num(q), "-compression_level", ["3", "5", "6"][e]]);
+            }
             Codec::H264 | Codec::Hevc => {
                 if codec == Codec::H264 {
                     push(&mut a, &["-c:v", "libx264", "-profile:v", "high", "-preset", ["fast", "slow", "veryslow"][e]]);
@@ -879,7 +898,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             push(&mut a, &["-pix_fmt", "yuv420p"]);
         }
         a.extend(video_args(pass));
-        if !gif {
+        if !image {
             push(&mut a, &["-colorspace", &color.0, "-color_primaries", &color.1, "-color_trc", &color.2]);
         }
         if pass == 1 {
@@ -908,6 +927,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             Container::Webm => push(&mut a, &["-f", "webm", opts.output]),
             Container::Mp4 => push(&mut a, &["-movflags", "+faststart", "-f", "mp4", opts.output]),
             Container::Gif => push(&mut a, &["-loop", "0", "-f", "gif", opts.output]),
+            Container::Webp => push(&mut a, &["-loop", "0", "-f", "webp", opts.output]),
         }
         a
     };
@@ -934,7 +954,7 @@ fn copy_fits(container: Container, video: &str, audio: Option<&str>) -> bool {
     let (v_ok, a_ok): (&[&str], &[&str]) = match container {
         Container::Webm => (&["vp8", "vp9", "av1"], &["opus", "vorbis"]),
         Container::Mp4 => (&["h264", "hevc", "av1", "mpeg4"], &["aac", "mp3", "opus", "ac3", "eac3", "flac", "alac"]),
-        Container::Gif => (&[], &[]),
+        Container::Gif | Container::Webp => (&[], &[]),
     };
     v_ok.contains(&video) && audio.is_none_or(|a| a_ok.contains(&a))
 }
@@ -1313,6 +1333,18 @@ mod tests {
         sp.container = Container::Mp4;
         sp.segments.push(Segment { start: 20.0, end: 21.0 });
         assert!(build(&sp, &m, &opts()).is_err());
+    }
+
+    #[test]
+    fn webp_args() {
+        let mut sp = spec(Rate::Crf { crf: 20.0, max_bitrate_k: None });
+        sp.container = Container::Webp;
+        sp.codec = Codec::Webp;
+        let p = build(&sp, &media(), &Opts { output: "out.webp", ..opts() }).unwrap();
+        let s = strs(&p.passes[0]).join(" ");
+        assert!(s.contains("-c:v libwebp_anim -lossless 0 -q:v 80 -compression_level 5"), "{s}");
+        assert!(!s.contains("-c:a") && !s.contains("-colorspace"), "{s}");
+        assert!(s.ends_with("-loop 0 -f webp out.webp"), "{s}");
     }
 
     #[test]

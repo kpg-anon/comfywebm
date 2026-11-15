@@ -2,7 +2,7 @@
 //!
 //! cargo run -p comfywebm-engine --example encode -- <input> <output>
 //!     [--range S-E]... [--crop x,y,w,h] [--max-bytes N] [--audio-k K]
-//!     [--container webm|mp4|gif] [--codec vp9|vp8|av1|h264|hevc|gif] [--effort fast|balanced|best]
+//!     [--container webm|mp4|gif|webp] [--codec vp9|vp8|av1|h264|hevc|gif|webp] [--effort fast|balanced|best]
 //! cargo run -p comfywebm-engine --example encode -- --url-info <url>
 
 use comfywebm_engine::{
@@ -50,6 +50,7 @@ fn real_main() -> Result<(), String> {
             "--container" => container = match args.next().as_deref() {
                 Some("mp4") => Container::Mp4,
                 Some("gif") => Container::Gif,
+                Some("webp") => Container::Webp,
                 _ => Container::Webm,
             },
             "--codec" => {
@@ -59,6 +60,7 @@ fn real_main() -> Result<(), String> {
                     Some("h264") => Codec::H264,
                     Some("hevc") => Codec::Hevc,
                     Some("gif") => Codec::Gif,
+                    Some("webp") => Codec::Webp,
                     _ => Codec::Vp9,
                 }
             }
@@ -101,8 +103,8 @@ fn real_main() -> Result<(), String> {
         adjust: None,
         max_width: None,
         max_height: None,
-        auto_scale: codec == Codec::Gif,
-        fps: if codec == Codec::Gif { Some(15.0) } else { None },
+        auto_scale: codec.is_image(),
+        fps: if codec.is_image() { Some(15.0) } else { None },
         speed: 1.0,
         playback: Playback::Forward,
         deinterlace: info.video.interlaced,

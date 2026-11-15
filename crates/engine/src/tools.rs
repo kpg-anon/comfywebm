@@ -157,6 +157,7 @@ pub fn parse_encoders(text: &str) -> Encoders {
             "libvorbis" => e.vorbis = true,
             "aac" => e.aac = true,
             "gif" => e.gif = true,
+            "libwebp_anim" => e.webp = true,
             _ => {}
         }
     }

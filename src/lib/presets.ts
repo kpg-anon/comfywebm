@@ -104,9 +104,10 @@ export const CODECS_BY_CONTAINER: Record<Container, Codec[]> = {
   webm: ["vp9", "vp8", "av1"],
   mp4: ["h264", "hevc", "av1"],
   gif: ["gif"],
+  webp: ["webp"],
 };
 
-export const CODEC_LABEL: Record<Codec, string> = { vp9: "VP9", vp8: "VP8", av1: "AV1", h264: "H.264", hevc: "HEVC", gif: "GIF" };
+export const CODEC_LABEL: Record<Codec, string> = { vp9: "VP9", vp8: "VP8", av1: "AV1", h264: "H.264", hevc: "HEVC", gif: "GIF", webp: "WebP" };
 
 /** CRF scale per codec: [min, max, default]. */
 export const CRF_RANGE: Record<Codec, [number, number, number]> = {
@@ -117,6 +118,8 @@ export const CRF_RANGE: Record<Codec, [number, number, number]> = {
   hevc: [0, 51, 24],
   // GIF has no quality scale; the value is not used
   gif: [0, 63, 30],
+  // 100 - libwebp quality: 25 = quality 75
+  webp: [0, 100, 25],
 };
 
 /** The audio encoder ffmpeg uses for a container and video codec. */

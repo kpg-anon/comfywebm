@@ -326,6 +326,10 @@ pub fn emit_state(app: &AppHandle, queue: &Queue) {
 /// video, no audio when audio was asked for, another picture size, or a
 /// duration off by more than 0.5 s and 3%.
 fn verify(state: &AppState, out: &std::path::Path, spec: &EncodeSpec, size: (u32, u32), want: f64) -> Vec<String> {
+    // ffprobe cannot decode animated WebP ("image data not found")
+    if spec.codec == comfywebm_engine::Codec::Webp {
+        return Vec::new();
+    }
     let Some(ffprobe) = state.tools().0.ffprobe else { return Vec::new() };
     let info = match comfywebm_engine::probe::probe(&ffprobe, &out.to_string_lossy()) {
         Ok(i) => i,

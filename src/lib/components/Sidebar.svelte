@@ -167,9 +167,14 @@
         <span title="The output file is made to fit under this size, in MiB (1 MiB = 1,048,576 bytes). The video bitrate is worked out from it, the length and the audio.">Size limit</span>
         <span class="unit"><SizeField bind:bytes={app.maxBytes} /><span class="muted">MiB</span></span>
       </div>
-      <div class="muted small">{app.maxBytes.toLocaleString("en-US")} bytes · two passes · aims for 99% of the limit</div>
+      {#if app.codec === "gif" || app.codec === "webp"}
+        <div class="muted small">{app.maxBytes.toLocaleString("en-US")} bytes · {app.codec === "gif" ? "GIF" : "WebP"} has no bitrate setting, so the picture size is chosen to fit (Auto resolution){app.codec === "webp" ? ", at quality 75" : ""}</div>
+      {:else}
+        <div class="muted small">{app.maxBytes.toLocaleString("en-US")} bytes · two passes · aims for 99% of the limit</div>
+      {/if}
     {:else if app.codec === "gif"}
       <div class="muted small">GIF has no quality setting. Its size comes from the picture size, the frame rate and the length.</div>
+
     {:else}
       <div class="row">
         <span title="Constant quality: every frame gets the bits it needs for this quality, so the file size depends on the content. Lower = better and larger.">CRF</span>
@@ -203,7 +208,7 @@
       <Group id="output" title="Video" note="{app.container.toUpperCase()} · {CODEC_LABEL[app.codec]}">
         <div class="row">
           <span title="WebM plays on 4chan and in browsers; MP4 plays nearly everywhere, including phones and Discord.">Format</span>
-          <Seg label="Container" value={app.container} onchange={(v) => app.setContainer(v)} options={[{ value: "webm", label: "WebM" }, { value: "mp4", label: "MP4" }, { value: "gif", label: "GIF" }]} />
+          <Seg label="Container" value={app.container} onchange={(v) => app.setContainer(v)} options={[{ value: "webm", label: "WebM" }, { value: "mp4", label: "MP4" }, { value: "gif", label: "GIF" }, { value: "webp", label: "WebP" }]} />
         </div>
         <div class="row">
           <span title="VP9 and AV1 give the best picture per MB (AV1 encodes slowest). VP8 and H.264 are for old players. HEVC is H.265, smaller than H.264 but not supported everywhere. Grayed out: your ffmpeg lacks it.">Codec</span>
@@ -227,8 +232,8 @@
       </Group>
 
       <Group id="audio" title="Audio" note={app.audioOn ? `${app.audioCodecName} ${app.audioBitrateK}k` : "off"}>
-        {#if app.codec === "gif"}
-          <div class="muted small">GIF has no sound.</div>
+        {#if app.codec === "gif" || app.codec === "webp"}
+          <div class="muted small">Animated {app.codec === "gif" ? "GIF" : "WebP"} has no sound.</div>
         {:else if app.media && app.media.audio.length === 0}
           <div class="muted small">The source has no audio.</div>
         {:else}

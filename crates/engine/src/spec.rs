@@ -134,6 +134,15 @@ pub enum Codec {
     Hevc,
     /// animated GIF (ffmpeg's own encoder, two-step palette)
     Gif,
+    /// animated WebP (libwebp_anim)
+    Webp,
+}
+
+impl Codec {
+    /// Animated image formats: no audio, no bitrate control.
+    pub fn is_image(self) -> bool {
+        matches!(self, Codec::Gif | Codec::Webp)
+    }
 }
 
 impl Codec {
@@ -145,6 +154,7 @@ impl Codec {
             Codec::H264 => "h264",
             Codec::Hevc => "hevc",
             Codec::Gif => "gif",
+            Codec::Webp => "webp",
         }
     }
 }
@@ -156,6 +166,7 @@ pub enum Container {
     Webm,
     Mp4,
     Gif,
+    Webp,
 }
 
 impl Container {
@@ -164,6 +175,7 @@ impl Container {
             Container::Webm => "webm",
             Container::Mp4 => "mp4",
             Container::Gif => "gif",
+            Container::Webp => "webp",
         }
     }
 }
@@ -442,6 +454,9 @@ pub struct Encoders {
     /// ffmpeg's built-in GIF encoder
     #[serde(default)]
     pub gif: bool,
+    /// libwebp_anim
+    #[serde(default)]
+    pub webp: bool,
     pub opus: bool,
     pub vorbis: bool,
     pub aac: bool,

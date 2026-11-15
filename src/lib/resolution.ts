@@ -41,7 +41,7 @@ export function withLimit(box: Box, limit: Box): Box {
 }
 
 /** Bits per pixel below which a codec's picture visibly breaks down (plan.rs `bpp_floor`). */
-export const BPP_FLOOR: Record<Codec, number> = { av1: 0.022, vp9: 0.03, hevc: 0.03, h264: 0.045, vp8: 0.055, gif: 1.0 };
+export const BPP_FLOOR: Record<Codec, number> = { av1: 0.022, vp9: 0.03, hevc: 0.03, h264: 0.045, vp8: 0.055, gif: 1.0, webp: 0.35 };
 
 export type Quality = "good" | "fair" | "poor";
 

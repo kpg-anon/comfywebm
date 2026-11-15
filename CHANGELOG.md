@@ -11,6 +11,10 @@ Work on the `exp` branch.
 
 ### Added
 
+- Animated WebP output (libwebp_anim): quality on a 0-100 scale in quality
+  mode (shown as 100 minus the libwebp quality, so lower is better as for
+  the other codecs); in size mode quality 75 and the picture size is chosen
+  to fit. ffprobe cannot read animated WebP, so the output check skips it.
 - GIF output: Format GIF, one palette per clip. In size mode the picture
   size is chosen to fit (GIF has no bitrate setting). New platform preset
   "GIF (4 MiB)"; existing installs get it from Restore platform presets.

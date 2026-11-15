@@ -227,6 +227,7 @@
             <button class="btn small" onclick={() => app.setCrop(null)}>Clear</button>
           {:else}
             <span class="muted small grow">none</span>
+            <button class="btn small" disabled={!app.media || app.detectingCrop || app.ffmpegMissing} title="Find black bars (letterbox or pillarbox) and crop them" onclick={() => app.detectBars()}>{app.detectingCrop ? "Checking..." : "Find bars"}</button>
             <button class="btn small" disabled={!app.media} onclick={() => (app.cropMode = true)}>Draw <kbd>C</kbd></button>
           {/if}
         </div>

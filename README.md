@@ -41,7 +41,8 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
 - **Crop**: drawn on the picture with 8 handles, moved by dragging or with the
   arrow keys, numeric x/y/w/h. Aspect lock: free, 1:1, 16:9, 9:16, 4:3, 4:5,
   a "More" list (3:4, 2:3, 3:2, 5:4, 2:1, 1.85:1, 2.39:1, 21:9, 32:9, 9:21, 1:2)
-  and a custom ratio such as `5:3` or `1.66`.
+  and a custom ratio such as `5:3` or `1.66`. "Find bars" in the Video group crops black
+  bars automatically.
 - **Size limit mode**: the video bitrate comes from the limit, the clip length
   and the audio bitrate, with two passes. A file over the limit, or under 98% of
   it, is encoded again at a bitrate aimed at 99% of the limit (interpolated
@@ -277,6 +278,37 @@ The longest clip is advisory: the app warns when the output is longer.
   in 1.1.0 or earlier keeps being used. Output names follow the name template in
   Settings; the tokens are `{name}`, `{start}`, `{end}`, `{codec}`, `{height}`
   and `{date}`.
+
+## Questions
+
+**The preview looks different from the encoded file.** The player shows the
+source (or a preview copy). Rotation, flips and adjustments are drawn on top
+of it approximately; speed, filters, fades and the encoder's compression are
+not shown. Sample (`P`) encodes 3 seconds with the real settings, and
+"Compare with the source" shows both.
+
+**Why does an encode run more than once?** In size limit mode the first
+attempt rarely lands exactly on the limit. A file over the limit, or under 98%
+of it, is encoded again at a corrected bitrate, at most 4 times; the largest
+file under the limit is kept. The queue shows the attempt number.
+
+**The file came out over the limit.** After 4 attempts the smallest file is
+kept and marked "over limit". Shorten the clip, lower the resolution or frame
+rate, turn off the sound, or choose AV1. Retry in the queue runs it again.
+
+**There is no sound.** Check the Audio group: presets for boards without sound
+turn it off. Boomerang, GIF and WebP have no sound.
+
+**A download fails.** The Open URL dialog shows a hint for common yt-dlp
+errors. Sites that need an account work with "cookies from browser" in
+Settings. Update yt-dlp often (`yt-dlp -U`); sites change.
+
+**ffmpeg is not found.** Install ffmpeg (ffmpeg.org/download.html) and either
+put it on `PATH`, put `ffmpeg` and `ffprobe` beside the app, or set the folder
+in Settings and press "Search again".
+
+**A job was "Interrupted".** The app closed while it was encoding. Retry puts
+it back in the queue; it starts from the beginning.
 
 ## Credits
 

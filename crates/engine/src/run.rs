@@ -402,6 +402,56 @@ pub fn export_frame_processed(ffmpeg: &Path, spec: &EncodeSpec, info: &MediaInfo
     naming::publish(&part, out)
 }
 
+/// Finds black bars: ffmpeg `cropdetect` over 2 seconds at 25%, 50% and 75%
+/// of the file, combined to the box that keeps every non-black pixel seen.
+/// Returns the crop in display pixels, or None when there are no bars.
+pub fn detect_crop(ffmpeg: &Path, info: &MediaInfo) -> Result<Option<Crop>, String> {
+    let v = &info.video;
+    if v.width == 0 || v.height == 0 {
+        return Err("The file has no picture size.".into());
+    }
+    let mut pre = String::new();
+    if v.anamorphic {
+        // the same square-pixel step the encode uses before its crop
+        pre.push_str("scale=trunc(iw*sar/2)*2:ih,setsar=1,");
+    }
+    // limit relative to the bit depth (24 of 255)
+    let vf = format!("{pre}cropdetect=limit=0.094:round=2:reset=0");
+    let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0u32, 0u32);
+    let mut found = false;
+    for f in [0.25, 0.5, 0.75] {
+        let at = if info.duration > 4.0 { info.duration * f } else { 0.0 };
+        let mut cmd = command(ffmpeg);
+        cmd.args(["-hide_banner", "-nostdin", "-ss", &plan::fmt_num(at), "-t", "2", "-i", &info.path]);
+        cmd.args(["-map", &format!("0:{}", v.stream_index), "-an", "-sn", "-dn", "-vf", &vf, "-f", "null", "-"]);
+        let out = crate::tools::output_within(cmd, std::time::Duration::from_secs(60), "ffmpeg (black bar check)")?;
+        let text = String::from_utf8_lossy(&out.stderr);
+        // the last "crop=w:h:x:y" of the run holds the box over all its frames
+        let Some(c) = text.rsplit("crop=").next().filter(|_| text.contains("crop=")) else { continue };
+        let n: Vec<u32> = c.split(|ch: char| !ch.is_ascii_digit()).filter(|s| !s.is_empty()).take(4).filter_map(|s| s.parse().ok()).collect();
+        if let [w, h, x, y] = n[..] {
+            if w == 0 || h == 0 {
+                continue;
+            }
+            found = true;
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x + w);
+            y1 = y1.max(y + h);
+        }
+    }
+    if !found {
+        return Ok(None);
+    }
+    let (x1, y1) = (x1.min(v.width), y1.min(v.height));
+    let (w, h) = (x1.saturating_sub(x0), y1.saturating_sub(y0));
+    // a few pixels of edge noise are not bars
+    if w + 8 >= v.width && h + 8 >= v.height || w < 16 || h < 16 {
+        return Ok(None);
+    }
+    Ok(Some(Crop { x: x0 as f64, y: y0 as f64, w: w as f64, h: h as f64 }))
+}
+
 /// One PNG at `time` from the source file, at source resolution, with the
 /// crop applied (and tone mapping for HDR sources when zscale exists).
 /// Returns the path written: `out`, or `out (n)` when that name was taken meanwhile.

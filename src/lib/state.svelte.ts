@@ -1391,6 +1391,26 @@ class AppState {
     }
   }
 
+  detectingCrop = $state(false);
+  /** Set the crop to the source's black bars (ffmpeg cropdetect at three points). */
+  async detectBars() {
+    const m = this.media;
+    if (!m || this.detectingCrop || this.ffmpegMissing) return;
+    this.detectingCrop = true;
+    try {
+      const c = await ipc.detectCrop(m.path);
+      if (this.media?.path !== m.path) return;
+      if (c) {
+        this.setCrop(c);
+        this.toast({ kind: "info", title: "Black bars cropped", text: `${c.w}x${c.h} at ${c.x},${c.y}. Ctrl+Z undoes it.`, path: null });
+      } else this.toast({ kind: "info", title: "No black bars found", text: "Checked 2 seconds at a quarter, half and three quarters of the file.", path: null });
+    } catch (e) {
+      this.error = `Could not check for black bars: ${ipc.errText(e)}`;
+    } finally {
+      this.detectingCrop = false;
+    }
+  }
+
   /** Open a job's source in the editor with the job's ranges, crop and flips. */
   async editJob(j: Job) {
     if (!(await this.open(j.spec.input, false))) return;

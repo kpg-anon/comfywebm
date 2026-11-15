@@ -20,6 +20,8 @@ Work on the `exp` branch.
 - A queued job keeps the output folder that was set when it was added.
 - Settings: Interface size (80-150%), since browser zoom is turned off.
 - Queue: Copy error on a failed job.
+- Crop: "Find bars" crops black bars (letterbox or pillarbox), found with
+  ffmpeg cropdetect at a quarter, half and three quarters of the file.
 - Animated WebP output (libwebp_anim): quality on a 0-100 scale in quality
   mode (shown as 100 minus the libwebp quality, so lower is better as for
   the other codecs); in size mode quality 75 and the picture size is chosen

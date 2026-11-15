@@ -441,6 +441,18 @@ async fn export_frame(app: AppHandle, path: String, time: f64, crop: Option<Crop
     .await
 }
 
+/// Black bars of the source as a crop in display pixels; null = none found.
+#[tauri::command]
+async fn detect_crop(app: AppHandle, path: String) -> Result<Option<Crop>, String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let ffmpeg = state.ffmpeg()?;
+        let info = state.media(&path)?;
+        run::detect_crop(&ffmpeg, &info)
+    })
+    .await
+}
+
 /// The frame at `time` as the encode sees it (all filters and the output size), as a PNG.
 #[tauri::command]
 async fn export_frame_processed(app: AppHandle, spec: EncodeSpec, time: f64) -> Result<String, String> {
@@ -694,6 +706,7 @@ pub fn run() {
             queue_move,
             sample_cancel,
             export_frame_processed,
+            detect_crop,
             timeline_thumbs,
             timeline_wave,
             cache_info,

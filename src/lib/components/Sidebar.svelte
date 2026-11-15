@@ -397,6 +397,21 @@
             <button class="btn small" onclick={chooseSubs}>Choose</button>
           </div>
         {/if}
+        {#if app.subsKind !== "off"}
+          <div class="row">
+            <span title="Seconds the subtitles appear later; negative makes them earlier. For a subtitle file that does not match this cut of the video.">Delay (s)</span>
+            <input class="field mono num" type="number" step="0.1" bind:value={app.subsDelay} />
+          </div>
+          <div class="row">
+            <span title="Font size of the subtitles. The file's own keeps the size set in the file (18 for SRT).">Size</span>
+            <Select
+              label="Subtitle size"
+              value={app.subsFontSize ?? 0}
+              onchange={(v) => (app.subsFontSize = v || null)}
+              options={[{ value: 0, label: "File's own" }, { value: 14, label: "Small (14)" }, { value: 22, label: "Large (22)" }, { value: 28, label: "Larger (28)" }, { value: 36, label: "Huge (36)" }]}
+            />
+          </div>
+        {/if}
       </Group>
 
       <Group id="caption" title="Caption" note={app.captionText.trim() ? (app.captionTop ? "top" : "bottom") : "none"}>
@@ -485,6 +500,9 @@
 </aside>
 
 <style>
+  input.num {
+    width: 80px;
+  }
   .sidebar {
     width: var(--side-w, 330px);
     flex: none;

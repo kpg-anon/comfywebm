@@ -333,6 +333,12 @@ pub struct EncodeSpec {
     /// text drawn on the picture
     #[serde(default)]
     pub caption: Option<Caption>,
+    /// seconds the burned-in subtitles are shown later (negative: earlier)
+    #[serde(default)]
+    pub subs_delay: f64,
+    /// subtitle font size (libass units; 18 is the SRT default); None = the file's own
+    #[serde(default)]
+    pub subs_font_size: Option<f64>,
     /// output folder fixed when the job was queued ("" = beside the source);
     /// None = the folder from Settings when the job starts
     #[serde(default)]

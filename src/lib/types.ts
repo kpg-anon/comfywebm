@@ -102,6 +102,10 @@ export type EncodeSpec = {
   streamCopy?: boolean;
   /** text on the picture (white, black outline); size = % of the output height */
   caption?: { text: string; top: boolean; size: number } | null;
+  /** seconds the subtitles are shown later (negative: earlier) */
+  subsDelay?: number;
+  /** subtitle font size (18 = SRT default); null = the file's own */
+  subsFontSize?: number | null;
   /** set by the backend when queued: the output folder ("" = beside the source) */
   outputDir?: string | null;
 };

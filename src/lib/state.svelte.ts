@@ -243,6 +243,8 @@ class AppState {
   subsKind = $state<SubsKind>("off");
   subsTrack = $state(0);
   subsFile = $state<string | null>(null);
+  subsDelay = $state(0);
+  subsFontSize = $state<number | null>(null);
   title = $state("");
   /** Caption on the picture; cleared when another file opens. */
   captionText = $state("");
@@ -417,6 +419,8 @@ class AppState {
       audio: audioOk ? { track, bitrateK: this.audioBitrateK, volumeDb: this.volumeDb || 0, normalize: this.normalize } : null,
       subs,
       title: own ? this.title.trim() || null : null,
+      subsDelay: Number(this.subsDelay) || 0,
+      subsFontSize: this.subsFontSize,
       caption: own && this.captionText.trim() && this.container !== "audio" ? { text: this.captionText, top: this.captionTop, size: this.captionSize } : null,
       extraArgs: splitArgs(this.extraArgs),
       outputName: own ? this.outputName.trim() || null : null,
@@ -693,6 +697,7 @@ class AppState {
       this.subsTrack = info.subs.find((s) => s.textBased)?.track ?? 0;
       this.subsKind = "off";
       this.subsFile = null;
+      this.subsDelay = 0;
       this.outputName = "";
       this.title = "";
       this.captionText = "";

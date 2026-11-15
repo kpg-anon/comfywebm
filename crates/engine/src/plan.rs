@@ -402,6 +402,10 @@ pub struct SegmentFilters<'a> {
     pub adjust: Option<&'a Adjust>,
     /// (escaped value for `filename=`, optional `si=` index)
     pub subtitles: Option<&'a (String, Option<u32>)>,
+    /// seconds the subtitles are shown later
+    pub subs_delay: f64,
+    /// `force_style` FontSize
+    pub subs_font_size: Option<f64>,
 }
 
 pub fn segment_chain(sf: &SegmentFilters, start: f64) -> Vec<String> {
@@ -461,13 +465,19 @@ pub fn segment_chain(sf: &SegmentFilters, start: f64) -> Vec<String> {
     if let Some((file, si)) = sf.subtitles {
         // Input seeking makes each segment start at 0. The subtitles filter
         // needs the source times, so shift up, render, and shift back.
-        let shift = start > 0.0;
+        // a delay moves the frames' times back, so a later cue meets them
+        let at = start - sf.subs_delay;
+        let shift = at.abs() > 1e-9;
         if shift {
-            f.push(format!("setpts=PTS+{}/TB", fmt_num(start)));
+            f.push(format!("setpts=PTS{}{}/TB", if at < 0.0 { "-" } else { "+" }, fmt_num(at.abs())));
         }
         let mut s = format!("subtitles=filename={file}");
         if let Some(si) = si {
             s.push_str(&format!(":si={si}"));
+        }
+        if let Some(fs) = sf.subs_font_size.filter(|v| v.is_finite() && *v > 0.0) {
+            // the value is quoted for the filter level: force_style='FontSize=24'
+            s.push_str(&format!(":force_style=FontSize={}", fmt_num(fs.round())));
         }
         f.push(s);
         if shift {
@@ -776,6 +786,8 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         vflip: spec.vflip,
         adjust: spec.adjust.as_ref(),
         subtitles: subtitles.as_ref(),
+        subs_delay: if spec.subs_delay.is_finite() { spec.subs_delay } else { 0.0 },
+        subs_font_size: spec.subs_font_size,
     };
     let seg_chains: Vec<String> = segs.iter().map(|(s, _)| segment_chain(&sf, *s).join(",")).collect();
     let vpost = video_post(&PostFilters {
@@ -1336,6 +1348,8 @@ mod tests {
             output_name: None,
             stream_copy: false,
             caption: None,
+            subs_delay: 0.0,
+            subs_font_size: None,
             output_dir: None,
         }
     }
@@ -1401,6 +1415,8 @@ mod tests {
             vflip: false,
             adjust: None,
             subtitles: Some(&subs),
+            subs_delay: 0.0,
+            subs_font_size: None,
         };
         assert_eq!(
             segment_chain(&sf, 5.5).join(","),

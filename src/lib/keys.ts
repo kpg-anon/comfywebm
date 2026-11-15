@@ -60,7 +60,8 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["Ctrl + U", "open a web link"],
       ["Ctrl + Enter", "encode"],
       ["P", "sample: encode 3 s at the playhead"],
-      ["S", "save the current frame as PNG"],
+      ["S", "save the current frame as PNG (source picture with the crop)"],
+      ["Shift + S", "save the current frame as the encode sees it: filters, adjustments, rotation and output size"],
       ["Q", "switch between the editor and the queue"],
       ["B", "switch between the editor and the batch"],
       ["? / F1", "this list"],
@@ -159,7 +160,7 @@ export function installKeys(actions: KeyActions): () => void {
           void app.runSample();
           break;
         case "s":
-          void app.exportFrame();
+          void app.exportFrame(e.shiftKey);
           break;
         case "Delete":
         case "Backspace":

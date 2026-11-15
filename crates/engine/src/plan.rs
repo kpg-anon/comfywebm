@@ -24,11 +24,13 @@ pub struct Opts<'a> {
     pub zscale: bool,
     /// one pass even where the job would use two (sample preview)
     pub single_pass: bool,
+    /// write the first output frame as a PNG instead of encoding (processed frame export)
+    pub frame: bool,
 }
 
 impl<'a> Opts<'a> {
     pub fn new(output: &'a str, passlog: &'a str) -> Self {
-        Opts { output, passlog, video_kbps: None, threads: cpu_threads(), display: false, zscale: true, single_pass: false }
+        Opts { output, passlog, video_kbps: None, threads: cpu_threads(), display: false, zscale: true, single_pass: false, frame: false }
     }
 }
 
@@ -894,6 +896,10 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
                 push(&mut a, &["-map", "[aout]"]);
             }
         }
+        if opts.frame {
+            push(&mut a, &["-an", "-frames:v", "1", "-update", "1", "-c:v", "png", "-f", "image2", opts.output]);
+            return a;
+        }
         if !gif {
             push(&mut a, &["-pix_fmt", "yuv420p"]);
         }
@@ -1345,6 +1351,18 @@ mod tests {
         assert!(s.contains("-c:v libwebp_anim -lossless 0 -q:v 80 -compression_level 5"), "{s}");
         assert!(!s.contains("-c:a") && !s.contains("-colorspace"), "{s}");
         assert!(s.ends_with("-loop 0 -f webp out.webp"), "{s}");
+    }
+
+    #[test]
+    fn frame_mode_args() {
+        let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
+        sp.rotate = 90;
+        sp.max_height = Some(720);
+        let p = build(&sp, &media(), &Opts { output: "f.png", frame: true, ..opts() }).unwrap();
+        let s = strs(&p.passes[0]).join(" ");
+        assert!(s.contains("transpose=clock,scale=404:720"), "{s}");
+        assert!(s.ends_with("-an -frames:v 1 -update 1 -c:v png -f image2 f.png"), "{s}");
+        assert!(!s.contains("libvpx"), "{s}");
     }
 
     #[test]

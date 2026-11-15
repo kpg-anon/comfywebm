@@ -410,6 +410,20 @@ async fn export_frame(app: AppHandle, path: String, time: f64, crop: Option<Crop
     .await
 }
 
+/// The frame at `time` as the encode sees it (all filters and the output size), as a PNG.
+#[tauri::command]
+async fn export_frame_processed(app: AppHandle, spec: EncodeSpec, time: f64) -> Result<String, String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let ffmpeg = state.ffmpeg()?;
+        let info = state.media(&spec.input)?;
+        let out = naming::frame_path(&spec.input, time, state.output_dir().as_deref());
+        let out = run::export_frame_processed(&ffmpeg, &spec, &info, time, &out, state.zscale())?;
+        Ok(out.to_string_lossy().into_owned())
+    })
+    .await
+}
+
 #[tauri::command]
 async fn preview_sample(app: AppHandle, spec: EncodeSpec, at: f64) -> Result<String, String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -648,6 +662,7 @@ pub fn run() {
             queue_retry,
             queue_move,
             sample_cancel,
+            export_frame_processed,
             timeline_thumbs,
             timeline_wave,
             cache_info,

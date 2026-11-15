@@ -114,7 +114,11 @@ impl Queue {
     }
 
     pub fn state(&self) -> QueueState {
-        QueueState { started: self.inner.lock().unwrap().started }
+        let g = self.inner.lock().unwrap();
+        // the worker clears `started` only when it next looks for work, so an
+        // idle queue with nothing waiting counts as stopped
+        let busy = g.current.is_some() || g.jobs.iter().any(|j| j.status == JobStatus::Pending);
+        QueueState { started: g.started && busy }
     }
 
     /// Stops after the running job.

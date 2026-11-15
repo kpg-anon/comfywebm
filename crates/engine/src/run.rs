@@ -369,6 +369,39 @@ pub fn sample(
     res
 }
 
+/// One PNG of the output picture at source time `time`: the job's filters,
+/// adjustments, crop, rotation, flips and scale applied, as the encode would
+/// see the frame (before the encoder). Returns the path written.
+pub fn export_frame_processed(ffmpeg: &Path, spec: &EncodeSpec, info: &MediaInfo, time: f64, out: &Path, zscale: bool) -> Result<PathBuf, String> {
+    let mut s = spec.clone();
+    let t = time.clamp(0.0, (info.duration - 0.05).max(0.0));
+    s.segments = vec![Segment { start: t, end: (t + 1.0).min(info.duration.max(t + 0.05)) }];
+    s.audio = None;
+    s.fade_in = 0.0;
+    s.fade_out = 0.0;
+    s.playback = crate::spec::Playback::Forward;
+    s.stream_copy = false;
+    // a video codec, so no GIF palette step; the encoder itself is not used
+    s.container = crate::spec::Container::Webm;
+    s.codec = crate::spec::Codec::Vp9;
+    s.rate = Rate::Crf { crf: 30.0, max_bitrate_k: None };
+    let part = naming::part_path(out);
+    let part_s = part.to_string_lossy().into_owned();
+    let planned = plan::build(&s, info, &Opts { zscale, single_pass: true, frame: true, ..Opts::new(&part_s, "") })?;
+    let res = run_ffmpeg(ffmpeg, &planned.passes[0], planned.duration_out, &Cancel::new(), |_| {});
+    if let Err(e) = res {
+        let _ = std::fs::remove_file(&part);
+        return Err(match e {
+            RunError::Canceled => "Canceled".into(),
+            RunError::Failed(m) => m,
+        });
+    }
+    if !part.is_file() {
+        return Err("ffmpeg wrote no frame.".into());
+    }
+    naming::publish(&part, out)
+}
+
 /// One PNG at `time` from the source file, at source resolution, with the
 /// crop applied (and tone mapping for HDR sources when zscale exists).
 /// Returns the path written: `out`, or `out (n)` when that name was taken meanwhile.

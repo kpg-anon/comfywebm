@@ -1233,13 +1233,18 @@ class AppState {
   }
 
   /** `S`: save the frame at the playhead as a PNG, with the current crop. */
-  async exportFrame() {
+  /** Save the frame at the playhead: the source with the crop, or with `processed` as the encode sees it. */
+  async exportFrame(processed = false) {
     const m = this.media;
     if (!m || this.ffmpegMissing) return;
     this.video?.pause();
     try {
-      const path = await ipc.exportFrame(m.path, this.current, this.crop ? { ...this.crop } : null);
-      this.toast({ kind: "done", title: "Frame saved", text: path, path });
+      const s = this.spec;
+      const path =
+        processed && s
+          ? await ipc.exportFrameProcessed($state.snapshot(s) as EncodeSpec, this.current)
+          : await ipc.exportFrame(m.path, this.current, this.crop ? { ...this.crop } : null);
+      this.toast({ kind: "done", title: processed ? "Frame saved as encoded (filters and size)" : "Frame saved", text: path, path });
     } catch (e) {
       this.error = `Could not save the frame: ${ipc.errText(e)}`;
     }

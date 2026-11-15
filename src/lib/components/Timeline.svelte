@@ -352,7 +352,7 @@
         <Icon name="crop" size={14} />Crop <kbd>C</kbd>
       </button>
       <button class="btn" disabled={!app.media || app.ffmpegMissing} onclick={() => app.runSample()}><Icon name="film" size={14} />Sample <kbd>P</kbd></button>
-      <button class="btn" disabled={!app.media || app.ffmpegMissing} onclick={() => app.exportFrame()}><Icon name="image" size={14} />Frame <kbd>S</kbd></button>
+      <button class="btn" disabled={!app.media || app.ffmpegMissing} title="Save the frame at the playhead as PNG with the crop. Shift+click (Shift+S): as the encode sees it, with filters, adjustments and the output size." onclick={(e) => app.exportFrame(e.shiftKey)}><Icon name="image" size={14} />Frame <kbd>S</kbd></button>
     </div>
   </div>
 

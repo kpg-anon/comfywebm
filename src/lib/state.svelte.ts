@@ -1276,11 +1276,18 @@ class AppState {
   }
 
   /** Encode / Add to queue. With "Separate files" and several ranges, one job per range. */
+  private lastEnqueue: { key: string; t: number } | null = null;
+
   async enqueue(start: boolean) {
     const s = this.spec;
     if (!s || !this.canEncode) return;
+    const snap = $state.snapshot(s) as EncodeSpec;
+    // a double click or a repeated Ctrl+Enter within a second adds the same job once
+    const key = JSON.stringify([snap, this.separate]);
+    const now = Date.now();
+    if (this.lastEnqueue && this.lastEnqueue.key === key && now - this.lastEnqueue.t < 1000) return;
+    this.lastEnqueue = { key, t: now };
     try {
-      const snap = $state.snapshot(s) as EncodeSpec;
       const got =
         this.separate && snap.segments.length > 1
           ? await ipc.queueAddMany(snap.segments.map((g) => ({ ...snap, segments: [g] })), start)

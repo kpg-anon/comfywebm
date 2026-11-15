@@ -324,7 +324,9 @@ class AppState {
     if (p.autoScale !== this.autoScale || (p.autoScale ? this.resMode !== "auto" : this.resMode !== "source")) out.push("resolution");
     if ((p.maxWidth ?? null) !== (this.maxWidth ?? null) || (p.maxHeight ?? null) !== (this.maxHeight ?? null)) out.push("picture limit");
     if ((p.fps ?? null) !== (this.fps ?? null)) out.push("frame rate");
-    if (p.audioBitrateK === null ? this.audioOn : this.audioOn && p.audioBitrateK !== this.audioBitrateK) out.push("audio");
+    // a file without sound cannot follow the preset's audio, so that is not a change
+    const silent = !!this.media && !this.media.audio.length;
+    if (!silent && (p.audioBitrateK === null ? this.audioOn : !this.audioOn || p.audioBitrateK !== this.audioBitrateK)) out.push("audio");
     if (p.effort !== this.effort || p.twoPass !== this.twoPass) out.push("encoder");
     return out;
   });

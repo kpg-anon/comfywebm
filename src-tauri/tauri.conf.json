@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "comfywebm",
+  "version": "1.0.0",
+  "identifier": "com.comfywebm.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1440",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "comfywebm",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 940,
+        "minHeight": 600,
+        "center": true,
+        "backgroundColor": "#121417",
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "dangerousDisableAssetCspModification": ["style-src"],
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: asset: http://asset.localhost https:; media-src 'self' blob: asset: http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost ws://localhost:1440 http://localhost:1440",
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "allow": [
+            "**",
+            "$APPCACHE/**"
+          ],
+          "requireLiteralLeadingDot": false
+        }
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

@@ -1,0 +1,1103 @@
+//! Pure planning: bitrate math, output size, filter graph, ffmpeg arguments
+//! and warnings. Nothing here touches the file system or spawns processes.
+
+use crate::spec::{
+    Codec, Container, Crop, Effort, EncodeSpec, MediaInfo, PlanInfo, Playback, Quality, Rate, Segment, SubsSel,
+    VideoInfo,
+};
+
+/// Paths and overrides that differ between the displayed command and a real run.
+#[derive(Debug, Clone)]
+pub struct Opts<'a> {
+    /// output file passed to ffmpeg (the `.part` file during a run)
+    pub output: &'a str,
+    /// pass log prefix (`-passlogfile`, and `<prefix>-x265.log` for x265)
+    pub passlog: &'a str,
+    /// replaces the computed size-mode video bitrate (size-fit retries, sample preview)
+    pub video_kbps: Option<f64>,
+    /// value for `-threads`
+    pub threads: usize,
+    /// true: leave out the flags only the app needs (`-progress pipe:1` etc.)
+    pub display: bool,
+    /// ffmpeg has the zscale filter (needed for tonemap)
+    pub zscale: bool,
+    /// one pass even where the job would use two (sample preview)
+    pub single_pass: bool,
+}
+
+impl<'a> Opts<'a> {
+    pub fn new(output: &'a str, passlog: &'a str) -> Self {
+        Opts { output, passlog, video_kbps: None, threads: cpu_threads(), display: false, zscale: true, single_pass: false }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Planned {
+    pub out_width: u32,
+    pub out_height: u32,
+    pub duration_out: f64,
+    /// video bitrate passed to the encoder (size mode), or the cap (crf mode)
+    pub video_kbps: Option<f64>,
+    pub audio_kbps: f64,
+    pub bits_per_pixel: Option<f64>,
+    pub quality: Option<Quality>,
+    pub auto_scaled: bool,
+    /// one argument list per ffmpeg run, program name not included
+    pub passes: Vec<Vec<String>>,
+    /// a retry may run only pass 2 and reuse the pass 1 log (libvpx, x264)
+    pub reuse_pass1: bool,
+    pub warnings: Vec<String>,
+}
+
+impl Planned {
+    pub fn info(&self) -> PlanInfo {
+        PlanInfo {
+            out_width: self.out_width,
+            out_height: self.out_height,
+            duration_out: self.duration_out,
+            video_kbps: self.video_kbps.map(|k| k.round()),
+            audio_kbps: self.audio_kbps,
+            bits_per_pixel: self.bits_per_pixel.map(|b| (b * 10000.0).round() / 10000.0),
+            quality: self.quality,
+            auto_scaled: self.auto_scaled,
+            command: self.passes.iter().map(|a| shell_join("ffmpeg", a)).collect::<Vec<_>>().join("\n"),
+            warnings: self.warnings.clone(),
+        }
+    }
+}
+
+/// Number of logical CPUs, for `-threads`.
+pub fn cpu_threads() -> usize {
+    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
+}
+
+/// Lowest video bitrate ever passed to the encoder.
+const MIN_VIDEO_KBPS: f64 = 8.0;
+
+/// Size mode: `(maxBytes * 8 / 1000 / durationOut - audioKbps) * 0.97`.
+pub fn size_video_kbps(max_bytes: f64, duration_out: f64, audio_kbps: f64) -> f64 {
+    let total_kbps = max_bytes * 8.0 / 1000.0 / duration_out;
+    (total_kbps - audio_kbps) * 0.97
+}
+
+/// Next attempt after an output of `actual_bytes` overshot `max_bytes`.
+pub fn retry_video_kbps(prev_kbps: f64, max_bytes: f64, actual_bytes: f64) -> f64 {
+    prev_kbps * (max_bytes / actual_bytes) * 0.98
+}
+
+/// Next attempt after an output landed under 88% of `max_bytes`: scaled up
+/// with a 0.97 margin, at most twice the previous bitrate.
+pub fn undershoot_video_kbps(prev_kbps: f64, max_bytes: f64, actual_bytes: f64) -> f64 {
+    (prev_kbps * (max_bytes / actual_bytes) * 0.97).min(prev_kbps * 2.0)
+}
+
+/// Bits per pixel below which a codec's picture visibly breaks down.
+pub fn bpp_floor(codec: Codec) -> f64 {
+    match codec {
+        Codec::Av1 => 0.022,
+        Codec::Vp9 | Codec::Hevc => 0.030,
+        Codec::H264 => 0.045,
+        Codec::Vp8 => 0.055,
+    }
+}
+
+pub fn bits_per_pixel(kbps: f64, w: u32, h: u32, fps: f64) -> f64 {
+    kbps * 1000.0 / (w as f64 * h as f64 * fps)
+}
+
+/// good at 1.5x the floor or more, fair at the floor or more, poor below.
+pub fn quality(bpp: f64, codec: Codec) -> Quality {
+    let floor = bpp_floor(codec);
+    if bpp >= floor * 1.5 {
+        Quality::Good
+    } else if bpp >= floor {
+        Quality::Fair
+    } else {
+        Quality::Poor
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Geometry {
+    /// crop rectangle (x, y, w, h) in source display pixels, None when it is the full frame
+    pub crop: Option<(u32, u32, u32, u32)>,
+    /// size after crop and rotate
+    pub rot_w: u32,
+    pub rot_h: u32,
+    /// final, even size
+    pub out_w: u32,
+    pub out_h: u32,
+}
+
+fn even_down(v: f64) -> u32 {
+    let v = v.round().max(2.0) as u32;
+    v - v % 2
+}
+
+fn fit_factor(w: u32, h: u32, max_w: Option<u32>, max_h: Option<u32>) -> f64 {
+    let mut f = 1.0f64;
+    if let Some(mw) = max_w.filter(|v| *v > 0) {
+        f = f.min(mw as f64 / w as f64);
+    }
+    if let Some(mh) = max_h.filter(|v| *v > 0) {
+        f = f.min(mh as f64 / h as f64);
+    }
+    f
+}
+
+/// Crop clamped to the frame, rotated, then downscaled to fit max_w x max_h
+/// keeping the aspect ratio (never upscaled), then rounded down to even numbers.
+pub fn geometry(
+    src_w: u32,
+    src_h: u32,
+    crop: Option<Crop>,
+    rotate: u32,
+    max_w: Option<u32>,
+    max_h: Option<u32>,
+) -> Geometry {
+    let (sw, sh) = (src_w.max(2), src_h.max(2));
+    let mut rect = None;
+    let (mut cw, mut ch) = (sw, sh);
+    if let Some(c) = crop {
+        let x = (c.x.round().max(0.0) as u32).min(sw - 2);
+        let y = (c.y.round().max(0.0) as u32).min(sh - 2);
+        let w = (c.w.round().max(2.0) as u32).min(sw - x);
+        let h = (c.h.round().max(2.0) as u32).min(sh - y);
+        if (x, y, w, h) != (0, 0, sw, sh) {
+            rect = Some((x, y, w, h));
+            cw = w;
+            ch = h;
+        }
+    }
+    let (rw, rh) = if rotate % 180 == 90 { (ch, cw) } else { (cw, ch) };
+    let f = fit_factor(rw, rh, max_w, max_h);
+    Geometry { crop: rect, rot_w: rw, rot_h: rh, out_w: even_down(rw as f64 * f), out_h: even_down(rh as f64 * f) }
+}
+
+/// Heights autoScale tries below the source, largest first.
+pub const LADDER: [u32; 11] = [1440, 1080, 900, 720, 600, 540, 480, 432, 360, 288, 240];
+
+/// autoScale: the largest size from {source, LADDER} within max_w/max_h whose
+/// bits per pixel reach the codec's floor. The ladder applies to the shorter
+/// side, so a portrait clip at "720" is 720 pixels wide. Returns the smallest
+/// candidate and false when none qualifies.
+pub fn auto_scale(g: Geometry, max_w: Option<u32>, max_h: Option<u32>, kbps: f64, fps: f64, codec: Codec) -> (Geometry, bool) {
+    let (rw, rh) = (g.rot_w as f64, g.rot_h as f64);
+    let short = rw.min(rh);
+    let limit = fit_factor(g.rot_w, g.rot_h, max_w, max_h);
+    let mut factors = vec![1.0f64];
+    factors.extend(LADDER.iter().map(|h| *h as f64).filter(|h| *h < short).map(|h| h / short));
+    let mut last = g;
+    for f in factors {
+        let f = f.min(limit);
+        let cand = Geometry { out_w: even_down(rw * f), out_h: even_down(rh * f), ..g };
+        last = cand;
+        if bits_per_pixel(kbps, cand.out_w, cand.out_h, fps) >= bpp_floor(codec) {
+            return (cand, true);
+        }
+    }
+    (last, false)
+}
+
+/// Number formatting for arguments: at most 3 decimals, no trailing zeros.
+pub fn fmt_num(v: f64) -> String {
+    let s = format!("{v:.3}");
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    if s.is_empty() || s == "-0" { "0".into() } else { s.to_string() }
+}
+
+/// Escapes a value (a file path) for a filter option inside `-vf` or
+/// `-filter_complex`. Two levels apply: the filter's own option parser
+/// (`\ ' :` are special) and then the filtergraph parser (`\ ' [ ] , ;`).
+/// Backslashes in Windows paths become `/` first, so `C:\a b\x.srt` becomes
+/// `C\\:/a b/x.srt`.
+pub fn escape_filter_value(path: &str) -> String {
+    let p = if cfg!(windows) { path.replace('\\', "/") } else { path.to_string() };
+    let mut lvl1 = String::new();
+    for ch in p.chars() {
+        if matches!(ch, '\\' | '\'' | ':') {
+            lvl1.push('\\');
+        }
+        lvl1.push(ch);
+    }
+    let mut lvl2 = String::new();
+    for ch in lvl1.chars() {
+        if matches!(ch, '\\' | '\'' | '[' | ']' | ',' | ';') {
+            lvl2.push('\\');
+        }
+        lvl2.push(ch);
+    }
+    lvl2
+}
+
+/// Quotes a value inside `-x265-params` (parsed with `:` between pairs).
+fn quote_param(path: &str) -> String {
+    let p = if cfg!(windows) { path.replace('\\', "/") } else { path.to_string() };
+    format!("'{}'", p.replace('\'', "'\\''"))
+}
+
+/// `atempo` accepts 0.5..100, so slower speeds are chained.
+fn atempo_chain(speed: f64) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut s = speed;
+    while s < 0.5 {
+        out.push("atempo=0.5".to_string());
+        s /= 0.5;
+    }
+    while s > 100.0 {
+        out.push("atempo=100".to_string());
+        s /= 100.0;
+    }
+    if (s - 1.0).abs() > 1e-9 {
+        out.push(format!("atempo={}", fmt_num(s)));
+    }
+    out
+}
+
+/// Ranges in source seconds, clamped to the file. Empty = the whole file.
+pub fn resolve_segments(segments: &[Segment], duration: f64) -> Result<Vec<(f64, f64)>, String> {
+    if segments.is_empty() {
+        return if duration > 0.0 {
+            Ok(vec![(0.0, duration)])
+        } else {
+            Err("The file's duration is unknown. Set a range.".into())
+        };
+    }
+    let mut out = Vec::new();
+    for (i, s) in segments.iter().enumerate() {
+        if !s.start.is_finite() || !s.end.is_finite() {
+            return Err(format!("Range {} has no valid start or end.", i + 1));
+        }
+        let start = s.start.max(0.0);
+        let end = if duration > 0.0 { s.end.min(duration) } else { s.end };
+        if end - start < 0.01 {
+            return Err(format!("Range {}: the end must be after the start.", i + 1));
+        }
+        out.push((start, end));
+    }
+    Ok(out)
+}
+
+pub const TONEMAP: &str =
+    "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p";
+
+/// Per-segment filters, in order: deinterlace, denoise, tonemap, (square
+/// pixels), crop, rotate, mirror, subtitles.
+pub struct SegmentFilters<'a> {
+    pub deinterlace: bool,
+    pub denoise: bool,
+    pub tonemap: bool,
+    pub anamorphic: bool,
+    pub crop: Option<(u32, u32, u32, u32)>,
+    pub rotate: u32,
+    pub mirror: bool,
+    /// (escaped value for `filename=`, optional `si=` index)
+    pub subtitles: Option<&'a (String, Option<u32>)>,
+}
+
+pub fn segment_chain(sf: &SegmentFilters, start: f64) -> Vec<String> {
+    // Input seeking does not always start at 0: an MPEG-2 .ts cut with
+    // `-ss 1` started at 0.2 s, which froze the first frame for 0.2 s and
+    // would shift burned-in subtitles by as much. Rebase every segment to 0.
+    let mut f: Vec<String> = vec!["setpts=PTS-STARTPTS".into()];
+    if sf.deinterlace {
+        f.push("bwdif=mode=send_frame".into());
+    }
+    if sf.denoise {
+        f.push("hqdn3d".into());
+    }
+    if sf.tonemap {
+        f.push(TONEMAP.into());
+    }
+    if sf.anamorphic {
+        // crop coordinates are in display pixels, so resample to square pixels first
+        f.push("scale=trunc(iw*sar/2)*2:ih".into());
+        f.push("setsar=1".into());
+    }
+    if let Some((x, y, w, h)) = sf.crop {
+        f.push(format!("crop={w}:{h}:{x}:{y}"));
+    }
+    match (sf.rotate, sf.mirror) {
+        (90, m) => {
+            f.push("transpose=clock".into());
+            if m {
+                f.push("hflip".into());
+            }
+        }
+        (270, m) => {
+            f.push("transpose=cclock".into());
+            if m {
+                f.push("hflip".into());
+            }
+        }
+        // 180 then a horizontal flip is a vertical flip
+        (180, true) => f.push("vflip".into()),
+        (180, false) => {
+            f.push("hflip".into());
+            f.push("vflip".into());
+        }
+        (_, true) => f.push("hflip".into()),
+        _ => {}
+    }
+    if let Some((file, si)) = sf.subtitles {
+        // Input seeking makes each segment start at 0. The subtitles filter
+        // needs the source times, so shift up, render, and shift back.
+        let shift = start > 0.0;
+        if shift {
+            f.push(format!("setpts=PTS+{}/TB", fmt_num(start)));
+        }
+        let mut s = format!("subtitles=filename={file}");
+        if let Some(si) = si {
+            s.push_str(&format!(":si={si}"));
+        }
+        f.push(s);
+        if shift {
+            f.push("setpts=PTS-STARTPTS".into());
+        }
+    }
+    f
+}
+
+/// Filters after the join: scale, speed, fps, reverse or boomerang, fade,
+/// then the color tags. May contain `;` (boomerang), so it is used as the
+/// tail of a chain.
+pub struct PostFilters {
+    pub scale: Option<(u32, u32)>,
+    pub speed: f64,
+    pub fps: Option<f64>,
+    pub playback: Playback,
+    pub fade_in: f64,
+    pub fade_out: f64,
+    pub duration_out: f64,
+    /// (colorspace, primaries, transfer)
+    pub color: (String, String, String),
+}
+
+pub fn video_post(p: &PostFilters) -> String {
+    let mut lin: Vec<String> = Vec::new();
+    if let Some((w, h)) = p.scale {
+        lin.push(format!("scale={w}:{h}:flags=lanczos"));
+    }
+    if (p.speed - 1.0).abs() > 1e-9 {
+        lin.push(format!("setpts=PTS/{}", fmt_num(p.speed)));
+    }
+    if let Some(fps) = p.fps {
+        lin.push(format!("fps={}", fmt_num(fps)));
+    }
+    match p.playback {
+        Playback::Forward => {}
+        Playback::Reverse => lin.push("reverse".into()),
+        Playback::Boomerang => lin.push("split[bf][bb];[bb]reverse[br];[bf][br]concat=n=2:v=1:a=0".into()),
+    }
+    if p.fade_in > 0.0 {
+        lin.push(format!("fade=t=in:st=0:d={}", fmt_num(p.fade_in.min(p.duration_out))));
+    }
+    if p.fade_out > 0.0 {
+        let d = p.fade_out.min(p.duration_out);
+        lin.push(format!("fade=t=out:st={}:d={}", fmt_num(p.duration_out - d), fmt_num(d)));
+    }
+    let (space, prim, trc) = &p.color;
+    // retag without converting, so the encoder's tags below match the frames
+    lin.push(format!("setparams=colorspace={space}:color_primaries={prim}:color_trc={trc}"));
+    lin.join(",")
+}
+
+/// Audio after the join: speed, reverse, loudness, volume, fade.
+pub fn audio_post(speed: f64, reverse: bool, normalize: bool, volume_db: f64, fade_in: f64, fade_out: f64, duration_out: f64) -> String {
+    let mut f = atempo_chain(speed);
+    if reverse {
+        f.push("areverse".into());
+    }
+    if normalize {
+        f.push("loudnorm=I=-16:TP=-1.5:LRA=11".into());
+        // loudnorm outputs 192 kHz
+        f.push("aresample=48000".into());
+    }
+    if volume_db.is_finite() && volume_db.abs() > 1e-9 {
+        f.push(format!("volume={}dB", fmt_num(volume_db)));
+    }
+    if fade_in > 0.0 {
+        f.push(format!("afade=t=in:st=0:d={}", fmt_num(fade_in.min(duration_out))));
+    }
+    if fade_out > 0.0 {
+        let d = fade_out.min(duration_out);
+        f.push(format!("afade=t=out:st={}:d={}", fmt_num(duration_out - d), fmt_num(d)));
+    }
+    f.join(",")
+}
+
+/// Output color tags. Tone-mapped output is bt709. Otherwise the source's
+/// tags where known, else bt709 for HD and smpte170m (bt601) for SD.
+pub fn color_tags(v: &VideoInfo, tonemapped: bool) -> (String, String, String) {
+    let hd = v.width >= 1280 || v.height >= 720;
+    let default = if hd || tonemapped { "bt709" } else { "smpte170m" };
+    if tonemapped {
+        return (default.into(), default.into(), default.into());
+    }
+    // "gbr" is an RGB source; the output is YUV
+    let space = v.color_space.clone().filter(|s| s != "gbr").unwrap_or_else(|| default.into());
+    let prim = v.color_primaries.clone().unwrap_or_else(|| default.into());
+    let trc = v.color_trc.clone().unwrap_or_else(|| default.into());
+    (space, prim, trc)
+}
+
+fn codec_label(c: Codec) -> &'static str {
+    match c {
+        Codec::Vp9 => "VP9",
+        Codec::Vp8 => "VP8",
+        Codec::Av1 => "AV1",
+        Codec::H264 => "H.264",
+        Codec::Hevc => "HEVC",
+    }
+}
+
+fn effort_index(e: Effort) -> usize {
+    match e {
+        Effort::Fast => 0,
+        Effort::Balanced => 1,
+        Effort::Best => 2,
+    }
+}
+
+fn push(args: &mut Vec<String>, items: &[&str]) {
+    args.extend(items.iter().map(|s| s.to_string()));
+}
+
+pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned, String> {
+    let mut warnings = Vec::new();
+    let v = &info.video;
+    let codec = spec.codec;
+
+    match (spec.container, codec) {
+        (Container::Webm, Codec::Vp9 | Codec::Vp8 | Codec::Av1) | (Container::Mp4, Codec::H264 | Codec::Hevc | Codec::Av1) => {}
+        (Container::Webm, c) => return Err(format!("{} cannot be stored in WebM. Choose MP4.", codec_label(c))),
+        (Container::Mp4, c) => return Err(format!("{} cannot be stored in MP4. Choose WebM.", codec_label(c))),
+    }
+    if !matches!(spec.rotate, 0 | 90 | 180 | 270) {
+        return Err("Rotate must be 0, 90, 180 or 270.".into());
+    }
+    if !spec.speed.is_finite() || spec.speed <= 0.0 {
+        return Err("Speed must be greater than 0.".into());
+    }
+
+    // --- cut ---
+    let segs = resolve_segments(&spec.segments, info.duration)?;
+    let clip: f64 = segs.iter().map(|(s, e)| e - s).sum();
+    let speed = spec.speed;
+    let boomerang = spec.playback == Playback::Boomerang;
+    let duration_out = clip / speed * if boomerang { 2.0 } else { 1.0 };
+    if spec.playback != Playback::Forward && duration_out > 30.0 {
+        warnings.push(format!(
+            "Reverse and boomerang hold every frame in memory. A {} s clip can need several GB.",
+            duration_out.round()
+        ));
+    }
+
+    let src_fps_out = v.fps * speed;
+    let fps_cap = spec
+        .fps
+        .filter(|f| f.is_finite() && *f > 0.0)
+        .filter(|f| src_fps_out <= 0.0 || *f < src_fps_out - 0.01);
+    let out_fps = fps_cap.unwrap_or(if src_fps_out > 0.0 { src_fps_out } else { 30.0 });
+
+    // --- audio ---
+    let audio = match spec.audio {
+        Some(_) if boomerang => {
+            warnings.push("Boomerang has no sound, so audio is left out.".into());
+            None
+        }
+        Some(a) => {
+            if info.audio.get(a.track as usize).is_none() {
+                return Err(format!("Audio track {} does not exist.", a.track));
+            }
+            if !a.bitrate_k.is_finite() || a.bitrate_k <= 0.0 {
+                return Err("The audio bitrate must be greater than 0.".into());
+            }
+            Some(a)
+        }
+        None => None,
+    };
+    let audio_kbps = audio.map(|a| a.bitrate_k).unwrap_or(0.0);
+
+    // --- rate ---
+    let size_mode = matches!(spec.rate, Rate::Size { .. });
+    let video_kbps = match spec.rate {
+        Rate::Size { max_bytes } => {
+            if !max_bytes.is_finite() || max_bytes <= 0.0 {
+                return Err("The size limit must be greater than 0.".into());
+            }
+            let computed = size_video_kbps(max_bytes, duration_out, audio_kbps);
+            if computed < MIN_VIDEO_KBPS {
+                warnings.push(
+                    "The size limit leaves almost no room for video. Shorten the clip, turn audio off, or raise the limit."
+                        .into(),
+                );
+            }
+            Some(opts.video_kbps.unwrap_or(computed).max(MIN_VIDEO_KBPS))
+        }
+        Rate::Crf { max_bitrate_k, .. } => max_bitrate_k.filter(|k| k.is_finite() && *k > 0.0),
+    };
+
+    // --- geometry ---
+    let mut g = geometry(v.width, v.height, spec.crop, spec.rotate, spec.max_width, spec.max_height);
+    let mut auto_scaled = false;
+    if let (true, true, Some(k)) = (size_mode, spec.auto_scale, video_kbps) {
+        let (ng, ok) = auto_scale(g, spec.max_width, spec.max_height, k, out_fps, codec);
+        if !ok {
+            warnings.push(format!(
+                "Even at {}x{} the bitrate is below what {} needs for a clean picture. Shorten the clip or raise the limit.",
+                ng.out_w,
+                ng.out_h,
+                codec_label(codec)
+            ));
+        }
+        auto_scaled = (ng.out_w, ng.out_h) != (g.out_w, g.out_h);
+        g = ng;
+    }
+    let bpp = video_kbps.map(|k| bits_per_pixel(k, g.out_w, g.out_h, out_fps));
+    let qual = bpp.map(|b| quality(b, codec));
+    if let (true, Some(k), Some(b), Some(Quality::Poor)) = (size_mode, video_kbps, bpp, qual) {
+        warnings.push(format!("Video bitrate is {} kbps ({b:.3} bits per pixel). Expect a blurry picture.", k.round()));
+    }
+
+    // --- tonemap ---
+    let tonemap = spec.tonemap && v.hdr && {
+        if !opts.zscale {
+            warnings.push("Tone mapping needs the zscale filter, which this ffmpeg lacks. The picture stays HDR.".into());
+        }
+        opts.zscale
+    };
+    if v.hdr && !spec.tonemap {
+        warnings.push("The source is HDR. Without tone mapping the colors look washed out on most screens.".into());
+    }
+
+    // --- subtitles ---
+    let subtitles = match &spec.subs {
+        None => None,
+        Some(SubsSel::Embedded { track }) => {
+            let t = info.subs.get(*track as usize).ok_or(format!("Subtitle track {track} does not exist."))?;
+            if t.text_based {
+                Some((escape_filter_value(&spec.input), Some(*track)))
+            } else {
+                warnings.push(format!(
+                    "Subtitle track {track} is a bitmap format ({}). Bitmap subtitles are not supported, so it is not burned in.",
+                    t.codec
+                ));
+                None
+            }
+        }
+        Some(SubsSel::File { path }) => Some((escape_filter_value(path), None)),
+    };
+
+    // --- filter graph ---
+    let sf = SegmentFilters {
+        deinterlace: spec.deinterlace,
+        denoise: spec.denoise,
+        tonemap,
+        anamorphic: v.anamorphic,
+        crop: g.crop,
+        rotate: spec.rotate,
+        mirror: spec.mirror,
+        subtitles: subtitles.as_ref(),
+    };
+    let seg_chains: Vec<String> = segs.iter().map(|(s, _)| segment_chain(&sf, *s).join(",")).collect();
+    let vpost = video_post(&PostFilters {
+        scale: ((g.out_w, g.out_h) != (g.rot_w, g.rot_h)).then_some((g.out_w, g.out_h)),
+        speed,
+        fps: fps_cap,
+        playback: spec.playback,
+        fade_in: spec.fade_in.max(0.0),
+        fade_out: spec.fade_out.max(0.0),
+        duration_out,
+        color: color_tags(v, tonemap),
+    });
+    let apost = audio.map(|a| {
+        audio_post(
+            speed,
+            spec.playback == Playback::Reverse,
+            a.normalize,
+            a.volume_db,
+            spec.fade_in.max(0.0),
+            spec.fade_out.max(0.0),
+            duration_out,
+        )
+    });
+    let color = color_tags(v, tonemap);
+
+    // libvpx and x264/x265 use 2 passes in size mode; libvpx also in crf mode
+    // when asked. libsvtav1 is 1 pass; size mode relies on the retry loop.
+    let two_pass = !opts.single_pass
+        && match codec {
+            Codec::Av1 => false,
+            Codec::H264 | Codec::Hevc => size_mode,
+            Codec::Vp9 | Codec::Vp8 => size_mode || spec.two_pass,
+        };
+    let reuse_pass1 = matches!(codec, Codec::Vp9 | Codec::Vp8 | Codec::H264);
+
+    // --- arguments ---
+    let threads = opts.threads.max(1).to_string();
+    let x265_stats = quote_param(&format!("{}-x265.log", opts.passlog));
+    let kbps_arg = |k: f64| format!("{}k", k.round());
+    // pass: 0 = single pass, 1 or 2
+    let video_args = |pass: u32| -> Vec<String> {
+        let mut a = Vec::new();
+        let e = effort_index(spec.effort);
+        match codec {
+            Codec::Vp9 | Codec::Vp8 => {
+                let cpu = [4u32, 2, 1][e];
+                // pass 1 only gathers statistics; a faster speed costs little
+                let cpu = if pass == 1 { cpu.max(4) } else { cpu };
+                if codec == Codec::Vp9 {
+                    push(&mut a, &["-c:v", "libvpx-vp9", "-row-mt", "1", "-tile-columns", "2", "-frame-parallel", "0"]);
+                } else {
+                    push(&mut a, &["-c:v", "libvpx"]);
+                }
+                push(&mut a, &["-deadline", "good", "-cpu-used", &cpu.to_string()]);
+                push(&mut a, &["-auto-alt-ref", "1", "-lag-in-frames", "25"]);
+                match spec.rate {
+                    Rate::Size { .. } => push(&mut a, &["-b:v", &kbps_arg(video_kbps.unwrap_or(MIN_VIDEO_KBPS))]),
+                    Rate::Crf { crf, .. } => {
+                        let lo = if codec == Codec::Vp8 { 4.0 } else { 0.0 };
+                        push(&mut a, &["-crf", &fmt_num(crf.clamp(lo, 63.0).round())]);
+                        match video_kbps {
+                            // constrained quality: b:v is the ceiling
+                            Some(k) => push(&mut a, &["-b:v", &kbps_arg(k), "-maxrate", &kbps_arg(k)]),
+                            None => push(&mut a, &["-b:v", "0"]),
+                        }
+                    }
+                }
+            }
+            Codec::Av1 => {
+                push(&mut a, &["-c:v", "libsvtav1", "-preset", ["10", "7", "4"][e]]);
+                match spec.rate {
+                    Rate::Size { .. } => push(&mut a, &["-b:v", &kbps_arg(video_kbps.unwrap_or(MIN_VIDEO_KBPS))]),
+                    Rate::Crf { crf, .. } => {
+                        push(&mut a, &["-crf", &fmt_num(crf.clamp(1.0, 63.0).round())]);
+                        if let Some(k) = video_kbps {
+                            push(&mut a, &["-maxrate", &kbps_arg(k)]);
+                        }
+                    }
+                }
+            }
+            Codec::H264 | Codec::Hevc => {
+                if codec == Codec::H264 {
+                    push(&mut a, &["-c:v", "libx264", "-profile:v", "high", "-preset", ["fast", "slow", "veryslow"][e]]);
+                } else {
+                    // hvc1 so Apple players accept the file
+                    push(&mut a, &["-c:v", "libx265", "-tag:v", "hvc1", "-preset", ["fast", "medium", "slow"][e]]);
+                }
+                match spec.rate {
+                    Rate::Size { .. } => push(&mut a, &["-b:v", &kbps_arg(video_kbps.unwrap_or(MIN_VIDEO_KBPS))]),
+                    Rate::Crf { crf, .. } => {
+                        push(&mut a, &["-crf", &fmt_num(crf.clamp(0.0, 51.0).round())]);
+                        if let Some(k) = video_kbps {
+                            push(&mut a, &["-maxrate", &kbps_arg(k), "-bufsize", &kbps_arg(k * 2.0)]);
+                        }
+                    }
+                }
+                if codec == Codec::Hevc {
+                    let mut p = String::from("log-level=error");
+                    if pass > 0 {
+                        p.push_str(&format!(":pass={pass}:stats={x265_stats}"));
+                    }
+                    push(&mut a, &["-x265-params", &p]);
+                }
+            }
+        }
+        // ffmpeg passes -threads to x265 as --frame-threads, which must be
+        // below 16 ("frameNumThreads (--frame-threads) must be [0 ..
+        // X265_MAX_FRAME_THREADS)" on a 20-thread CPU). x265 sizes its own
+        // thread pool, so it gets no -threads.
+        if codec != Codec::Hevc {
+            push(&mut a, &["-threads", &threads]);
+        }
+        if pass > 0 && codec != Codec::Hevc {
+            push(&mut a, &["-pass", &pass.to_string(), "-passlogfile", opts.passlog]);
+        }
+        a
+    };
+
+    let multi = segs.len() > 1;
+    let track = audio.map(|a| a.track);
+    let build_pass = |pass: u32| -> Vec<String> {
+        let with_audio = pass != 1 && audio.is_some();
+        let mut a = Vec::new();
+        push(&mut a, &["-hide_banner"]);
+        if !opts.display {
+            push(&mut a, &["-nostdin", "-loglevel", "error", "-progress", "pipe:1", "-nostats"]);
+        }
+        push(&mut a, &["-y"]);
+        for (s, e) in &segs {
+            if *s > 0.0 {
+                push(&mut a, &["-ss", &fmt_num(*s)]);
+            }
+            push(&mut a, &["-t", &fmt_num(e - s), "-i", &spec.input]);
+        }
+        if !multi {
+            push(&mut a, &["-map", &format!("0:{}", v.stream_index)]);
+            if let (true, Some(t)) = (with_audio, track) {
+                push(&mut a, &["-map", &format!("0:a:{t}")]);
+            }
+            let vf = [seg_chains[0].as_str(), vpost.as_str()].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join(",");
+            if !vf.is_empty() {
+                push(&mut a, &["-vf", &vf]);
+            }
+            if with_audio {
+                // rebased like the video (see segment_chain)
+                let af = match apost.as_deref().filter(|s| !s.is_empty()) {
+                    Some(af) => format!("asetpts=PTS-STARTPTS,{af}"),
+                    None => "asetpts=PTS-STARTPTS".into(),
+                };
+                push(&mut a, &["-af", &af]);
+            }
+        } else {
+            let mut graph = String::new();
+            for (i, chain) in seg_chains.iter().enumerate() {
+                let chain = if chain.is_empty() { "null" } else { chain.as_str() };
+                graph.push_str(&format!("[{i}:{}]{chain}[v{i}];", v.stream_index));
+                if let (true, Some(t)) = (with_audio, track) {
+                    graph.push_str(&format!("[{i}:a:{t}]asetpts=PTS-STARTPTS[a{i}];"));
+                }
+            }
+            for i in 0..segs.len() {
+                graph.push_str(&format!("[v{i}]"));
+                if with_audio {
+                    graph.push_str(&format!("[a{i}]"));
+                }
+            }
+            let n = segs.len();
+            if with_audio {
+                graph.push_str(&format!("concat=n={n}:v=1:a=1[vj][aj];"));
+            } else {
+                graph.push_str(&format!("concat=n={n}:v=1:a=0[vj];"));
+            }
+            graph.push_str(&format!("[vj]{}[vout]", if vpost.is_empty() { "null" } else { &vpost }));
+            if with_audio {
+                let af = apost.as_deref().filter(|s| !s.is_empty()).unwrap_or("anull");
+                graph.push_str(&format!(";[aj]{af}[aout]"));
+            }
+            push(&mut a, &["-filter_complex", &graph, "-map", "[vout]"]);
+            if with_audio {
+                push(&mut a, &["-map", "[aout]"]);
+            }
+        }
+        push(&mut a, &["-pix_fmt", "yuv420p"]);
+        a.extend(video_args(pass));
+        push(&mut a, &["-colorspace", &color.0, "-color_primaries", &color.1, "-color_trc", &color.2]);
+        if pass == 1 {
+            push(&mut a, &["-an"]);
+            a.extend(spec.extra_args.iter().cloned());
+            push(&mut a, &["-f", "null", "-"]);
+            return a;
+        }
+        match audio {
+            Some(au) => {
+                let enc = match (spec.container, codec) {
+                    (Container::Mp4, _) => "aac",
+                    (_, Codec::Vp8) => "libvorbis",
+                    _ => "libopus",
+                };
+                push(&mut a, &["-c:a", enc, "-b:a", &format!("{}k", fmt_num(au.bitrate_k.round())), "-ac", "2"]);
+            }
+            None => push(&mut a, &["-an"]),
+        }
+        push(&mut a, &["-map_metadata", "-1", "-map_chapters", "-1", "-sn"]);
+        if let Some(t) = spec.title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+            push(&mut a, &["-metadata", &format!("title={t}")]);
+        }
+        a.extend(spec.extra_args.iter().cloned());
+        match spec.container {
+            Container::Webm => push(&mut a, &["-f", "webm", opts.output]),
+            Container::Mp4 => push(&mut a, &["-movflags", "+faststart", "-f", "mp4", opts.output]),
+        }
+        a
+    };
+
+    let passes = if two_pass { vec![build_pass(1), build_pass(2)] } else { vec![build_pass(0)] };
+
+    Ok(Planned {
+        out_width: g.out_w,
+        out_height: g.out_h,
+        duration_out,
+        video_kbps,
+        audio_kbps,
+        bits_per_pixel: bpp,
+        quality: qual,
+        auto_scaled,
+        passes,
+        reuse_pass1,
+        warnings,
+    })
+}
+
+/// Joins arguments into one line for display. Arguments with characters a
+/// shell treats specially are wrapped in double quotes.
+pub fn shell_join(program: &str, args: &[String]) -> String {
+    let mut out = String::from(program);
+    for a in args {
+        out.push(' ');
+        let safe = !a.is_empty() && a.chars().all(|c| c.is_ascii_alphanumeric() || "-_+=.,:/\\@%".contains(c));
+        if safe {
+            out.push_str(a);
+        } else {
+            out.push('"');
+            out.push_str(&a.replace('"', "\\\""));
+            out.push('"');
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::spec::{AudioSel, AudioTrack};
+
+    fn media() -> MediaInfo {
+        MediaInfo {
+            path: "in.mp4".into(),
+            file_name: "in.mp4".into(),
+            size_bytes: 1,
+            duration: 60.0,
+            video: VideoInfo {
+                codec: "h264".into(),
+                width: 1280,
+                height: 720,
+                fps: 30.0,
+                ..Default::default()
+            },
+            audio: vec![AudioTrack { track: 0, codec: "aac".into(), channels: 2, lang: None, title: None }],
+            subs: vec![],
+        }
+    }
+
+    fn spec(rate: Rate) -> EncodeSpec {
+        EncodeSpec {
+            input: "in.mp4".into(),
+            segments: vec![Segment { start: 10.0, end: 14.0 }],
+            crop: None,
+            rotate: 0,
+            mirror: false,
+            max_width: None,
+            max_height: None,
+            auto_scale: false,
+            fps: None,
+            speed: 1.0,
+            playback: Playback::Forward,
+            deinterlace: false,
+            denoise: false,
+            tonemap: false,
+            fade_in: 0.0,
+            fade_out: 0.0,
+            container: Container::Webm,
+            codec: Codec::Vp9,
+            rate,
+            two_pass: false,
+            effort: Effort::Balanced,
+            audio: Some(AudioSel { track: 0, bitrate_k: 64.0, volume_db: 0.0, normalize: false }),
+            subs: None,
+            title: None,
+            extra_args: vec![],
+            output_name: None,
+        }
+    }
+
+    fn opts() -> Opts<'static> {
+        Opts { threads: 8, display: true, ..Opts::new("out.webm", "log") }
+    }
+
+    fn strs(v: &[String]) -> Vec<&str> {
+        v.iter().map(String::as_str).collect()
+    }
+
+    const TAGS: &str = "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709";
+
+    #[test]
+    fn bitrate_math() {
+        // 4194304 bytes over 60 s: 559.24 kbps total, minus 64 audio, times 0.97
+        let k = size_video_kbps(4_194_304.0, 60.0, 64.0);
+        assert!((k - 480.39).abs() < 0.01);
+        let r = retry_video_kbps(500.0, 1000.0, 1100.0);
+        assert!((r - 500.0 * (1000.0 / 1100.0) * 0.98).abs() < 1e-9);
+        // undershoot: scaled up with 0.97, capped at 2x
+        assert!((undershoot_video_kbps(500.0, 1000.0, 800.0) - 500.0 * 1.25 * 0.97).abs() < 1e-9);
+        assert_eq!(undershoot_video_kbps(500.0, 1000.0, 300.0), 1000.0);
+    }
+
+    #[test]
+    fn output_dimensions() {
+        let g = geometry(1920, 1080, None, 0, Some(1280), Some(1280));
+        assert_eq!((g.out_w, g.out_h, g.crop), (1280, 720, None));
+        // never upscale; odd crop rounds down to even
+        let g = geometry(1280, 720, Some(Crop { x: 100.4, y: 50.0, w: 301.0, h: 201.0 }), 0, Some(4000), None);
+        assert_eq!(g.crop, Some((100, 50, 301, 201)));
+        assert_eq!((g.out_w, g.out_h), (300, 200));
+        // crop past the edge is clamped
+        let g = geometry(1280, 720, Some(Crop { x: 1200.0, y: 0.0, w: 400.0, h: 720.0 }), 0, None, None);
+        assert_eq!(g.crop, Some((1200, 0, 80, 720)));
+        // rotate swaps before the max size applies
+        let g = geometry(1920, 1080, None, 90, None, Some(960));
+        assert_eq!((g.rot_w, g.rot_h, g.out_w, g.out_h), (1080, 1920, 540, 960));
+    }
+
+    #[test]
+    fn filter_graph_string() {
+        let subs = (escape_filter_value("subs:a.srt"), None);
+        let sf = SegmentFilters {
+            deinterlace: true,
+            denoise: false,
+            tonemap: false,
+            anamorphic: false,
+            crop: Some((0, 0, 640, 720)),
+            rotate: 180,
+            mirror: true,
+            subtitles: Some(&subs),
+        };
+        assert_eq!(
+            segment_chain(&sf, 5.5).join(","),
+            "setpts=PTS-STARTPTS,bwdif=mode=send_frame,crop=640:720:0:0,vflip,setpts=PTS+5.5/TB,subtitles=filename=subs\\\\:a.srt,setpts=PTS-STARTPTS"
+        );
+        let post = video_post(&PostFilters {
+            scale: Some((320, 360)),
+            speed: 2.0,
+            fps: Some(24.0),
+            playback: Playback::Boomerang,
+            fade_in: 0.5,
+            fade_out: 1.0,
+            duration_out: 4.0,
+            color: ("bt709".into(), "bt709".into(), "bt709".into()),
+        });
+        assert_eq!(
+            post,
+            format!(
+                "scale=320:360:flags=lanczos,setpts=PTS/2,fps=24,split[bf][bb];[bb]reverse[br];[bf][br]concat=n=2:v=1:a=0,\
+                 fade=t=in:st=0:d=0.5,fade=t=out:st=3:d=1,{TAGS}"
+            )
+        );
+    }
+
+    #[test]
+    fn size_mode_args() {
+        let p = build(&spec(Rate::Size { max_bytes: 300_000.0 }), &media(), &opts()).unwrap();
+        assert_eq!(p.passes.len(), 2);
+        // 300000*8/1000/4 = 600; (600-64)*0.97 = 519.92
+        assert_eq!(p.video_kbps.unwrap().round(), 520.0);
+        let vp9 = "-c:v libvpx-vp9 -row-mt 1 -tile-columns 2 -frame-parallel 0 -deadline good";
+        let head = format!("-hide_banner -y -ss 10 -t 4 -i in.mp4");
+        let tags = "-colorspace bt709 -color_primaries bt709 -color_trc bt709";
+        assert_eq!(
+            strs(&p.passes[0]).join(" "),
+            format!(
+                "{head} -map 0:0 -vf setpts=PTS-STARTPTS,{TAGS} -pix_fmt yuv420p {vp9} -cpu-used 4 -auto-alt-ref 1 -lag-in-frames 25 \
+                 -b:v 520k -threads 8 -pass 1 -passlogfile log {tags} -an -f null -"
+            )
+        );
+        assert_eq!(
+            strs(&p.passes[1]).join(" "),
+            format!(
+                "{head} -map 0:0 -map 0:a:0 -vf setpts=PTS-STARTPTS,{TAGS} -af asetpts=PTS-STARTPTS -pix_fmt yuv420p {vp9} -cpu-used 2 -auto-alt-ref 1 \
+                 -lag-in-frames 25 -b:v 520k -threads 8 -pass 2 -passlogfile log {tags} -c:a libopus -b:a 64k -ac 2 \
+                 -map_metadata -1 -map_chapters -1 -sn -f webm out.webm"
+            )
+        );
+    }
+
+    #[test]
+    fn crf_mode_args() {
+        let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
+        sp.audio = None;
+        sp.segments = vec![];
+        sp.effort = Effort::Best;
+        sp.title = Some("hello world".into());
+        let p = build(&sp, &media(), &opts()).unwrap();
+        assert_eq!(p.passes.len(), 1);
+        assert_eq!((p.video_kbps, p.bits_per_pixel, p.quality), (None, None, None));
+        let s = strs(&p.passes[0]);
+        assert_eq!(&s[..7], ["-hide_banner", "-y", "-t", "60", "-i", "in.mp4", "-map"]);
+        let tail = s[s.iter().position(|a| *a == "-cpu-used").unwrap()..].join(" ");
+        assert_eq!(
+            tail,
+            "-cpu-used 1 -auto-alt-ref 1 -lag-in-frames 25 -crf 30 -b:v 0 -threads 8 -colorspace bt709 \
+             -color_primaries bt709 -color_trc bt709 -an -map_metadata -1 -map_chapters -1 -sn -metadata \
+             title=hello world -f webm out.webm"
+        );
+    }
+
+    #[test]
+    fn two_segment_graph() {
+        let mut sp = spec(Rate::Size { max_bytes: 1_000_000.0 });
+        sp.segments = vec![Segment { start: 1.0, end: 3.0 }, Segment { start: 10.0, end: 12.5 }];
+        sp.crop = Some(Crop { x: 0.0, y: 0.0, w: 640.0, h: 360.0 });
+        sp.audio = Some(AudioSel { track: 0, bitrate_k: 96.0, volume_db: -3.0, normalize: false });
+        let p = build(&sp, &media(), &opts()).unwrap();
+        assert!((p.duration_out - 4.5).abs() < 1e-9);
+        let s = strs(&p.passes[1]);
+        assert_eq!(&s[2..12], ["-ss", "1", "-t", "2", "-i", "in.mp4", "-ss", "10", "-t", "2.5"]);
+        let g = s[s.iter().position(|a| *a == "-filter_complex").unwrap() + 1];
+        assert_eq!(
+            g,
+            format!(
+                "[0:0]setpts=PTS-STARTPTS,crop=640:360:0:0[v0];[0:a:0]asetpts=PTS-STARTPTS[a0];\
+                 [1:0]setpts=PTS-STARTPTS,crop=640:360:0:0[v1];[1:a:0]asetpts=PTS-STARTPTS[a1];[v0][a0][v1][a1]concat=n=2:v=1:a=1[vj][aj];\
+                 [vj]{TAGS}[vout];[aj]volume=-3dB[aout]"
+            )
+        );
+        // pass 1 joins video only
+        let s1 = strs(&p.passes[0]);
+        let g1 = s1[s1.iter().position(|a| *a == "-filter_complex").unwrap() + 1];
+        assert!(g1.contains("[v0][v1]concat=n=2:v=1:a=0[vj];[vj]"));
+        assert!(!g1.contains("[aout]"));
+    }
+
+    #[test]
+    fn auto_scale_choice() {
+        // 1080p30, 60 s in 4 MiB, no audio: about 543 kbps
+        let mut m = media();
+        (m.video.width, m.video.height) = (1920, 1080);
+        let mut sp = spec(Rate::Size { max_bytes: 4_194_304.0 });
+        sp.segments = vec![Segment { start: 0.0, end: 60.0 }];
+        sp.audio = None;
+        sp.auto_scale = true;
+        let p = build(&sp, &m, &opts()).unwrap();
+        // 543 kbps / (w*h*30) >= 0.030 first holds at 540p: 960x540 gives 0.0349; 600p gives 0.0283
+        assert_eq!((p.out_width, p.out_height, p.auto_scaled), (960, 540, true));
+        assert_eq!(p.quality, Some(Quality::Fair));
+        // a 240p floor that still fails warns
+        sp.rate = Rate::Size { max_bytes: 100_000.0 };
+        let p = build(&sp, &m, &opts()).unwrap();
+        assert_eq!((p.out_width, p.out_height), (426, 240));
+        assert!(p.warnings.iter().any(|w| w.starts_with("Even at 426x240")));
+    }
+
+    #[test]
+    fn mp4_h264_args() {
+        let mut sp = spec(Rate::Size { max_bytes: 2_000_000.0 });
+        sp.container = Container::Mp4;
+        sp.codec = Codec::H264;
+        sp.effort = Effort::Fast;
+        let p = build(&sp, &media(), &Opts { output: "out.mp4", ..opts() }).unwrap();
+        assert_eq!(p.passes.len(), 2);
+        assert!(p.reuse_pass1);
+        let s = strs(&p.passes[1]).join(" ");
+        let at = s.find("-pix_fmt").unwrap();
+        assert_eq!(
+            &s[at..],
+            "-pix_fmt yuv420p -c:v libx264 -profile:v high -preset fast -b:v 3818k -threads 8 -pass 2 \
+             -passlogfile log -colorspace bt709 -color_primaries bt709 -color_trc bt709 -c:a aac -b:a 64k -ac 2 \
+             -map_metadata -1 -map_chapters -1 -sn -movflags +faststart -f mp4 out.mp4"
+        );
+        // VP9 in MP4 is refused
+        sp.codec = Codec::Vp9;
+        assert!(build(&sp, &media(), &opts()).is_err());
+    }
+
+    #[test]
+    fn bpp_quality() {
+        assert!((bits_per_pixel(1000.0, 1000, 1000, 10.0) - 0.1).abs() < 1e-12);
+        assert_eq!(quality(0.045, Codec::Vp9), Quality::Good);
+        assert_eq!(quality(0.031, Codec::Vp9), Quality::Fair);
+        assert_eq!(quality(0.029, Codec::Vp9), Quality::Poor);
+        assert_eq!(quality(0.050, Codec::H264), Quality::Fair);
+        assert_eq!(quality(0.034, Codec::Av1), Quality::Good);
+    }
+}

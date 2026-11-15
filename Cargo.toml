@@ -1,0 +1,18 @@
+# Cargo workspace for comfywebm.
+#
+#   crates/engine : pure-Rust ffmpeg planning and job running
+#                   (no Tauri deps; `cargo test -p comfywebm-engine`)
+#   src-tauri     : the Tauri shell, its IPC commands and the queue thread
+#
+# Engine tests stay out of the tauri/wry/webview2 stack, which on the
+# windows-gnu toolchain fails at test time with STATUS_ENTRYPOINT_NOT_FOUND.
+[workspace]
+resolver = "2"
+members = ["src-tauri", "crates/engine"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

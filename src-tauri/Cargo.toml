@@ -1,0 +1,26 @@
+[package]
+name = "comfywebm"
+version = "1.0.0"
+description = "Cut a clip out of a video and encode it to WebM under a size limit"
+authors = ["kpg-anon"]
+license = "MIT"
+edition = "2021"
+
+[lib]
+# The `_lib` suffix keeps the lib name distinct from the bin name (cargo#8519).
+name = "comfywebm_lib"
+# Desktop only. On the windows-gnu toolchain a Tauri cdylib overflows the PE
+# export table ("export ordinal too large"), so only the rlib is built.
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+comfywebm-engine = { path = "../crates/engine" }
+# protocol-asset: the player loads the source file through convertFileSrc
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -1,0 +1,411 @@
+//! The IPC contract types (PLAN.md, "Contract" and "Contract v2"). JSON field names are camelCase.
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaInfo {
+    pub path: String,
+    pub file_name: String,
+    pub size_bytes: u64,
+    /// seconds
+    pub duration: f64,
+    pub video: VideoInfo,
+    pub audio: Vec<AudioTrack>,
+    pub subs: Vec<SubTrack>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoInfo {
+    pub codec: String,
+    /// display pixels (rotation and sample aspect ratio applied)
+    pub width: u32,
+    pub height: u32,
+    pub fps: f64,
+    pub bitrate_k: Option<u32>,
+    pub interlaced: bool,
+    /// color_transfer is smpte2084 (PQ) or arib-std-b67 (HLG)
+    #[serde(default)]
+    pub hdr: bool,
+    /// source color tags from ffprobe (None when missing or "unknown"); not sent over IPC
+    #[serde(skip)]
+    pub color_space: Option<String>,
+    #[serde(skip)]
+    pub color_primaries: Option<String>,
+    #[serde(skip)]
+    pub color_trc: Option<String>,
+    /// absolute stream index of the video stream used (ffmpeg `0:<index>`); not sent over IPC
+    #[serde(skip)]
+    pub stream_index: u32,
+    /// sample aspect ratio is not 1:1, so the filter graph first resamples to square pixels
+    #[serde(skip)]
+    pub anamorphic: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioTrack {
+    /// n-th audio stream, 0-based (ffmpeg `0:a:n`)
+    pub track: u32,
+    pub codec: String,
+    pub channels: u32,
+    pub lang: Option<String>,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubTrack {
+    /// n-th subtitle stream, 0-based (ffmpeg `0:s:n`)
+    pub track: u32,
+    pub codec: String,
+    pub lang: Option<String>,
+    pub title: Option<String>,
+    pub text_based: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "lowercase", rename_all_fields = "camelCase")]
+pub enum Rate {
+    /// output file must be <= max_bytes
+    Size { max_bytes: f64 },
+    /// crf on the codec's own scale (vp9/av1/vp8 0-63, h264/hevc 0-51)
+    Crf { crf: f64, max_bitrate_k: Option<f64> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Codec {
+    Vp9,
+    Vp8,
+    Av1,
+    H264,
+    Hevc,
+}
+
+impl Codec {
+    pub fn name(self) -> &'static str {
+        match self {
+            Codec::Vp9 => "vp9",
+            Codec::Vp8 => "vp8",
+            Codec::Av1 => "av1",
+            Codec::H264 => "h264",
+            Codec::Hevc => "hevc",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Container {
+    #[default]
+    Webm,
+    Mp4,
+}
+
+impl Container {
+    pub fn ext(self) -> &'static str {
+        match self {
+            Container::Webm => "webm",
+            Container::Mp4 => "mp4",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Playback {
+    #[default]
+    Forward,
+    Reverse,
+    /// forward then reverse
+    Boomerang,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Effort {
+    Fast,
+    Balanced,
+    Best,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Segment {
+    /// seconds on the source timeline
+    pub start: f64,
+    pub end: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Crop {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioSel {
+    pub track: u32,
+    pub bitrate_k: f64,
+    #[serde(default)]
+    pub volume_db: f64,
+    #[serde(default)]
+    pub normalize: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum SubsSel {
+    Embedded { track: u32 },
+    File { path: String },
+}
+
+fn one() -> f64 {
+    1.0
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EncodeSpec {
+    pub input: String,
+    /// empty = whole file; several = joined in order
+    #[serde(default)]
+    pub segments: Vec<Segment>,
+    /// source display pixels, before rotate
+    pub crop: Option<Crop>,
+    /// clockwise: 0, 90, 180 or 270
+    #[serde(default)]
+    pub rotate: u32,
+    /// horizontal flip, after rotate
+    #[serde(default)]
+    pub mirror: bool,
+    pub max_width: Option<u32>,
+    pub max_height: Option<u32>,
+    #[serde(default)]
+    pub auto_scale: bool,
+    pub fps: Option<f64>,
+    #[serde(default = "one")]
+    pub speed: f64,
+    #[serde(default)]
+    pub playback: Playback,
+    #[serde(default)]
+    pub deinterlace: bool,
+    #[serde(default)]
+    pub denoise: bool,
+    #[serde(default)]
+    pub tonemap: bool,
+    #[serde(default)]
+    pub fade_in: f64,
+    #[serde(default)]
+    pub fade_out: f64,
+    #[serde(default)]
+    pub container: Container,
+    pub codec: Codec,
+    pub rate: Rate,
+    #[serde(default)]
+    pub two_pass: bool,
+    pub effort: Effort,
+    pub audio: Option<AudioSel>,
+    pub subs: Option<SubsSel>,
+    pub title: Option<String>,
+    #[serde(default)]
+    pub extra_args: Vec<String>,
+    pub output_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Quality {
+    Good,
+    Fair,
+    Poor,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanInfo {
+    pub out_width: u32,
+    pub out_height: u32,
+    pub duration_out: f64,
+    pub video_kbps: Option<f64>,
+    pub audio_kbps: f64,
+    /// video_kbps*1000 / (out_width*out_height*out_fps)
+    pub bits_per_pixel: Option<f64>,
+    pub quality: Option<Quality>,
+    /// autoScale reduced the picture size
+    pub auto_scaled: bool,
+    pub command: String,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum JobStatus {
+    Pending,
+    Running,
+    Done,
+    Failed,
+    Canceled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Progress {
+    /// whole job, 0..1
+    pub fraction: f64,
+    pub pass: u32,
+    pub passes: u32,
+    pub attempt: u32,
+    pub speed: Option<f64>,
+    pub eta_secs: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobResult {
+    pub size_bytes: u64,
+    pub elapsed_secs: f64,
+    pub attempts: u32,
+    pub over_limit: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Job {
+    pub id: u64,
+    pub spec: EncodeSpec,
+    pub status: JobStatus,
+    pub output: Option<String>,
+    pub progress: Option<Progress>,
+    pub result: Option<JobResult>,
+    pub error: Option<String>,
+}
+
+fn effort_balanced() -> Effort {
+    Effort::Balanced
+}
+
+/// Defaults on every field but name, codec and rate, so presets saved by
+/// earlier builds (no container, no autoScale) still load.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Preset {
+    pub name: String,
+    #[serde(default)]
+    pub container: Container,
+    pub codec: Codec,
+    pub rate: Rate,
+    #[serde(default)]
+    pub auto_scale: bool,
+    #[serde(default)]
+    pub max_width: Option<u32>,
+    #[serde(default)]
+    pub max_height: Option<u32>,
+    #[serde(default)]
+    pub fps: Option<f64>,
+    /// None = no audio
+    #[serde(default)]
+    pub audio_bitrate_k: Option<f64>,
+    #[serde(default = "effort_balanced")]
+    pub effort: Effort,
+    #[serde(default)]
+    pub two_pass: bool,
+    /// advisory; the UI warns when the clip is longer
+    #[serde(default)]
+    pub max_duration: Option<f64>,
+}
+
+pub const DEFAULT_NAME_TEMPLATE: &str = "{name}_{start}-{end}";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Settings {
+    /// folder or file; None = auto
+    pub ffmpeg_path: Option<String>,
+    /// file or folder; None = auto (beside the exe, then PATH)
+    pub ytdlp_path: Option<String>,
+    /// extra yt-dlp arguments, e.g. --cookies-from-browser firefox
+    pub ytdlp_args: Vec<String>,
+    /// None = "downloads" in the app cache dir
+    pub download_dir: Option<String>,
+    /// None = beside the source file
+    pub output_dir: Option<String>,
+    pub name_template: String,
+    pub last_preset: Option<String>,
+    pub presets: Vec<Preset>,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            ffmpeg_path: None,
+            ytdlp_path: None,
+            ytdlp_args: Vec::new(),
+            download_dir: None,
+            output_dir: None,
+            name_template: DEFAULT_NAME_TEMPLATE.to_string(),
+            last_preset: None,
+            presets: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Encoders {
+    pub vp8: bool,
+    pub vp9: bool,
+    pub av1: bool,
+    pub h264: bool,
+    pub hevc: bool,
+    pub opus: bool,
+    pub vorbis: bool,
+    pub aac: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Filters {
+    /// needed for tonemap
+    pub zscale: bool,
+    pub subtitles: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolsStatus {
+    pub ffmpeg: Option<String>,
+    pub ffprobe: Option<String>,
+    pub version: Option<String>,
+    pub ytdlp: Option<String>,
+    pub ytdlp_version: Option<String>,
+    pub encoders: Encoders,
+    pub filters: Filters,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UrlInfo {
+    pub url: String,
+    pub id: String,
+    pub title: String,
+    pub uploader: Option<String>,
+    pub duration: Option<f64>,
+    pub is_live: bool,
+    pub thumbnail: Option<String>,
+    /// distinct video heights offered, descending
+    pub heights: Vec<u32>,
+}
+
+/// Payload of the `download-progress` event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadProgress {
+    pub url: String,
+    pub fraction: f64,
+    pub speed: Option<String>,
+    pub eta: Option<String>,
+    /// "download" or "merge"
+    pub stage: String,
+}

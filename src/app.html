@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>comfywebm</title>
+    <!-- background before theme.css loads, so the window does not flash white;
+         keep in sync with --bg-app in src/lib/theme.css -->
+    <style>
+      html { margin: 0; color-scheme: dark; background: #0f1215; }
+      body { margin: 0; background: transparent; }
+    </style>
+    %sveltekit.head%
+  </head>
+  <body>
+    <div style="display: contents">%sveltekit.body%</div>
+  </body>
+</html>

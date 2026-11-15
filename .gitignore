@@ -1,0 +1,10 @@
+node_modules/
+target/
+build/
+.svelte-kit/
+src-tauri/gen/
+.devdata/
+*.part
+*.log
+.tauri-updater.key
+.tauri-updater.pass

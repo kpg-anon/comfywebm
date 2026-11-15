@@ -1,0 +1,59 @@
+// Typed wrappers for every command and event in the PLAN.md contract (v2).
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type {
+  Crop,
+  DownloadProgress,
+  EncodeSpec,
+  Job,
+  MediaInfo,
+  PlanInfo,
+  Preset,
+  ProxyProgress,
+  Segment,
+  Settings,
+  ToolsStatus,
+  UrlInfo,
+} from "./types";
+
+export const toolsStatus = () => invoke<ToolsStatus>("tools_status");
+export const initialFile = () => invoke<string | null>("initial_file");
+export const probe = (path: string) => invoke<MediaInfo>("probe", { path });
+export const makeProxy = (path: string) => invoke<string>("make_proxy", { path });
+export const plan = (spec: EncodeSpec) => invoke<PlanInfo>("plan", { spec });
+export const queueList = () => invoke<Job[]>("queue_list");
+export const queueAdd = (spec: EncodeSpec, start: boolean) => invoke<Job>("queue_add", { spec, start });
+export const queueAddMany = (specs: EncodeSpec[], start: boolean) => invoke<Job[]>("queue_add_many", { specs, start });
+export const queueStart = () => invoke<void>("queue_start");
+export const queueCancel = (id: number) => invoke<void>("queue_cancel", { id });
+export const queueRemove = (id: number) => invoke<void>("queue_remove", { id });
+export const settingsGet = () => invoke<Settings>("settings_get");
+export const settingsSet = (settings: Settings) => invoke<void>("settings_set", { settings });
+
+export const urlInfo = (url: string) => invoke<UrlInfo>("url_info", { url });
+export const urlDownload = (url: string, maxHeight: number | null, section: Segment | null) =>
+  invoke<string>("url_download", { url, maxHeight, section });
+export const urlCancel = (url: string) => invoke<void>("url_cancel", { url });
+export const exportFrame = (path: string, time: number, crop: Crop | null) =>
+  invoke<string>("export_frame", { path, time, crop });
+export const previewSample = (spec: EncodeSpec, at: number) => invoke<string>("preview_sample", { spec, at });
+export const presetsExport = (path: string, presets: Preset[]) => invoke<void>("presets_export", { path, presets });
+export const presetsImport = (path: string) => invoke<Preset[]>("presets_import", { path });
+
+export const onJobUpdate = (cb: (job: Job) => void): Promise<UnlistenFn> =>
+  listen<Job>("job-update", (e) => cb(e.payload));
+export const onProxyProgress = (cb: (p: ProxyProgress) => void): Promise<UnlistenFn> =>
+  listen<ProxyProgress>("proxy-progress", (e) => cb(e.payload));
+export const onDownloadProgress = (cb: (p: DownloadProgress) => void): Promise<UnlistenFn> =>
+  listen<DownloadProgress>("download-progress", (e) => cb(e.payload));
+
+/** Commands return errors as a plain string; anything else is turned into one. */
+export function errText(e: unknown): string {
+  if (typeof e === "string") return e;
+  if (e instanceof Error) return e.message;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
+}

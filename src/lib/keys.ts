@@ -41,6 +41,7 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["Ctrl + Z", "undo a range, order or crop change"],
       ["Ctrl + Shift + Z / Ctrl + Y", "redo"],
       ["Ctrl + wheel", "zoom the timeline (wheel pans while zoomed)"],
+      ["Alt + drag", "move a range edge without snapping"],
     ],
   },
   {

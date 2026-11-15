@@ -296,6 +296,22 @@ class AppState {
   fpsCaps = $derived(this.config?.fpsCaps ?? [10, 12, 15, 20, 24, 25, 30, 48, 50, 60, 120]);
   audioRates = $derived(this.config?.audioBitrates ?? [32, 48, 64, 80, 96, 112, 128, 160, 192, 256]);
   preset = $derived(this.presets.find((p) => p.name === this.presetName) ?? null);
+  /** Settings that differ from what the selected preset sets (labels for the sidebar). */
+  presetChanges = $derived.by((): string[] => {
+    const p = this.preset;
+    if (!p) return [];
+    const out: string[] = [];
+    if (p.container !== this.container || p.codec !== this.codec) out.push("format");
+    if (p.rate.mode !== this.rateMode) out.push("rate mode");
+    else if (p.rate.mode === "size" && p.rate.maxBytes !== this.maxBytes) out.push("size limit");
+    else if (p.rate.mode === "crf" && (p.rate.crf !== this.crf || (p.rate.maxBitrateK ?? null) !== (this.maxBitrateK ?? null))) out.push("quality");
+    if (p.autoScale !== this.autoScale || (p.autoScale ? this.resMode !== "auto" : this.resMode !== "source")) out.push("resolution");
+    if ((p.maxWidth ?? null) !== (this.maxWidth ?? null) || (p.maxHeight ?? null) !== (this.maxHeight ?? null)) out.push("picture limit");
+    if ((p.fps ?? null) !== (this.fps ?? null)) out.push("frame rate");
+    if (p.audioBitrateK === null ? this.audioOn : this.audioOn && p.audioBitrateK !== this.audioBitrateK) out.push("audio");
+    if (p.effort !== this.effort || p.twoPass !== this.twoPass) out.push("encoder");
+    return out;
+  });
 
   ffmpegMissing = $derived(!!this.tools && (!this.tools.ffmpeg || !this.tools.ffprobe));
   ytdlpMissing = $derived(!!this.tools && !this.tools.ytdlp);

@@ -86,6 +86,13 @@
     </button>
   </div>
 
+  {#if app.presetChanges.length && !app.streamCopy}
+    <div class="changed small">
+      <span class="muted">Changed: {app.presetChanges.join(", ")}</span>
+      <button class="btn small" title="Set every field the preset has back to its value" onclick={() => app.applyPreset(app.presetName, false)}>Reset</button>
+    </div>
+  {/if}
+
   {#if manage}
     <div class="tools">
       <button class="btn small" onclick={() => begin("new")}><Icon name="save" size={11} />Save as new</button>
@@ -127,6 +134,12 @@
 </div>
 
 <style>
+  .changed {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: space-between;
+  }
   .preset {
     display: flex;
     flex-direction: column;

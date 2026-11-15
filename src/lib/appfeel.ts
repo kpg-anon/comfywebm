@@ -11,6 +11,8 @@
 const CTRL = new Set(["f", "g", "p", "r", "s", "j", "h", "n", "t", "w", "d", "e", "k", "l", "=", "+", "-", "0"]);
 const PLAIN = new Set(["F1", "F3", "F5", "F6", "F7", "F12", "BrowserBack", "BrowserForward", "BrowserRefresh", "BrowserSearch", "BrowserHome"]);
 
+const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+
 function typing(t: EventTarget | null): boolean {
   if (!(t instanceof HTMLElement)) return false;
   if (t.isContentEditable || t instanceof HTMLTextAreaElement) return true;
@@ -27,8 +29,25 @@ export function installAppFeel(): () => void {
   const key = (e: KeyboardEvent) => {
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     if (dev && (k === "F5" || k === "F12" || (e.ctrlKey && k === "r") || (e.ctrlKey && e.shiftKey && (k === "i" || k === "j" || k === "c")))) return;
-    // Tab walks focus through every button; inside dialogs it still moves between fields
-    if (k === "Tab" && !(e.target as Element | null)?.closest?.("[role=dialog]")) return e.preventDefault();
+    // Tab walks focus through every button; inside dialogs it moves between
+    // the dialog's own controls and wraps at the ends, so it never leaves the dialog
+    if (k === "Tab") {
+      const dlg = (e.target as Element | null)?.closest?.("[role=dialog]");
+      if (!dlg) return e.preventDefault();
+      const items = [...dlg.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null);
+      if (!items.length) return e.preventDefault();
+      const first = items[0];
+      const last = items[items.length - 1];
+      const at = document.activeElement;
+      if (e.shiftKey && (at === first || at === dlg)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && at === last) {
+        e.preventDefault();
+        first.focus();
+      }
+      return;
+    }
     if (PLAIN.has(k)) return e.preventDefault();
     // Alt+Home: home page. Alt+Left/Right (history) are not stopped here:
     // keys.ts uses them (seek, crop resize), skips events that are already
@@ -55,6 +74,7 @@ export function installAppFeel(): () => void {
   // no spelling underline or autofill list on text fields
   const focus = (e: FocusEvent) => {
     const t = e.target;
+    if (t instanceof HTMLElement && !t.closest("[role=dialog]")) lastOutside = t;
     if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) {
       t.spellcheck = false;
       t.autocomplete = "off";
@@ -66,6 +86,17 @@ export function installAppFeel(): () => void {
     if (e.ctrlKey) e.preventDefault();
   };
 
+  // when a dialog closes, focus goes back to what had it before the dialog opened
+  let lastOutside: HTMLElement | null = null;
+  const watch = new MutationObserver((records) => {
+    const closed = records.some((r) =>
+      [...r.removedNodes].some((n) => n instanceof Element && (n.matches("[role=dialog]") || n.querySelector("[role=dialog]"))),
+    );
+    const at = document.activeElement;
+    if (closed && (!at || at === document.body) && lastOutside?.isConnected) lastOutside.focus({ preventScroll: true });
+  });
+  watch.observe(document.body, { childList: true, subtree: true });
+
   window.addEventListener("contextmenu", menu);
   window.addEventListener("keydown", key, true);
   window.addEventListener("pointerdown", down, true);
@@ -74,6 +105,7 @@ export function installAppFeel(): () => void {
   window.addEventListener("focusin", focus, true);
   window.addEventListener("wheel", wheel, { capture: true, passive: false });
   return () => {
+    watch.disconnect();
     window.removeEventListener("contextmenu", menu);
     window.removeEventListener("keydown", key, true);
     window.removeEventListener("pointerdown", down, true);

@@ -20,6 +20,8 @@ Work on the `exp` branch.
 - A queued job keeps the output folder that was set when it was added.
 - Settings: Interface size (80-150%), since browser zoom is turned off.
 - Queue: Copy error on a failed job.
+- Dialogs keep Tab inside themselves (wrapping at the ends) and give focus
+  back to the control that had it when they close.
 - Filters: Stabilize (ffmpeg deshake, per range, before the crop) and Smooth
   slow motion (at speeds below 1x, minterpolate makes in-between frames up to
   the source rate or the cap instead of repeating frames; slow to encode).

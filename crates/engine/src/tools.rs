@@ -35,6 +35,46 @@ pub fn command(program: &Path) -> Command {
 /// Kills `child` and the processes it started. yt-dlp starts ffmpeg, and a
 /// scoop shim (`scoop\shims\ffmpeg.exe`) starts the real program, so killing
 /// only the direct child can leave the worker running.
+/// Runs `cmd` like `Command::output`, but kills the process tree when it has
+/// not finished after `limit` (a probe of a file on a stalled network share
+/// would otherwise block forever).
+pub fn output_within(mut cmd: Command, limit: std::time::Duration, what: &str) -> Result<std::process::Output, String> {
+    use std::io::Read;
+    use std::process::Stdio;
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Cannot run {what}: {e}"))?;
+    let mut so = child.stdout.take().expect("piped stdout");
+    let mut se = child.stderr.take().expect("piped stderr");
+    let t_out = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = so.read_to_end(&mut b);
+        b
+    });
+    let t_err = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = se.read_to_end(&mut b);
+        b
+    });
+    let start = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(s)) => break s,
+            Ok(None) if start.elapsed() < limit => std::thread::sleep(std::time::Duration::from_millis(25)),
+            Ok(None) => {
+                kill_tree(&mut child);
+                let _ = child.wait();
+                return Err(format!("{what} did not finish within {} s.", limit.as_secs()));
+            }
+            Err(e) => return Err(format!("Waiting for {what} failed: {e}")),
+        }
+    };
+    Ok(std::process::Output { status, stdout: t_out.join().unwrap_or_default(), stderr: t_err.join().unwrap_or_default() })
+}
+
 pub fn kill_tree(child: &mut Child) {
     let pid = child.id().to_string();
     #[cfg(windows)]
@@ -104,7 +144,10 @@ fn find_one(name: &str, override_path: Option<&str>) -> Option<PathBuf> {
 }
 
 fn stdout_of(program: &Path, args: &[&str]) -> Option<String> {
-    let out = command(program).args(args).stderr(Stdio::null()).output().ok()?;
+    // a tool that hangs (a broken build, a stalled network drive) must not block start-up
+    let mut cmd = command(program);
+    cmd.args(args);
+    let out = output_within(cmd, std::time::Duration::from_secs(20), "tool check").ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 

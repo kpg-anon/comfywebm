@@ -402,7 +402,9 @@ pub fn export_frame(ffmpeg: &Path, info: &MediaInfo, time: f64, crop: Option<Cro
     args.extend(["-frames:v", "1", "-update", "1", "-c:v", "png", "-f", "image2"].iter().map(|s| s.to_string()));
     let part = naming::part_path(out);
     args.push(part.to_string_lossy().into_owned());
-    let res = command(ffmpeg).args(&args).stdout(Stdio::null()).output().map_err(|e| format!("Cannot run ffmpeg: {e}"))?;
+    let mut cmd = command(ffmpeg);
+    cmd.args(&args);
+    let res = crate::tools::output_within(cmd, std::time::Duration::from_secs(120), "ffmpeg (frame export)")?;
     if !res.status.success() || !part.is_file() {
         let _ = std::fs::remove_file(&part);
         let err = String::from_utf8_lossy(&res.stderr).trim().to_string();

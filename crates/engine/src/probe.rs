@@ -14,10 +14,9 @@ const TEXT_SUB_CODECS: &[&str] = &[
 
 pub fn probe(ffprobe: &Path, path: &str) -> Result<MediaInfo, String> {
     let meta = std::fs::metadata(path).map_err(|e| format!("Cannot read {path}: {e}"))?;
-    let out = command(ffprobe)
-        .args(["-v", "error", "-print_format", "json", "-show_format", "-show_streams", "-i", path])
-        .output()
-        .map_err(|e| format!("Cannot run ffprobe: {e}"))?;
+    let mut cmd = command(ffprobe);
+    cmd.args(["-v", "error", "-print_format", "json", "-show_format", "-show_streams", "-i", path]);
+    let out = crate::tools::output_within(cmd, std::time::Duration::from_secs(60), "ffprobe")?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
         return Err(if err.is_empty() { "ffprobe could not read the file.".into() } else { err });

@@ -1,12 +1,14 @@
 <script lang="ts">
   // Open URL (yt-dlp): look up, pick a quality and optionally a part, download,
-  // then open the downloaded file like a local one.
+  // then open the downloaded file like a local one. "Download only" keeps the
+  // original instead (best quality unless one was picked) and needs no look-up.
   import { onMount } from "svelte";
   import { app } from "$lib/state.svelte";
   import * as ipc from "$lib/ipc";
   import { fmtTime } from "$lib/time";
   import type { DownloadProgress, UrlInfo } from "$lib/types";
   import Icon from "./Icon.svelte";
+  import Select from "./Select.svelte";
   import TimeField from "./TimeField.svelte";
   import ToolsMissing from "./ToolsMissing.svelte";
 
@@ -19,6 +21,7 @@
   let partStart = $state(0);
   let partEnd = $state(0);
   let downloading = $state<string | null>(null); // the URL being downloaded
+  let keeping = $state(false); // the running download is "Download only"
   let progress = $state<DownloadProgress | null>(null);
   let thumbOk = $state(true);
   let lookedUp = ""; // the URL that `info` belongs to
@@ -54,19 +57,23 @@
     }
   }
 
-  async function download() {
+  async function download(keep = false) {
     const u = url.trim();
-    if (!info || downloading) return;
-    const section = partOn && partEnd > partStart ? { start: partStart, end: partEnd } : null;
+    if (!u || downloading || (!keep && !info)) return;
+    // quality and part apply only when they were chosen for this URL
+    const mine = !!info && lookedUp === u;
+    const section = mine && partOn && partEnd > partStart ? { start: partStart, end: partEnd } : null;
     downloading = u;
+    keeping = keep;
     progress = null;
     error = null;
-    const title = info.title;
+    const title = info?.title ?? "";
     try {
-      const path = await ipc.urlDownload(u, height, section);
+      const path = await ipc.urlDownload(u, mine ? height : null, section, keep);
       downloading = null;
       close();
-      if (await app.open(path)) app.title = title;
+      if (keep) app.notice = { text: `Downloaded: ${path}`, path };
+      else if (await app.open(path)) app.title = title;
     } catch (e) {
       // a cancel also ends here; the backend's message says so
       error = ipc.errText(e);
@@ -150,12 +157,12 @@
 
       <label class="row">
         <span>Quality</span>
-        <select class="field" bind:value={height} disabled={!!downloading}>
-          <option value={null}>Best available</option>
-          {#each info.heights as h (h)}
-            <option value={h}>Up to {h}p</option>
-          {/each}
-        </select>
+        <Select
+          label="Quality"
+          bind:value={height}
+          disabled={!!downloading}
+          options={[{ value: null, label: "Best available" }, ...info.heights.map((h) => ({ value: h as number | null, label: `Up to ${h}p` }))]}
+        />
       </label>
 
       <label class="check"><input type="checkbox" bind:checked={partOn} disabled={!!downloading} /> Only download part</label>
@@ -172,7 +179,7 @@
       <div class="progress">
         <div class="bar"><div style:width="{Math.round((progress?.fraction ?? 0) * 100)}%"></div></div>
         <div class="mono small muted">
-          {progress?.stage === "merge" ? "Merging audio and video..." : `${Math.round((progress?.fraction ?? 0) * 100)}%`}
+          {keeping ? "Downloading the original · " : ""}{progress?.stage === "merge" ? "Merging audio and video..." : `${Math.round((progress?.fraction ?? 0) * 100)}%`}
           {#if progress?.speed}· {progress.speed}{/if}
           {#if progress?.eta}· {progress.eta} left{/if}
         </div>
@@ -186,42 +193,26 @@
         <button class="btn danger" onclick={cancel}><Icon name="stop" size={12} />Cancel download</button>
       {:else}
         <button class="btn" onclick={close}>Close</button>
-        <button class="btn primary" disabled={!info || info.isLive || app.ytdlpMissing || (partOn && partEnd <= partStart)} onclick={download}>
-          <Icon name="download" size={14} />Download and open
+        <span class="grow"></span>
+        <button
+          class="btn"
+          disabled={!url.trim() || looking || !!info?.isLive || app.ytdlpMissing || (!!info && partOn && partEnd <= partStart)}
+          title="Save the original file and keep it. No look-up needed: without one, the best quality is downloaded."
+          onclick={() => download(true)}
+        >
+          <Icon name="download" size={14} />Download only
+        </button>
+        <button class="btn primary" disabled={!info || info.isLive || app.ytdlpMissing || (partOn && partEnd <= partStart)} onclick={() => download()}>
+          <Icon name="film" size={14} />Download and edit
         </button>
       {/if}
     </div>
     {#if info?.isLive}<div class="warn small">Live streams cannot be downloaded here.</div>{/if}
+    <div class="muted small">"Download only" saves the original to {app.settings.keepDir ?? "your Downloads folder"} (change it in Settings).</div>
   </div>
 </div>
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0, 0, 0, 0.55);
-  }
-  .dialog {
-    width: min(560px, calc(100vw - 40px));
-    max-height: calc(100vh - 40px);
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 16px 18px;
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    background: var(--bg-panel);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
-  }
-  h2 {
-    margin: 0;
-    font-size: 15px;
-  }
   .line {
     display: flex;
     gap: 6px;
@@ -261,8 +252,11 @@
     font-size: 12px;
     color: var(--text-secondary);
   }
-  .row select {
+  .row :global(.sel) {
     width: 200px;
+  }
+  .grow {
+    flex: 1;
   }
   .check {
     display: flex;

@@ -21,7 +21,7 @@
 <section>
   <button class="head" aria-expanded={!closed} onclick={toggle}>
     <span class="chev" class:closed><Icon name="chevron" size={12} /></span>
-    <span class="title">{title}</span>
+    <span class="title head-text">{title}</span>
     {#if note}<span class="note">{note}</span>{/if}
   </button>
   {#if !closed}
@@ -38,19 +38,16 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    height: 30px;
+    height: 32px;
     padding: 0;
+    color: inherit;
     border: 0;
     background: none;
     cursor: pointer;
     text-align: left;
   }
   .title {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: var(--text-secondary);
+    white-space: nowrap;
   }
   .note {
     margin-left: auto;

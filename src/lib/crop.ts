@@ -3,14 +3,34 @@ import type { Crop } from "./types";
 
 export type Handle = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
-export type AspectLock = "free" | "1:1" | "16:9" | "9:16" | "4:3" | "21:9";
-export const ASPECTS: AspectLock[] = ["free", "1:1", "16:9", "9:16", "4:3", "21:9"];
+/** "free", "W:H" (for example "16:9", "2.39:1") or a plain ratio ("1.85"). */
+export type AspectLock = string;
 
-/** width / height for a lock, or null for free. */
+/** Shown as buttons in the crop bar. */
+export const ASPECTS: AspectLock[] = ["free", "1:1", "16:9", "9:16", "4:3", "4:5"];
+
+/** Shown in the crop bar's "More" list, with what each is used for. */
+export const MORE_ASPECTS: { value: AspectLock; hint: string }[] = [
+  { value: "3:4", hint: "portrait 4:3" },
+  { value: "2:3", hint: "portrait photo" },
+  { value: "3:2", hint: "photo" },
+  { value: "5:4", hint: "old monitors" },
+  { value: "2:1", hint: "univisium" },
+  { value: "1.85:1", hint: "film, flat" },
+  { value: "2.39:1", hint: "film, scope" },
+  { value: "21:9", hint: "ultrawide" },
+  { value: "32:9", hint: "super ultrawide" },
+  { value: "9:21", hint: "tall ultrawide" },
+  { value: "1:2", hint: "tall" },
+];
+
+/** width / height for a lock, or null for free or text that is not a ratio. */
 export function ratioOf(a: AspectLock): number | null {
-  if (a === "free") return null;
-  const [w, h] = a.split(":").map(Number);
-  return w / h;
+  const t = a.trim().toLowerCase().replace(/\s+/g, "");
+  if (!t || t === "free") return null;
+  const parts = t.split(/[:x/]/);
+  const r = parts.length === 2 ? Number(parts[0]) / Number(parts[1]) : parts.length === 1 ? Number(parts[0]) : NaN;
+  return Number.isFinite(r) && r > 0.05 && r < 20 ? r : null;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));

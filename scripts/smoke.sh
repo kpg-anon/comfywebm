@@ -167,8 +167,10 @@ else fail_run deinterlace_denoise; fi
 spec speed2 '{"speed":2,"audio":{"track":0,"bitrateK":64,"volumeDb":0,"normalize":false}}'
 if run speed2 webm; then
   d=$(val "$info" duration)
-  ok=0; near "$d" 1.5 0.15 && [ "$(probe "$out" | grep -c 'codec_type=audio')" = 1 ] && ok=1
-  report speed_2x_audio $ok "duration=$d"
+  # every frame kept: 3 s of 30 fps at 2x is about 90 frames at 60 fps (1.0 kept 30 fps and dropped half)
+  frames=$(ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames -of csv=p=0 "$out" | tr -d ' ')
+  ok=0; near "$d" 1.5 0.15 && near "${frames:-0}" 90 3 && [ "$(probe "$out" | grep -c 'codec_type=audio')" = 1 ] && ok=1
+  report speed_2x_audio $ok "duration=$d frames=$frames"
 else fail_run speed_2x_audio; fi
 
 # 12. tone mapping of an HDR-tagged clip

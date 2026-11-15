@@ -1,5 +1,6 @@
 mod queue;
 mod state;
+mod winstate;
 
 use comfywebm_engine::run::{self, Cancel, RunError};
 use comfywebm_engine::{
@@ -174,11 +175,23 @@ async fn url_info(app: AppHandle, url: String) -> Result<UrlInfo, String> {
 }
 
 #[tauri::command]
-async fn url_download(app: AppHandle, url: String, max_height: Option<u32>, section: Option<Segment>) -> Result<String, String> {
+/// `keep`: "Download only". The file goes to the keep folder (Settings, else
+/// the user's Downloads folder) in its own container where one fits, instead
+/// of an MKV in the download folder.
+async fn url_download(app: AppHandle, url: String, max_height: Option<u32>, section: Option<Segment>, keep: Option<bool>) -> Result<String, String> {
     blocking(move || {
         let state = app.state::<AppState>();
         let ytdlp = state.ytdlp()?;
         let ffmpeg = state.ffmpeg()?;
+        let keep = keep.unwrap_or(false);
+        let dir = if keep {
+            match state.settings().keep_dir.map(|d| d.trim().to_string()).filter(|d| !d.is_empty()) {
+                Some(d) => std::path::PathBuf::from(d),
+                None => app.path().download_dir().map_err(|e| format!("Cannot find the Downloads folder: {e}. Set one in Settings."))?,
+            }
+        } else {
+            state.download_dir()
+        };
         let cancel = Arc::new(Cancel::new());
         let downloads = app.state::<Downloads>();
         {
@@ -192,9 +205,10 @@ async fn url_download(app: AppHandle, url: String, max_height: Option<u32>, sect
             &ytdlp,
             &ffmpeg,
             &url,
-            &state.download_dir(),
+            &dir,
             max_height,
             section,
+            if keep { "mp4/webm/mkv" } else { "mkv" },
             &state.settings().ytdlp_args,
             &cancel,
             |p| {
@@ -290,6 +304,9 @@ pub fn run() {
         .setup(|app| {
             let config_dir = app.path().app_config_dir()?;
             let cache_dir = app.path().app_cache_dir()?;
+            if let Some(win) = app.get_webview_window("main") {
+                winstate::install(&win, config_dir.join("window.json"));
+            }
             app.manage(AppState::new(config_dir, cache_dir));
             queue::spawn_worker(app.handle().clone());
             Ok(())

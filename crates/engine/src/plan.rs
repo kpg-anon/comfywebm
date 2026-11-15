@@ -74,21 +74,42 @@ pub fn cpu_threads() -> usize {
 /// Lowest video bitrate ever passed to the encoder.
 const MIN_VIDEO_KBPS: f64 = 8.0;
 
-/// Size mode: `(maxBytes * 8 / 1000 / durationOut - audioKbps) * 0.97`.
+/// Size mode, first attempt: `(maxBytes * 8 / 1000 / durationOut - audioKbps) * 0.985`.
+/// The 1.5% margin covers container overhead and encoder overshoot; the
+/// retries in run.rs fill the rest of the limit.
 pub fn size_video_kbps(max_bytes: f64, duration_out: f64, audio_kbps: f64) -> f64 {
     let total_kbps = max_bytes * 8.0 / 1000.0 / duration_out;
-    (total_kbps - audio_kbps) * 0.97
+    (total_kbps - audio_kbps) * 0.985
 }
 
-/// Next attempt after an output of `actual_bytes` overshot `max_bytes`.
-pub fn retry_video_kbps(prev_kbps: f64, max_bytes: f64, actual_bytes: f64) -> f64 {
-    prev_kbps * (max_bytes / actual_bytes) * 0.98
-}
+/// Size mode retries aim the file at this share of the limit.
+pub const FILL_TARGET: f64 = 0.99;
+/// An output at or above this share of the limit (and not over it) ends the retries.
+pub const FILL_ACCEPT: f64 = 0.98;
 
-/// Next attempt after an output landed under 88% of `max_bytes`: scaled up
-/// with a 0.97 margin, at most twice the previous bitrate.
-pub fn undershoot_video_kbps(prev_kbps: f64, max_bytes: f64, actual_bytes: f64) -> f64 {
-    (prev_kbps * (max_bytes / actual_bytes) * 0.97).min(prev_kbps * 2.0)
+/// Video bitrate for the next size-mode attempt, from every earlier attempt
+/// as (video kbps, output bytes), so the file lands at `FILL_TARGET` of
+/// `max_bytes`.
+///
+/// When one earlier attempt is under the limit and one is over, the bitrate is
+/// interpolated between the closest pair (file size is close to linear in the
+/// bitrate over a small range). Otherwise the last attempt is scaled by
+/// target/actual. Never more than twice, or less than half, the last bitrate,
+/// and never outside a bracketing pair.
+pub fn next_video_kbps(history: &[(f64, u64)], max_bytes: f64) -> f64 {
+    let target = max_bytes * FILL_TARGET;
+    let &(k, s) = history.last().expect("at least one attempt");
+    let s = s as f64;
+    let under = history.iter().filter(|(_, b)| (*b as f64) <= max_bytes).max_by(|a, b| a.1.cmp(&b.1)).copied();
+    let over = history.iter().filter(|(_, b)| (*b as f64) > max_bytes).min_by(|a, b| a.1.cmp(&b.1)).copied();
+    if let (Some((ku, su)), Some((ko, so))) = (under, over) {
+        let (su, so) = (su as f64, so as f64);
+        if so > su && ko > ku {
+            let t = ((target - su) / (so - su)).clamp(0.0, 1.0);
+            return ku + (ko - ku) * t;
+        }
+    }
+    (k * target / s).clamp(k * 0.5, k * 2.0)
 }
 
 /// Bits per pixel below which a codec's picture visibly breaks down.
@@ -604,7 +625,11 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     let vpost = video_post(&PostFilters {
         scale: ((g.out_w, g.out_h) != (g.rot_w, g.rot_h)).then_some((g.out_w, g.out_h)),
         speed,
-        fps: fps_cap,
+        // After setpts the filter graph still reports the source rate, and
+        // ffmpeg then writes the file at that rate: 1.5x of 30 fps kept 2 of
+        // every 3 frames at 30 fps instead of all of them at 45 fps. Naming
+        // the new rate keeps every frame (they already sit on its grid).
+        fps: fps_cap.or(((speed - 1.0).abs() > 1e-9 && src_fps_out > 0.0).then_some(src_fps_out)),
         playback: spec.playback,
         fade_in: spec.fade_in.max(0.0),
         fade_out: spec.fade_out.max(0.0),
@@ -914,14 +939,22 @@ mod tests {
 
     #[test]
     fn bitrate_math() {
-        // 4194304 bytes over 60 s: 559.24 kbps total, minus 64 audio, times 0.97
+        // 4194304 bytes over 60 s: 559.24 kbps total, minus 64 audio, times 0.985
         let k = size_video_kbps(4_194_304.0, 60.0, 64.0);
-        assert!((k - 480.39).abs() < 0.01);
-        let r = retry_video_kbps(500.0, 1000.0, 1100.0);
-        assert!((r - 500.0 * (1000.0 / 1100.0) * 0.98).abs() < 1e-9);
-        // undershoot: scaled up with 0.97, capped at 2x
-        assert!((undershoot_video_kbps(500.0, 1000.0, 800.0) - 500.0 * 1.25 * 0.97).abs() < 1e-9);
-        assert_eq!(undershoot_video_kbps(500.0, 1000.0, 300.0), 1000.0);
+        assert!((k - 487.81).abs() < 0.01);
+        // one attempt: scale toward 99% of the limit
+        let r = next_video_kbps(&[(500.0, 1100)], 1000.0);
+        assert!((r - 500.0 * 990.0 / 1100.0).abs() < 1e-9);
+        let r = next_video_kbps(&[(500.0, 970)], 1000.0);
+        assert!((r - 500.0 * 990.0 / 970.0).abs() < 1e-9);
+        // at most 2x up
+        assert_eq!(next_video_kbps(&[(500.0, 300)], 1000.0), 1000.0);
+        // a bracketing pair: interpolate between them
+        let r = next_video_kbps(&[(500.0, 960), (520.0, 1010)], 1000.0);
+        assert!((r - (500.0 + 20.0 * (30.0 / 50.0))).abs() < 1e-9);
+        // the closest pair is used
+        let r = next_video_kbps(&[(400.0, 800), (600.0, 1200), (500.0, 960), (520.0, 1010)], 1000.0);
+        assert!((r - 512.0).abs() < 1e-9);
     }
 
     #[test]
@@ -980,8 +1013,8 @@ mod tests {
     fn size_mode_args() {
         let p = build(&spec(Rate::Size { max_bytes: 300_000.0 }), &media(), &opts()).unwrap();
         assert_eq!(p.passes.len(), 2);
-        // 300000*8/1000/4 = 600; (600-64)*0.97 = 519.92
-        assert_eq!(p.video_kbps.unwrap().round(), 520.0);
+        // 300000*8/1000/4 = 600; (600-64)*0.985 = 527.96
+        assert_eq!(p.video_kbps.unwrap().round(), 528.0);
         let vp9 = "-c:v libvpx-vp9 -row-mt 1 -tile-columns 2 -frame-parallel 0 -deadline good";
         let head = format!("-hide_banner -y -ss 10 -t 4 -i in.mp4");
         let tags = "-colorspace bt709 -color_primaries bt709 -color_trc bt709";
@@ -989,14 +1022,14 @@ mod tests {
             strs(&p.passes[0]).join(" "),
             format!(
                 "{head} -map 0:0 -vf setpts=PTS-STARTPTS,{TAGS} -pix_fmt yuv420p {vp9} -cpu-used 4 -auto-alt-ref 1 -lag-in-frames 25 \
-                 -b:v 520k -threads 8 -pass 1 -passlogfile log {tags} -an -f null -"
+                 -b:v 528k -threads 8 -pass 1 -passlogfile log {tags} -an -f null -"
             )
         );
         assert_eq!(
             strs(&p.passes[1]).join(" "),
             format!(
                 "{head} -map 0:0 -map 0:a:0 -vf setpts=PTS-STARTPTS,{TAGS} -af asetpts=PTS-STARTPTS -pix_fmt yuv420p {vp9} -cpu-used 2 -auto-alt-ref 1 \
-                 -lag-in-frames 25 -b:v 520k -threads 8 -pass 2 -passlogfile log {tags} -c:a libopus -b:a 64k -ac 2 \
+                 -lag-in-frames 25 -b:v 528k -threads 8 -pass 2 -passlogfile log {tags} -c:a libopus -b:a 64k -ac 2 \
                  -map_metadata -1 -map_chapters -1 -sn -f webm out.webm"
             )
         );
@@ -1082,13 +1115,39 @@ mod tests {
         let at = s.find("-pix_fmt").unwrap();
         assert_eq!(
             &s[at..],
-            "-pix_fmt yuv420p -c:v libx264 -profile:v high -preset fast -b:v 3818k -threads 8 -pass 2 \
+            "-pix_fmt yuv420p -c:v libx264 -profile:v high -preset fast -b:v 3877k -threads 8 -pass 2 \
              -passlogfile log -colorspace bt709 -color_primaries bt709 -color_trc bt709 -c:a aac -b:a 64k -ac 2 \
              -map_metadata -1 -map_chapters -1 -sn -movflags +faststart -f mp4 out.mp4"
         );
         // VP9 in MP4 is refused
         sp.codec = Codec::Vp9;
         assert!(build(&sp, &media(), &opts()).is_err());
+    }
+
+    #[test]
+    fn speed_sets_output_rate() {
+        let crf = Rate::Crf { crf: 30.0, max_bitrate_k: None };
+        let vf = |sp: &EncodeSpec| {
+            let p = build(sp, &media(), &opts()).unwrap();
+            let a = p.passes.last().unwrap().clone();
+            let i = a.iter().position(|x| x == "-vf" || x == "-filter_complex").unwrap();
+            a[i + 1].clone()
+        };
+        // 30 fps at 1.5x: every frame kept at 45 fps
+        let mut sp = spec(crf);
+        sp.speed = 1.5;
+        assert!(vf(&sp).contains("setpts=PTS/1.5,fps=45"), "{}", vf(&sp));
+        // 0.5x: 15 fps
+        sp.speed = 0.5;
+        assert!(vf(&sp).contains("setpts=PTS/0.5,fps=15"), "{}", vf(&sp));
+        // a cap below the new rate wins
+        sp.speed = 2.0;
+        sp.fps = Some(30.0);
+        assert!(vf(&sp).contains("setpts=PTS/2,fps=30"), "{}", vf(&sp));
+        // normal speed: no fps filter
+        sp.speed = 1.0;
+        sp.fps = None;
+        assert!(!vf(&sp).contains("fps="), "{}", vf(&sp));
     }
 
     #[test]

@@ -1,7 +1,8 @@
 // The IPC contract from PLAN.md (Contract v2 in Amendment 2). Field names are
 // camelCase on both sides.
 
-export type Segment = { start: number; end: number }; // seconds on the source timeline
+// seconds on the source timeline; `id` is frontend-only (output order) and is not sent
+export type Segment = { start: number; end: number; id?: number };
 
 export type MediaInfo = {
   path: string;
@@ -120,6 +121,7 @@ export type Settings = {
   ytdlpPath: string | null;
   ytdlpArgs: string[];
   downloadDir: string | null;
+  keepDir: string | null; // "Download only" saves here; null = the user's Downloads folder
   outputDir: string | null;
   nameTemplate: string;
   lastPreset: string | null;

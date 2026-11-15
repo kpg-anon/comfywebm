@@ -20,7 +20,7 @@
   }}
 >
   <div
-    class="dialog"
+    class="dialog wide"
     role="dialog"
     aria-modal="true"
     aria-labelledby="sample-title"
@@ -57,30 +57,9 @@
 </div>
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0, 0, 0, 0.6);
-  }
-  .dialog {
+  .wide {
     width: min(820px, calc(100vw - 40px));
-    max-height: calc(100vh - 40px);
-    display: flex;
-    flex-direction: column;
     gap: 10px;
-    padding: 14px 16px;
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    background: var(--bg-panel);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
-  }
-  h2 {
-    margin: 0;
-    font-size: 15px;
   }
   video {
     width: 100%;

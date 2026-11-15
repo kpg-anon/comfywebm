@@ -1,6 +1,15 @@
 <script lang="ts">
-  import { app, splitArgs } from "$lib/state.svelte";
+  import { app, splitArgs, REFRESH_RATES } from "$lib/state.svelte";
   import { pickAnyFile, pickFolder } from "$lib/dialogs";
+  import { THEMES, applyTheme, storedTheme } from "$lib/themes";
+  import Select from "./Select.svelte";
+
+  // appearance applies at once and is kept per machine (not part of Save)
+  let theme = $state(storedTheme());
+  function pickTheme(id: string) {
+    theme = id;
+    applyTheme(id);
+  }
 
   // edit a copy; nothing is saved until Save
   let ffmpegPath = $state(app.settings.ffmpegPath ?? "");
@@ -8,14 +17,12 @@
   let ytdlpPath = $state(app.settings.ytdlpPath ?? "");
   let ytdlpArgs = $state(app.settings.ytdlpArgs.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" "));
   let downloadDir = $state(app.settings.downloadDir ?? "");
+  let keepDir = $state(app.settings.keepDir ?? "");
   let nameTemplate = $state(app.settings.nameTemplate);
   let msg = $state<string | null>(null);
   let saving = $state(false);
-  let first: HTMLInputElement;
 
-  $effect(() => {
-    first?.focus();
-  });
+
 
   async function save() {
     saving = true;
@@ -26,6 +33,7 @@
       ytdlpPath: ytdlpPath.trim() || null,
       ytdlpArgs: splitArgs(ytdlpArgs),
       downloadDir: downloadDir.trim() || null,
+      keepDir: keepDir.trim() || null,
       nameTemplate: nameTemplate.trim() || "{name}_{start}-{end}",
     });
     saving = false;
@@ -65,10 +73,36 @@
   >
     <h2 id="settings-title">Settings</h2>
 
+    <div class="col">
+      <span>Theme</span>
+      <div class="themes" role="radiogroup" aria-label="Theme">
+        {#each THEMES as t (t.id)}
+          <button class="theme" class:on={theme === t.id} role="radio" aria-checked={theme === t.id} onclick={() => pickTheme(t.id)}>
+            <span class="sw">{#each t.swatches as c (c)}<i style:background={c}></i>{/each}</span>
+            <span class="tname">{t.name}</span>
+            <span class="twhat">{t.what}</span>
+          </button>
+        {/each}
+      </div>
+    </div>
+
+    <div class="col">
+      <span>Display refresh rate</span>
+      <div class="line">
+        <Select
+          label="Display refresh rate"
+          value={app.refreshHz}
+          onchange={(v) => app.setRefreshHz(v)}
+          options={REFRESH_RATES.map((r) => ({ value: r, label: `${r} Hz` }))}
+        />
+      </div>
+      <span class="hint">The speed and frame rate controls check that the output plays evenly at this rate. Most screens are 60 Hz.</span>
+    </div>
+
     <label class="col">
       <span>ffmpeg location</span>
       <div class="line">
-        <input bind:this={first} class="field mono" type="text" spellcheck="false" placeholder="Automatic: beside the app, then PATH" bind:value={ffmpegPath} />
+        <input class="field mono" type="text" spellcheck="false" placeholder="Automatic: beside the app, then PATH" bind:value={ffmpegPath} />
         <button class="btn small" onclick={async () => { const d = await pickFolder("Folder with ffmpeg and ffprobe"); if (d) ffmpegPath = d; }}>Folder</button>
         <button class="btn small" onclick={async () => { const f = await pickAnyFile("ffmpeg executable"); if (f) ffmpegPath = f; }}>File</button>
       </div>
@@ -113,11 +147,20 @@
     </label>
 
     <label class="col">
-      <span>Download folder</span>
+      <span>Download folder (for editing)</span>
       <div class="line">
         <input class="field mono" type="text" spellcheck="false" placeholder="The app's cache folder" bind:value={downloadDir} />
         <button class="btn small" onclick={async () => { const d = await pickFolder("Download folder"); if (d) downloadDir = d; }}>Choose</button>
       </div>
+    </label>
+
+    <label class="col">
+      <span>"Download only" folder</span>
+      <div class="line">
+        <input class="field mono" type="text" spellcheck="false" placeholder="Your Downloads folder" bind:value={keepDir} />
+        <button class="btn small" onclick={async () => { const d = await pickFolder("Folder for kept downloads"); if (d) keepDir = d; }}>Choose</button>
+      </div>
+      <span class="hint">Where the Open URL dialog's "Download only" keeps originals. The download folder above holds files opened for editing.</span>
     </label>
 
     <label class="col">
@@ -131,7 +174,7 @@
     <label class="col">
       <span>File name template</span>
       <input class="field mono" type="text" spellcheck="false" bind:value={nameTemplate} />
-      <span class="hint">Tokens: <code>{"{name}"}</code> <code>{"{start}"}</code> <code>{"{end}"}</code> <code>{"{codec}"}</code> <code>{"{height}"}</code> <code>{"{date}"}</code>. The .webm extension is added. Existing files are never overwritten.</span>
+      <span class="hint">Tokens: <code>{"{name}"}</code> <code>{"{start}"}</code> <code>{"{end}"}</code> <code>{"{codec}"}</code> <code>{"{height}"}</code> <code>{"{date}"}</code>. The extension (.webm or .mp4) is added. Existing files are never overwritten.</span>
     </label>
 
     {#if msg}<div class="err">{msg}</div>{/if}
@@ -144,32 +187,6 @@
 </div>
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0, 0, 0, 0.55);
-  }
-  .dialog {
-    width: min(560px, calc(100vw - 40px));
-    max-height: calc(100vh - 40px);
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    padding: 16px 18px;
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    background: var(--bg-panel);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
-  }
-  h2 {
-    margin: 0;
-    font-size: 15px;
-  }
   .col {
     display: flex;
     flex-direction: column;
@@ -184,10 +201,62 @@
   }
   .line input {
     flex: 1;
-    height: 28px;
+    height: var(--ctl-h);
+  }
+  .line :global(.sel) {
+    width: 140px;
+    height: var(--ctl-h);
+  }
+  .themes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .theme {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto;
+    column-gap: 8px;
+    align-items: center;
+    padding: 7px 9px;
+    border: var(--bw) solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-chip);
+    color: var(--text-secondary);
+    text-align: left;
+    cursor: pointer;
+  }
+  .theme:hover {
+    background: var(--bg-hover);
+  }
+  .theme.on {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+    color: var(--text-primary);
+  }
+  .sw {
+    grid-row: span 2;
+    display: grid;
+    grid-template-columns: 9px 9px;
+    gap: 2px;
+  }
+  .sw i {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.35);
+  }
+  .tname {
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .twhat {
+    font-size: 10.5px;
+    font-weight: 400;
+    color: var(--text-muted);
   }
   .col > input {
-    height: 28px;
+    height: var(--ctl-h);
   }
   .hint {
     font-weight: 400;

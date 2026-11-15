@@ -6,6 +6,8 @@ import { AUDIO_LABEL, BUILTIN_PRESETS, CODECS_BY_CONTAINER, CRF_RANGE, DEFAULT_P
 import { fitRatio, isFull, move, ratioOf, round, type AspectLock } from "./crop";
 import * as seg from "./segments";
 import { fmtTime } from "./time";
+import { motionWarnings } from "./motion";
+import { exactBox, percentBox, stepBox, withLimit, type Box, type ResMode } from "./resolution";
 import type {
   Codec,
   Container,
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ytdlpPath: null,
   ytdlpArgs: [],
   downloadDir: null,
+  keepDir: null,
   outputDir: null,
   nameTemplate: "{name}_{start}-{end}",
   lastPreset: null,
@@ -59,7 +62,19 @@ const REMEMBERED = [
   "presetName", "container", "codec", "rateMode", "maxBytes", "crf", "maxBitrateK", "autoScale",
   "maxWidth", "maxHeight", "fps", "speed", "playback", "denoise", "fadeIn", "fadeOut", "effort",
   "twoPass", "audioOn", "audioBitrateK", "volumeDb", "normalize", "separate", "aspect",
+  "resMode", "resStep", "resPct", "exactEdge", "exactVal",
 ] as const;
+
+/** Display refresh rates offered for the motion check. */
+export const REFRESH_RATES = [50, 60, 75, 90, 100, 120, 144, 165, 240];
+
+/** One undo step: ranges, output order, selected range, crop. */
+type EditSnap = { segments: Segment[]; order: number[] | null; sel: number; crop: Crop | null };
+
+function loadRecent(): string[] {
+  const r = load<unknown>("recent");
+  return Array.isArray(r) ? r.filter((p): p is string => typeof p === "string").slice(0, 10) : [];
+}
 
 export type SampleState = {
   busy: boolean;
@@ -76,8 +91,17 @@ class AppState {
   settings = $state<Settings>({ ...DEFAULT_SETTINGS });
   jobs = $state<Job[]>([]);
   settingsOpen = $state(false);
+  keysOpen = $state(false);
+  /** Recently opened files, newest first (localStorage, per machine). */
+  recent = $state<string[]>(loadRecent());
   ready = $state(false); // init() has loaded settings and restored the remembered options
-  queueOpen = $state(true);
+  /** Jobs running or waiting. */
+  activeJobs = $derived(this.jobs.filter((j) => j.status === "running" || j.status === "pending").length);
+  runningJob = $derived(this.jobs.find((j) => j.status === "running") ?? null);
+  /** Left side: the editor (player and timeline) or the queue. */
+  view = $state<"editor" | "queue">("editor");
+  /** Jobs that finished while the queue was not shown; cleared when it is. */
+  unseen = $state({ done: 0, failed: 0 });
   urlOpen = $state(false);
   urlInitial = $state("");
   sample = $state<SampleState | null>(null);
@@ -101,10 +125,16 @@ class AppState {
   loop = $state(false);
   private loopTouched = false;
 
-  // ranges on the source timeline; empty = whole file
+  // ranges on the source timeline, sorted by start; empty = whole file
   segments = $state<Segment[]>([]);
   sel = $state(-1); // index of the selected range
   separate = $state(false); // each range as its own job
+  /** Output order as range ids, once the edit strip has reordered them. */
+  order = $state<number[] | null>(null);
+  private nextSegId = 1;
+  /** Play the ranges one after another in output order. */
+  playEdit = $state(false);
+  private editIdx = 0;
 
   // crop, in source display pixels before rotate
   cropMode = $state(false);
@@ -120,8 +150,19 @@ class AppState {
   crf = $state(30);
   maxBitrateK = $state<number | null>(null);
   autoScale = $state(true);
+  // the preset's picture limit
   maxWidth = $state<number | null>(2048);
   maxHeight = $state<number | null>(2048);
+  // output size: auto (size mode picks), source, a long-edge step, a percentage, or one exact edge
+  resMode = $state<ResMode>("auto");
+  resStep = $state(1280);
+  resPct = $state(50);
+  exactEdge = $state<"w" | "h">("w");
+  exactVal = $state(1280);
+  /** Refresh rate of the display the output is meant for; a per-machine preference. */
+  refreshHz = $state(load<number>("refreshHz") ?? 60);
+  /** Sidebar tab. */
+  tab = $state<"basic" | "advanced">(load<string>("tab") === "advanced" ? "advanced" : "basic");
   fps = $state<number | null>(null);
   speed = $state(1);
   playback = $state<Playback>("forward");
@@ -146,6 +187,14 @@ class AppState {
   extraArgs = $state("");
   outputName = $state("");
 
+  // undo/redo of ranges, output order and crop; see noteEdit()
+  private past: EditSnap[] = [];
+  private future: EditSnap[] = [];
+  private committed: EditSnap | null = null;
+  private restoring = false;
+  canUndo = $state(false);
+  canRedo = $state(false);
+
   // plan result
   plan = $state<PlanInfo | null>(null);
   planError = $state<string | null>(null);
@@ -157,6 +206,17 @@ class AppState {
   fpsSrc = $derived(this.media && this.media.video.fps > 0 ? this.media.video.fps : 30);
   minLen = $derived(1 / this.fpsSrc);
   hasRange = $derived(this.segments.length > 0);
+  /** Ranges in output order (the order they are joined in). */
+  outSegments = $derived.by((): Segment[] => {
+    const o = this.order;
+    if (!o) return this.segments;
+    const byId = new Map(this.segments.map((s) => [s.id, s]));
+    const list = o.map((id) => byId.get(id)).filter((s): s is Segment => !!s);
+    // ranges added after the reorder go at the end
+    for (const s of this.segments) if (!list.includes(s)) list.push(s);
+    return list;
+  });
+  reordered = $derived(this.outSegments.some((s, i) => s !== this.segments[i]));
   selSeg = $derived<Segment | null>(this.segments[this.sel] ?? null);
   /** The selected range, or the whole file. */
   start = $derived(this.selSeg?.start ?? 0);
@@ -178,7 +238,17 @@ class AppState {
   audioCodecName = $derived(AUDIO_LABEL[this.audioCodec]);
   crfRange = $derived(CRF_RANGE[this.codec]);
 
-  spec = $derived.by((): EncodeSpec | null => (this.media ? this.specFor(this.media, this.segments, true) : null));
+  /** The picture size before scaling: crop, then rotate. */
+  baseW = $derived.by(() => this.baseSize()[0]);
+  baseH = $derived.by(() => this.baseSize()[1]);
+  /** Frame rate of the output (source fps x speed, or the cap). */
+  outFps = $derived.by(() => {
+    const r = this.fpsSrc * (this.speed || 1);
+    return this.fps && this.fps > 0 && this.fps < r - 0.01 ? this.fps : r;
+  });
+  motionIssues = $derived(this.media ? motionWarnings(this.fpsSrc, this.speed || 1, numOrNull(this.fps), this.refreshHz) : []);
+
+  spec = $derived.by((): EncodeSpec | null => (this.media ? this.specFor(this.media, this.outSegments, true) : null));
 
   /** Warnings the UI adds on top of the ones from `plan`. */
   uiWarnings = $derived.by((): string[] => {
@@ -196,6 +266,7 @@ class AppState {
     if (this.media && this.clipLen <= 0) w.push("The selected ranges are empty.");
     if (this.rateMode === "size" && !(this.maxBytes > 0)) w.push("Set a size limit above 0.");
     if (this.subsKind === "file" && !this.subsFile) w.push("Choose a subtitle file, or turn subtitles off.");
+    w.push(...this.motionIssues);
     return w;
   });
 
@@ -215,6 +286,7 @@ class AppState {
       else if (this.subsKind === "file" && this.subsFile) subs = { kind: "file", path: this.subsFile };
     }
     const track = own ? this.audioTrack : (m.audio[0]?.track ?? 0);
+    const box = this.boxFor(m, own);
     const audioOk = this.audioOn && m.audio.some((a) => a.track === track);
     return {
       input: m.path,
@@ -222,9 +294,9 @@ class AppState {
       crop: own && this.crop ? { ...this.crop } : null,
       rotate: this.rotate,
       mirror: this.mirror,
-      maxWidth: intOrNull(this.maxWidth),
-      maxHeight: intOrNull(this.maxHeight),
-      autoScale: this.rateMode === "size" && this.autoScale,
+      maxWidth: intOrNull(box.w),
+      maxHeight: intOrNull(box.h),
+      autoScale: this.rateMode === "size" && this.resMode === "auto",
       fps: numOrNull(this.fps),
       speed: this.speed,
       playback: this.playback,
@@ -249,6 +321,126 @@ class AppState {
     };
   }
 
+  // ---------- undo ----------
+
+  /** The edit state as text; a change in it is an edit. The selection alone is not. */
+  editKey(): string {
+    return JSON.stringify([this.segments, this.order, this.crop]);
+  }
+
+  private snap(): EditSnap {
+    return $state.snapshot({ segments: this.segments, order: this.order, sel: this.sel, crop: this.crop }) as EditSnap;
+  }
+
+  private static key(s: EditSnap): string {
+    return JSON.stringify([s.segments, s.order, s.crop]);
+  }
+
+  /**
+   * Called a moment after the edit state stops changing (+page.svelte), so a
+   * drag becomes one step. Records the previous state as an undo step.
+   */
+  noteEdit() {
+    const now = this.snap();
+    if (this.restoring) {
+      this.restoring = false;
+    } else if (this.committed && AppState.key(this.committed) !== AppState.key(now)) {
+      this.past.push(this.committed);
+      if (this.past.length > 200) this.past.shift();
+      this.future = [];
+    }
+    this.committed = now;
+    this.canUndo = this.past.length > 0;
+    this.canRedo = this.future.length > 0;
+  }
+
+  private restore(s: EditSnap) {
+    this.restoring = true;
+    this.segments = s.segments;
+    this.order = s.order;
+    this.sel = Math.min(s.sel, s.segments.length - 1);
+    this.crop = s.crop;
+    this.committed = s;
+  }
+
+  undo() {
+    if (!this.media) return;
+    this.noteEdit(); // an edit still waiting for its pause counts first
+    const s = this.past.pop();
+    if (!s) return;
+    this.future.push(this.snap());
+    this.restore(s);
+    this.canUndo = this.past.length > 0;
+    this.canRedo = true;
+  }
+
+  redo() {
+    if (!this.media) return;
+    this.noteEdit();
+    const s = this.future.pop();
+    if (!s) return;
+    this.past.push(this.snap());
+    this.restore(s);
+    this.canUndo = true;
+    this.canRedo = this.future.length > 0;
+  }
+
+  private resetHistory() {
+    this.past = [];
+    this.future = [];
+    this.committed = null;
+    this.restoring = false;
+    this.canUndo = false;
+    this.canRedo = false;
+  }
+
+  /** Picture size after crop and rotate for a source (`own`: the open file, with its crop). */
+  private baseSize(m: MediaInfo | null = this.media, own = true): [number, number] {
+    if (!m) return [0, 0];
+    let w = m.video.width;
+    let h = m.video.height;
+    if (own && this.crop) [w, h] = [this.crop.w, this.crop.h];
+    return this.rotate === 90 || this.rotate === 270 ? [h, w] : [w, h];
+  }
+
+  /** The box the output is fitted in: the size mode's box within the preset's limit. */
+  boxFor(m: MediaInfo, own: boolean): Box {
+    const limit: Box = { w: intOrNull(this.maxWidth), h: intOrNull(this.maxHeight) };
+    const [w, h] = this.baseSize(m, own);
+    if (!w || !h) return limit;
+    switch (this.resMode) {
+      case "step":
+        return withLimit(stepBox(w, h, this.resStep), limit);
+      case "percent":
+        return withLimit(percentBox(w, h, this.resPct), limit);
+      case "exact":
+        return this.exactVal > 0 ? withLimit(exactBox(this.exactEdge, this.exactVal), limit) : limit;
+      default:
+        return limit;
+    }
+  }
+
+  private remember(path: string) {
+    const same = (p: string) => p.replace(/\\/g, "/").toLowerCase() === path.replace(/\\/g, "/").toLowerCase();
+    this.recent = [path, ...this.recent.filter((p) => !same(p))].slice(0, 10);
+    save("recent", this.recent);
+  }
+
+  forgetRecent(path: string) {
+    this.recent = this.recent.filter((p) => p !== path);
+    save("recent", this.recent);
+  }
+
+  setRefreshHz(hz: number) {
+    this.refreshHz = hz;
+    save("refreshHz", hz);
+  }
+
+  setTab(t: "basic" | "advanced") {
+    this.tab = t;
+    save("tab", t);
+  }
+
   // ---------- startup and remembered options ----------
 
   async init() {
@@ -258,7 +450,6 @@ class AppState {
     if (settings.status === "fulfilled") this.settings = { ...DEFAULT_SETTINGS, ...settings.value };
     else this.error = ipc.errText(settings.reason);
     if (jobs.status === "fulfilled") this.mergeJobs(jobs.value);
-    this.queueOpen = this.jobs.length > 0;
     const last = this.settings.lastPreset;
     this.applyPreset(last && this.presets.some((p) => p.name === last) ? last : DEFAULT_PRESET, false);
     this.restoreOptions();
@@ -322,6 +513,9 @@ class AppState {
       this.paused = true;
       this.segments = [];
       this.sel = -1;
+      this.order = null;
+      this.playEdit = false;
+      this.resetHistory();
       this.loop = false;
       this.loopTouched = false;
       this.crop = null;
@@ -340,6 +534,7 @@ class AppState {
       this.subsFile = null;
       this.outputName = "";
       this.title = "";
+      this.remember(path);
       return true;
     } catch (e) {
       this.error = `Could not open ${path}: ${ipc.errText(e)}`;
@@ -372,8 +567,8 @@ class AppState {
       try {
         const jobs = await ipc.queueAddMany(specs, false);
         for (const j of jobs) if (!this.jobs.some((x) => x.id === j.id)) this.jobs.push(j);
-        this.queueOpen = true;
-        this.notice = { text: `Added ${jobs.length} files to the queue. Press Start in the queue to encode them.`, path: null };
+        this.setView("queue");
+        this.notice = { text: `Added ${jobs.length} files to the queue. Press Start to encode them.`, path: null };
       } catch (e) {
         failed.push(ipc.errText(e));
       }
@@ -414,6 +609,14 @@ class AppState {
   togglePlay() {
     const v = this.video;
     if (!v || !this.media) return;
+    if (v.paused && this.playEdit && this.outSegments.length) {
+      // continue the edit from the range under the playhead, or from the first
+      const i = this.outSegments.findIndex((s) => this.current >= s.start && this.current < s.end - 0.01);
+      this.editIdx = i >= 0 ? i : 0;
+      if (i < 0) this.seek(this.outSegments[0].start);
+      void v.play().catch(() => {});
+      return;
+    }
     if (v.paused) {
       // with loop on, play from the range start when the playhead is outside the selected range
       const s = this.selSeg;
@@ -433,11 +636,61 @@ class AppState {
     const v = this.video;
     if (!v) return;
     this.current = v.currentTime;
+    if (this.playEdit) {
+      this.tickEdit(v);
+      return;
+    }
     const s = this.selSeg;
     if (this.loop && s && !v.paused && this.current >= s.end) this.seek(s.start);
   }
 
+  /** Play the edit: at the end of a range jump to the next one in output order. */
+  private tickEdit(v: HTMLVideoElement) {
+    const list = this.outSegments;
+    const s = list[this.editIdx];
+    if (!s) return;
+    if (this.current < s.end - 0.001 && !v.ended) return;
+    this.editIdx++;
+    if (this.editIdx >= list.length) {
+      this.editIdx = 0;
+      if (!this.loop) {
+        v.pause();
+        this.seek(list[0].start);
+        return;
+      }
+    }
+    this.seek(list[this.editIdx].start);
+    if (v.paused) void v.play().catch(() => {});
+  }
+
+  togglePlayEdit() {
+    this.playEdit = !this.playEdit;
+    if (this.playEdit && this.outSegments.length) {
+      this.editIdx = 0;
+      this.seek(this.outSegments[0].start);
+      void this.video?.play().catch(() => {});
+    } else this.video?.pause();
+  }
+
+  /** Edit strip: move the range at output position `from` to position `to`. */
+  moveOut(from: number, to: number) {
+    const ids = this.outSegments.map((s) => s.id as number);
+    if (from < 0 || from >= ids.length || to < 0 || to >= ids.length || from === to) return;
+    const [id] = ids.splice(from, 1);
+    ids.splice(to, 0, id);
+    this.order = ids;
+  }
+
+  /** Edit strip: join the ranges in source order again. */
+  resetOrder() {
+    this.order = null;
+  }
+
   onEnded() {
+    if (this.playEdit && this.video && this.outSegments.length) {
+      this.tickEdit(this.video);
+      return;
+    }
     const s = this.selSeg;
     if (this.loop && s && this.video) {
       this.seek(s.start);
@@ -450,6 +703,7 @@ class AppState {
   private applyEdit(e: seg.Edit | null) {
     if (!e || e.index < 0) return;
     const had = this.hasRange;
+    for (const s of e.list) if (s.id === undefined) s.id = this.nextSegId++;
     this.segments = e.list;
     this.sel = e.index;
     if (!had && this.hasRange && !this.loopTouched) this.loop = true;
@@ -509,6 +763,8 @@ class AppState {
   clearRanges() {
     this.segments = [];
     this.sel = -1;
+    this.order = null;
+    this.playEdit = false;
   }
 
   toggleLoop() {
@@ -592,6 +848,7 @@ class AppState {
       this.maxBitrateK = p.rate.maxBitrateK;
     }
     this.autoScale = p.autoScale;
+    this.resMode = p.autoScale ? "auto" : "source";
     this.maxWidth = p.maxWidth;
     this.maxHeight = p.maxHeight;
     this.fps = p.fps;
@@ -607,6 +864,13 @@ class AppState {
 
   /** The current fields as a preset. maxDuration is kept from the selected preset. */
   currentAsPreset(name: string): Preset {
+    // a step is kept as a square box (it limits the long edge of any picture);
+    // a percentage or an exact edge depends on the source and is not kept
+    const step = this.resMode === "step";
+    const lim = (v: number | null) => {
+      const n = intOrNull(v);
+      return step ? (n === null ? this.resStep : Math.min(n, this.resStep)) : n;
+    };
     return {
       name,
       container: this.container,
@@ -615,9 +879,9 @@ class AppState {
         this.rateMode === "size"
           ? { mode: "size", maxBytes: this.maxBytes }
           : { mode: "crf", crf: this.crf, maxBitrateK: numOrNull(this.maxBitrateK) },
-      autoScale: this.autoScale,
-      maxWidth: intOrNull(this.maxWidth),
-      maxHeight: intOrNull(this.maxHeight),
+      autoScale: this.resMode === "auto",
+      maxWidth: lim(this.maxWidth),
+      maxHeight: lim(this.maxHeight),
       fps: numOrNull(this.fps),
       audioBitrateK: this.audioOn ? this.audioBitrateK : null,
       effort: this.effort,
@@ -788,8 +1052,24 @@ class AppState {
 
   upsertJob(j: Job) {
     const i = this.jobs.findIndex((x) => x.id === j.id);
+    const was = i >= 0 ? this.jobs[i].status : null;
     if (i >= 0) this.jobs[i] = j;
     else this.jobs.push(j);
+    // a job that just ended while the editor is shown: count it for the Queue tab's badge
+    if (this.view !== "queue" && (was === "running" || was === "pending")) {
+      if (j.status === "done") this.unseen = { ...this.unseen, done: this.unseen.done + 1 };
+      else if (j.status === "failed") this.unseen = { ...this.unseen, failed: this.unseen.failed + 1 };
+    }
+  }
+
+  setView(v: "editor" | "queue") {
+    this.view = v;
+    if (v === "queue") this.unseen = { done: 0, failed: 0 };
+  }
+
+  /** Remove every finished, failed or canceled job from the list. */
+  async clearFinished() {
+    for (const j of this.jobs.filter((x) => x.status !== "running" && x.status !== "pending")) await this.removeJob(j.id);
   }
 
   /** Encode / Add to queue. With "Separate files" and several ranges, one job per range. */
@@ -804,7 +1084,6 @@ class AppState {
           : [await ipc.queueAdd(snap, start)];
       // a job-update for these jobs may have arrived first and is newer
       for (const j of got) if (!this.jobs.some((x) => x.id === j.id)) this.jobs.push(j);
-      this.queueOpen = true;
     } catch (e) {
       this.error = ipc.errText(e);
     }

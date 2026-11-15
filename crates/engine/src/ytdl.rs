@@ -143,7 +143,10 @@ fn human_eta(secs: f64) -> String {
 }
 
 /// Arguments for a download into `dir`.
-pub fn download_args(url: &str, ffmpeg: &Path, dir: &Path, max_height: Option<u32>, section: Option<Segment>, extra: &[String]) -> Vec<String> {
+/// `merge` is yt-dlp's `--merge-output-format` value: "mkv" for a file that is
+/// opened for editing (any codec pair fits), "mp4/webm/mkv" for a kept
+/// original (the first container that holds the downloaded streams).
+pub fn download_args(url: &str, ffmpeg: &Path, dir: &Path, max_height: Option<u32>, section: Option<Segment>, merge: &str, extra: &[String]) -> Vec<String> {
     let format = match max_height.filter(|h| *h > 0) {
         Some(h) => format!("bv*[height<={h}]+ba/b[height<={h}]"),
         None => "bv*+ba/b".into(),
@@ -171,7 +174,7 @@ pub fn download_args(url: &str, ffmpeg: &Path, dir: &Path, max_height: Option<u3
         "-f".into(),
         format,
         "--merge-output-format".into(),
-        "mkv".into(),
+        merge.into(),
         "--ffmpeg-location".into(),
         ffmpeg.to_string_lossy().into_owned(),
         "-P".into(),
@@ -211,6 +214,7 @@ pub fn download(
     dir: &Path,
     max_height: Option<u32>,
     section: Option<Segment>,
+    merge: &str,
     extra: &[String],
     cancel: &Cancel,
     mut on_progress: impl FnMut(Progress),
@@ -222,7 +226,7 @@ pub fn download(
         return Err(RunError::Canceled);
     }
     let mut child = command(ytdlp)
-        .args(download_args(url, ffmpeg, dir, max_height, section, extra))
+        .args(download_args(url, ffmpeg, dir, max_height, section, merge, extra))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

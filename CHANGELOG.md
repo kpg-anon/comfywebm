@@ -5,9 +5,74 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0] - 2026-11-15
 
-First release, planned as 1.0.0.
+### Added
+
+- Theme presets in Settings: Comfy Dark (default), Nord Frost, Gruvbox Retro,
+  Catppuccin Mocha, Phosphor, Paper. Each sets shapes, fonts, borders, shadows
+  and spacing as well as colors.
+- App icon drawn for comfywebm (frame, play mark, timeline with an in/out range
+  and a playhead), and the icon and version in the header.
+- Sidebar tabs: Basic and Advanced. Filters, subtitles, audio level, encoder
+  effort, the picture limit, metadata, extra arguments and the ffmpeg command
+  are under Advanced, which shows how many of its settings are changed.
+- Resolution choices: Auto, Source, long-edge steps, percentage, or one exact
+  edge with the other from the aspect ratio. In size limit mode each shows a
+  good / fair / poor dot for the bitrate the limit allows.
+- Motion check: the frame rate cap and speed are checked against the display
+  refresh rate (Settings, default 60 Hz). Speed is a slider that snaps to speeds
+  that play evenly; judder and stutter are explained with the nearest smooth
+  speeds and caps as buttons.
+- "Download only" in the Open URL dialog: keeps the original file in the
+  Downloads folder (or a folder set in Settings), without a look-up first.
+- Crop aspect locks 4:5, 3:4, 2:3, 3:2, 5:4, 2:1, 1.85:1, 2.39:1, 32:9, 9:21,
+  1:2 and a custom ratio field.
+- Editor and Queue tabs in the header (`Q` switches). The queue no longer takes
+  space under the timeline. The Queue tab's badge shows the number of jobs
+  running or waiting and the running job's percentage, then the number that
+  finished (red if one failed) until the queue is opened. "Clear finished"
+  removes finished jobs from the list.
+- Timeline zoom: Ctrl+wheel zooms at the pointer (down to about 20 frames
+  across), the wheel pans while zoomed, buttons zoom out, fit and zoom in. A
+  time ruler above the track, an overview bar below it while zoomed, and the
+  time under the pointer while hovering. The view follows the playhead.
+- Undo and redo (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y, and buttons) for ranges, their
+  output order and the crop. A drag is one step.
+- Key list (`?`, F1, or the keyboard button in the header).
+- Hover text drawn in the theme instead of the native tooltip; icon buttons show
+  their name.
+- The window's size, position and maximized state are kept between runs
+  (`window.json` in the app config folder). A position on a monitor that is no
+  longer connected is not used.
+- Recent files (the last 10) in the empty state.
+- Edit strip for two or more ranges: shows the joined output in order, drag to
+  reorder, click to jump, "Play edit" plays the ranges in sequence.
+
+### Changed
+
+- Size limit mode fills more of the limit: the first attempt leaves a 1.5%
+  margin (was 3%); a result under 98% of the limit (was 88%) is encoded again
+  at a bitrate aimed at 99%, interpolated between earlier attempts; at most 4
+  attempts (was 3). On test clips a 4 MiB limit gave 3.95 MiB in one attempt.
+- Drag and drop: the drop target is the preview area; the overlay covers only
+  that area, and a drop elsewhere does nothing.
+- All drop-down lists are drawn by the app and follow the theme.
+- The WebView2 context menu and browser keys (Find, Print, Reload, zoom,
+  history) are turned off; text fields keep their own menu.
+
+### Fixed
+
+- Speeding up dropped frames. After `setpts` ffmpeg kept writing at the source
+  frame rate, so 1.5x of a 30 fps source kept 2 of every 3 frames (121 frames
+  at 30 fps instead of 180 at 45 fps for 6 s of source). The output rate is now
+  set to source fps x speed (or the cap), and every frame is kept.
+- Drop-down lists closed when the mouse button was released, so no option
+  could be picked.
+
+## [1.0.0] - 2026-11-15
+
+First release.
 
 ### Added
 

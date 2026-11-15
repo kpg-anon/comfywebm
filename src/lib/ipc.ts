@@ -31,8 +31,9 @@ export const settingsGet = () => invoke<Settings>("settings_get");
 export const settingsSet = (settings: Settings) => invoke<void>("settings_set", { settings });
 
 export const urlInfo = (url: string) => invoke<UrlInfo>("url_info", { url });
-export const urlDownload = (url: string, maxHeight: number | null, section: Segment | null) =>
-  invoke<string>("url_download", { url, maxHeight, section });
+/** `keep`: "Download only": the original goes to the keep folder in its own container. */
+export const urlDownload = (url: string, maxHeight: number | null, section: Segment | null, keep = false) =>
+  invoke<string>("url_download", { url, maxHeight, section, keep });
 export const urlCancel = (url: string) => invoke<void>("url_cancel", { url });
 export const exportFrame = (path: string, time: number, crop: Crop | null) =>
   invoke<string>("export_frame", { path, time, crop });

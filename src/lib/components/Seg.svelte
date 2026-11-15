@@ -38,20 +38,20 @@
     display: flex;
     padding: 2px;
     gap: 2px;
-    border-radius: var(--radius);
+    border-radius: var(--radius-seg);
     background: var(--bg-chip);
-    border: 1px solid var(--border);
+    border: var(--bw) solid var(--border);
   }
   button {
     flex: 1;
-    height: 22px;
+    height: calc(var(--ctl-h) - 6px);
     padding: 0 6px;
     border: 0;
-    border-radius: 4px;
+    border-radius: calc(var(--radius-seg) - 2px);
     background: transparent;
     color: var(--text-muted);
     font-size: 12px;
-    font-weight: 600;
+    font-weight: var(--btn-weight);
     white-space: nowrap;
     cursor: pointer;
   }

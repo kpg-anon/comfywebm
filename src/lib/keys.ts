@@ -19,34 +19,90 @@ function isPressable(el: EventTarget | null): boolean {
   );
 }
 
+/** The key list shown by KeysDialog (? or F1). Keep in sync with onKey below and README "Keys". */
+export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
+  {
+    group: "Playback",
+    keys: [
+      ["Space", "play / pause"],
+      ["Left / Right", "seek 1 s"],
+      ["Shift + Left / Shift + Right", "seek 5 s"],
+      [", / .", "one frame back / forward (or the mouse wheel over the picture)"],
+      ["L", "loop the selected range"],
+    ],
+  },
+  {
+    group: "Ranges",
+    keys: [
+      ["I / O", "set the start / end of the range at the playhead"],
+      ["Shift + I / Shift + O", "jump to the start / end of the selected range"],
+      ["N", "add a range at the playhead"],
+      ["Delete", "remove the selected range"],
+      ["Ctrl + Z", "undo a range, order or crop change"],
+      ["Ctrl + Shift + Z / Ctrl + Y", "redo"],
+      ["Ctrl + wheel", "zoom the timeline (wheel pans while zoomed)"],
+    ],
+  },
+  {
+    group: "Crop",
+    keys: [
+      ["C", "crop mode on / off"],
+      ["Esc", "leave crop mode"],
+      ["Arrows", "move the crop 1 px (Shift: 10 px)"],
+      ["Alt + arrows", "resize the crop"],
+    ],
+  },
+  {
+    group: "App",
+    keys: [
+      ["Ctrl + O", "open a file"],
+      ["Ctrl + U", "open a web link"],
+      ["Ctrl + Enter", "encode"],
+      ["P", "sample: encode 3 s at the playhead"],
+      ["S", "save the current frame as PNG"],
+      ["Q", "switch between the editor and the queue"],
+      ["? / F1", "this list"],
+    ],
+  },
+];
+
 export type KeyActions = { openFile: () => void; openUrl: (url?: string) => void };
 
 const URL_RE = /^https?:\/\/\S+$/i;
 
 export function installKeys(actions: KeyActions): () => void {
-  // After a mouse click, a button, checkbox, select or slider keeps focus and
-  // would swallow Space and the arrows; drop focus so the shortcuts work.
+  // After a mouse click, a button, checkbox or slider keeps focus and would
+  // swallow Space and the arrows; drop focus so the shortcuts work.
+  // A native <select> must never be blurred on click: in WebView2 its list
+  // opens on mouse-down and the click (mouse-up) that follows would close it
+  // before an option can be picked. The app uses Select.svelte instead, whose
+  // open list takes the keyboard itself.
   let pointer = false;
   const onPointer = () => (pointer = true);
   const blurAfterPointer = (e: Event) => {
     const t = e.target;
     if (!pointer) return;
-    if (
-      t instanceof HTMLButtonElement ||
-      t instanceof HTMLSelectElement ||
-      (t instanceof HTMLInputElement && ["checkbox", "radio", "range"].includes(t.type))
-    )
-      t.blur();
+    if (t instanceof HTMLButtonElement || (t instanceof HTMLInputElement && ["checkbox", "radio", "range"].includes(t.type))) t.blur();
   };
 
   const onKey = (e: KeyboardEvent) => {
     pointer = false;
+    // F1 is prevented by appfeel.ts (WebView2 help), so it is handled before the check below
+    if (e.key === "F1" && !app.settingsOpen && !app.urlOpen && !app.sample) {
+      app.keysOpen = !app.keysOpen;
+      return;
+    }
     if (e.defaultPrevented) return;
     if (isTextField(e.target)) {
       if (e.key === "Escape") (e.target as HTMLElement).blur();
       return;
     }
-    if (app.settingsOpen || app.urlOpen || app.sample) return; // dialogs handle their own keys
+    if (app.settingsOpen || app.urlOpen || app.sample || app.keysOpen) return; // dialogs handle their own keys
+    if (e.key === "?") {
+      app.keysOpen = true;
+      e.preventDefault();
+      return;
+    }
     if (isPressable(e.target) && (e.key === " " || e.key === "Enter")) return;
 
     const ctrl = e.ctrlKey || e.metaKey;
@@ -54,10 +110,15 @@ export function installKeys(actions: KeyActions): () => void {
     let handled = true;
 
     if (ctrl) {
-      if (k === "o") actions.openFile();
+      if (k === "z" && !e.shiftKey) app.undo();
+      else if ((k === "z" && e.shiftKey) || k === "y") app.redo();
+      else if (k === "o") actions.openFile();
       else if (k === "u") actions.openUrl();
       else if (e.key === "Enter") void app.enqueue(true);
       else handled = false;
+    } else if (app.view === "queue" && k !== "q") {
+      // the editor is hidden: its keys do nothing
+      handled = false;
     } else if (e.key.startsWith("Arrow") && app.cropMode && app.crop) {
       const step = e.shiftKey ? 10 : 1;
       const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
@@ -106,6 +167,9 @@ export function installKeys(actions: KeyActions): () => void {
           break;
         case "l":
           app.toggleLoop();
+          break;
+        case "q":
+          app.setView(app.view === "queue" ? "editor" : "queue");
           break;
         case "c":
           if (app.media) app.cropMode = !app.cropMode;

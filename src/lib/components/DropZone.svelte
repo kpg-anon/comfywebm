@@ -31,6 +31,22 @@
       <button class="btn" disabled={!url.trim()} onclick={() => onurl(url.trim())}><Icon name="link" size={14} />Open URL</button>
     </div>
 
+    {#if app.recent.length}
+      <div class="recent">
+        <div class="rhead head-text">Recent</div>
+        {#each app.recent as p (p)}
+          <div class="ritem">
+            <button class="ropen" title={p} onclick={() => app.open(p)}>
+              <Icon name="film" size={13} />
+              <span class="rname">{p.split(/[\\/]/).pop()}</span>
+              <span class="rdir muted">{p.split(/[\\/]/).slice(0, -1).join("/")}</span>
+            </button>
+            <button class="btn small icon" aria-label="Remove from the list" onclick={() => app.forgetRecent(p)}><Icon name="x" size={11} /></button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
     {#if app.ffmpegMissing}<ToolsMissing which="ffmpeg" />{/if}
     {#if app.ytdlpMissing}<ToolsMissing which="ytdlp" />{/if}
 
@@ -43,6 +59,7 @@
       <span><kbd>P</kbd> sample</span>
       <span><kbd>S</kbd> save frame</span>
       <span><kbd>Ctrl+U</kbd> URL</span>
+      <span><kbd>?</kbd> all keys</span>
     </div>
   </div>
 </div>
@@ -91,6 +108,58 @@
     background: transparent;
     color: inherit;
     border-color: color-mix(in srgb, var(--text-inverse) 40%, transparent);
+  }
+  .recent {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    text-align: left;
+  }
+  .rhead {
+    margin-bottom: 2px;
+    font-size: 10px;
+  }
+  .ritem {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .ropen {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 28px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .ropen:hover {
+    background: var(--bg-hover);
+  }
+  .rname {
+    flex: none;
+    max-width: 55%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rdir {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: rtl;
+    text-align: left;
+    font-size: 11px;
   }
   .keys {
     display: flex;

@@ -9,28 +9,48 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
 
 ## Features
 
-- **Input**: local files (open, drag and drop, or the first command-line
-  argument), and web links through yt-dlp: title, uploader, duration and
-  thumbnail before downloading, a quality choice, and an optional "only download
-  part" start and end. Dropping or opening several files adds one whole-file
-  job each.
+- **Input**: local files (open, or the first command-line argument; drag and
+  drop onto the preview area), and web links through yt-dlp: title, uploader,
+  duration and thumbnail before downloading, a quality choice, and an optional
+  "only download part" start and end. Dropping or opening several files adds
+  one whole-file job each.
+- **Download only**: the Open URL dialog can also just save the original file
+  and keep it, without a look-up first. It goes to your Downloads folder (or the
+  folder set in Settings) in its own container (MP4, WebM, else MKV).
 - **Ranges**: one or more ranges on the timeline, set with `I` / `O` at the
   playhead or by dragging handles. Several ranges are joined into one file, or
   sent as separate jobs with "Separate files". Loop playback of the selected range.
+- **Timeline**: Ctrl+wheel zooms (the wheel pans while zoomed), with a time
+  ruler, an overview of the whole file while zoomed, and the time under the
+  pointer. Undo and redo (Ctrl+Z, Ctrl+Shift+Z) cover ranges, their order and
+  the crop.
+- **Edit strip**: with two or more ranges, a strip under the timeline shows the
+  joined output in order. Drag a block to change the order, click it to jump to
+  it, and "Play edit" plays the ranges one after another.
 - **Crop**: drawn on the picture with 8 handles, moved by dragging or with the
-  arrow keys, aspect lock (free, 1:1, 16:9, 9:16, 4:3, 21:9), numeric x/y/w/h.
+  arrow keys, numeric x/y/w/h. Aspect lock: free, 1:1, 16:9, 9:16, 4:3, 4:5,
+  a "More" list (3:4, 2:3, 3:2, 5:4, 2:1, 1.85:1, 2.39:1, 21:9, 32:9, 9:21, 1:2)
+  and a custom ratio such as `5:3` or `1.66`.
 - **Size limit mode**: the video bitrate comes from the limit, the clip length
-  and the audio bitrate, with two passes. If the file comes out over the limit,
-  it is encoded again at a lower bitrate; if it comes out well under, at a higher
-  one. At most 3 attempts; the largest result that fits is kept. "Auto size"
-  lowers the output resolution when the bitrate is too low for the picture
-  size, and the sidebar shows bits per pixel with a good / fair / poor rating.
+  and the audio bitrate, with two passes. A file over the limit, or under 98% of
+  it, is encoded again at a bitrate aimed at 99% of the limit (interpolated
+  between earlier attempts when one was over and one under). At most 4
+  attempts; the largest result that fits is kept.
+- **Resolution**: Auto (in size limit mode, the largest size whose bitrate still
+  gives a clean picture), Source, Steps (long edge 426 to 3840 px), a
+  percentage, or one exact edge with the other following the aspect ratio. In
+  size limit mode each choice shows a good / fair / poor dot, and the sidebar
+  shows bits per pixel. A preset's picture limit (4chan's 2048x2048) always
+  applies.
+- **Motion**: frame rate cap and speed (0.25x to 4x) are checked against your
+  display's refresh rate (Settings, default 60 Hz). Speeds whose output plays
+  evenly are listed and the speed slider snaps to them; a setting that judders
+  or stutters is explained, with the nearest smooth speeds and caps as buttons.
 - **Quality mode**: CRF on the codec's own scale, with an optional bitrate cap.
 - **Codecs**: WebM with VP9, VP8 or AV1 (Opus audio, Vorbis with VP8); MP4 with
   H.264, HEVC or AV1 (AAC audio).
 - **Filters**: deinterlace, denoise, HDR to SDR tone mapping, rotate, mirror,
-  speed, reverse, boomerang (forward then reverse), fade in and out, maximum
-  size, frame rate cap.
+  reverse, boomerang (forward then reverse), fade in and out.
 - **Audio**: off, or one track with bitrate, volume in dB and loudness
   normalization.
 - **Subtitles**: burn in a text subtitle track from the file, or an external
@@ -39,12 +59,26 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   plays it in a loop, with its size and bitrate.
 - **Frame**: saves the frame at the playhead as a full-resolution PNG, with the
   crop applied.
-- **Queue**: jobs run one at a time, with progress, pass and attempt, ETA, and
-  for finished jobs the size, an over-limit mark, Play, Reveal and Copy path.
+- **Queue**: its own tab next to the editor (`Q` switches). Jobs run one at a
+  time, with progress, pass and attempt, ETA, and for finished jobs the size,
+  an over-limit mark, Play, Reveal and Copy path; "Clear finished" empties the
+  list. While jobs run or wait, the Queue tab shows a badge with their count
+  and the running job's percentage; jobs that finish while the editor is shown
+  are counted on the badge (red when one failed) until the queue is opened.
   The taskbar shows the progress of the running job.
 - **Presets**: built-in platform presets (below) and your own: save, overwrite,
   rename, delete, import and export as JSON.
-- "Show command" displays the ffmpeg command lines for the current settings.
+- **Sidebar**: a Basic tab with the everyday settings and an Advanced tab with
+  the encoder, filters, audio level, subtitles, metadata, extra arguments and
+  the ffmpeg command (copyable). The Advanced tab shows how many of its
+  settings are changed.
+- **Themes**: Comfy Dark (default), Nord Frost, Gruvbox Retro, Catppuccin
+  Mocha, Phosphor and Paper (light). Each changes shapes, fonts, borders and
+  shadows as well as colors.
+- The window behaves like an app: no browser context menu (text fields keep
+  cut, copy and paste), no browser keys such as Find, Print, Reload or zoom,
+  hover text in the theme, and the window's size and position are kept between
+  runs. The empty state lists recent files. `?` lists every key.
 - Output files never overwrite an existing file; a number is added instead.
   Metadata and chapters from the source are dropped.
 
@@ -81,7 +115,7 @@ npx tauri build --debug --no-bundle       # debug executable only, in target/deb
 ```
 
 On Windows, `npx tauri build` writes `target/release/comfywebm.exe` and the
-NSIS installer `target/release/bundle/nsis/comfywebm_1.0.0_x64-setup.exe`.
+NSIS installer `target/release/bundle/nsis/comfywebm_1.1.0_x64-setup.exe`.
 `src-tauri/tauri.windows.conf.json` limits the Windows bundle to NSIS, so no
 WiX download is needed; Linux and macOS use the targets in `tauri.conf.json`.
 
@@ -124,6 +158,11 @@ Keys do nothing while a text field has focus.
 | Alt + arrows (crop mode) | resize the crop |
 | `P` | sample: encode 3 s at the playhead |
 | `S` | save the current frame as PNG |
+| Ctrl + Z | undo a change to the ranges, their order or the crop |
+| Ctrl + Shift + Z, Ctrl + Y | redo |
+| Ctrl + wheel over the timeline | zoom the timeline; the wheel alone pans while zoomed |
+| `?`, F1 | list of keys |
+| `Q` | switch between the editor and the queue |
 | Ctrl + O | open a file |
 | Ctrl + U | open a web link |
 | Ctrl + Enter | encode |
@@ -161,9 +200,13 @@ The longest clip is advisory: the app warns when the output is longer.
 - Settings: `settings.json` in the app config folder (`%APPDATA%\com.comfywebm.app`
   on Windows, `~/.config/com.comfywebm.app` on Linux,
   `~/Library/Application Support/com.comfywebm.app` on macOS).
-- Downloads, preview copies and samples: the app cache folder
+- Downloads opened for editing, preview copies and samples: the app cache folder
   (`%LOCALAPPDATA%\com.comfywebm.app` on Windows). The download folder can be
   changed in Settings.
+- "Download only" files: your Downloads folder, or the folder set in Settings.
+- Window size and position: `window.json` in the app config folder.
+- The theme, the display refresh rate, the sidebar tab, recent files and the
+  last option values are kept in the webview's local storage, per machine.
 - Output goes beside the source file unless an output folder is set. Output
   names follow the name template in Settings; the tokens are `{name}`,
   `{start}`, `{end}`, `{codec}`, `{height}` and `{date}`.

@@ -1,38 +1,312 @@
-/* comfywebm design tokens. Same family as coomwall and comfysort (dark, quiet,
-   dense); the accent is teal. Components use these variables only. */
+/* comfywebm design tokens. Components use these variables only.
+   Comfy Dark (the :root block) is the default and shares its base colors with
+   coomwall and comfysort. Every other preset in THEMES (src/lib/themes.ts)
+   is a [data-theme] block below that sets colors AND shape, type, depth and
+   density, plus a few structural rules at the end of the file. */
 :root {
-  --bg-app: #0f1215;
-  --bg-panel: #13171b;
-  --bg-panel-alt: #171c21;
-  --bg-chip: #1b2127;
-  --bg-input: #0d1013;
-  --bg-hover: #1f262d;
-  --border: #29303a;
-  --border-muted: #21262d;
+  /* surfaces */
+  --bg-app: #111418;
+  --bg-panel: #141920;
+  --bg-panel-alt: #171d24;
+  --bg-chip: #1a2028;
+  --bg-input: #0e1115;
+  --bg-hover: #222a34;
+  --bg-stage: #000;
+  --border: #2b313a;
+  --border-muted: #232830;
+  --header-bg: var(--bg-panel);
+  --sidebar-bg: var(--bg-panel);
+  --backdrop: rgba(0, 0, 0, 0.55);
 
-  --text-primary: #d6dce4;
-  --text-secondary: #a7afba;
-  --text-muted: #7c8592;
-  --text-inverse: #0c0f12;
+  /* text */
+  --text-primary: #d8dde7;
+  --text-secondary: #a9b0bc;
+  --text-muted: #7f8794;
+  --text-inverse: #0f1318;
 
-  --accent: #3fcdb3;
-  --accent-strong: #5fe0c8;
-  --accent-bg: #173029;
+  /* accent: active, selected, focus */
+  --accent: #c287ff;
+  --accent-strong: #d6adff;
+  --accent-bg: #2a2438;
   --accent-line: color-mix(in srgb, var(--accent) 45%, transparent);
+  /* primary action (Encode, Download) */
+  --primary: #82d65a;
+  --primary-strong: #9be27a;
+  --primary-text: #0f1318;
+  --primary-fill: var(--primary);
 
   --green: #82d65a;
+  --cyan: #57c7e3;
   --yellow: #e2b84f; /* warnings */
-  --orange: #e0904a; /* over the size limit */
+  --orange: #d98c3f; /* over the size limit */
   --red: #ef6b6b; /* errors, destructive */
-  --range: #e2b84f; /* in/out selection on the timeline */
+  --range: #e2b84f; /* ranges on the timeline */
+  --playhead: #57c7e3;
 
-  --radius: 6px;
+  /* shape */
+  --radius: 7px;
   --radius-sm: 4px;
+  --radius-btn: 7px;
+  --radius-seg: 7px;
+  --radius-dialog: 10px;
+  --bw: 1px; /* control border width */
 
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
-  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  /* type */
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Cascadia Code", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --font-ui: var(--sans);
+  --font-head: var(--sans);
+  --head-case: uppercase;
+  --head-track: 0.06em;
+  --head-size: 11px;
+  --head-weight: 700;
+  --btn-weight: 600;
+  --btn-case: none;
+
+  /* depth */
+  --shadow-btn: none;
+  --shadow-primary: none;
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.25);
+  --shadow-dialog: 0 16px 40px rgba(0, 0, 0, 0.55);
+
+  /* density */
+  --ctl-h: 28px;
+  --ctl-h-sm: 22px;
+  --field-h: 26px;
+  --pad-panel: 12px;
 
   color-scheme: dark;
+}
+
+/* Nord Frost: rounder and softer, title-case headings, gentle gradients. */
+:root[data-theme="nord"] {
+  --bg-app: #2a303c;
+  --bg-panel: #2e3440;
+  --bg-panel-alt: #353c4a;
+  --bg-chip: #3b4252;
+  --bg-input: #272c36;
+  --bg-hover: #434c5e;
+  --bg-stage: #1f232b;
+  --border: #4c566a;
+  --border-muted: #3b4252;
+  --header-bg: linear-gradient(180deg, #343b49, #2e3440);
+  --sidebar-bg: linear-gradient(180deg, #313845, #2e3440 40%);
+  --backdrop: rgba(30, 34, 42, 0.6);
+  --text-primary: #eceff4;
+  --text-secondary: #d8dee9;
+  --text-muted: #8f9bb3;
+  --text-inverse: #242933;
+  --accent: #88c0d0;
+  --accent-strong: #a3d4e2;
+  --accent-bg: #34505a;
+  --primary: #88c0d0;
+  --primary-strong: #9fd0de;
+  --primary-text: #242933;
+  --primary-fill: linear-gradient(180deg, #9ccfdd, #81b6c6);
+  --green: #a3be8c;
+  --cyan: #8fbcbb;
+  --yellow: #ebcb8b;
+  --orange: #d08770;
+  --red: #bf616a;
+  --range: #ebcb8b;
+  --playhead: #eceff4;
+  --radius: 10px;
+  --radius-sm: 7px;
+  --radius-btn: 10px;
+  --radius-seg: 10px;
+  --radius-dialog: 16px;
+  --head-case: none;
+  --head-track: 0.01em;
+  --head-size: 12.5px;
+  --head-weight: 600;
+  --btn-weight: 500;
+  --shadow-btn: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-primary: 0 2px 10px rgba(136, 192, 208, 0.25);
+  --shadow-pop: 0 14px 36px rgba(0, 0, 0, 0.45);
+  --ctl-h: 30px;
+  --field-h: 28px;
+  --pad-panel: 14px;
+}
+
+/* Gruvbox Retro: square corners, 2px borders, beveled buttons, mono headings. */
+:root[data-theme="gruvbox"] {
+  --bg-app: #1d2021;
+  --bg-panel: #282828;
+  --bg-panel-alt: #32302f;
+  --bg-chip: #3c3836;
+  --bg-input: #1d2021;
+  --bg-hover: #504945;
+  --bg-stage: #1d2021;
+  --border: #665c54;
+  --border-muted: #3c3836;
+  --text-primary: #ebdbb2;
+  --text-secondary: #d5c4a1;
+  --text-muted: #a89984;
+  --text-inverse: #1d2021;
+  --accent: #fabd2f;
+  --accent-strong: #fbd06b;
+  --accent-bg: #4a3d1c;
+  --primary: #fe8019;
+  --primary-strong: #ff9a45;
+  --primary-text: #1d2021;
+  --green: #b8bb26;
+  --cyan: #8ec07c;
+  --yellow: #fabd2f;
+  --orange: #fe8019;
+  --red: #fb4934;
+  --range: #83a598;
+  --playhead: #fb4934;
+  --radius: 2px;
+  --radius-sm: 1px;
+  --radius-btn: 2px;
+  --radius-seg: 2px;
+  --radius-dialog: 3px;
+  --bw: 2px;
+  --font-head: var(--mono);
+  --head-case: uppercase;
+  --head-track: 0.12em;
+  --head-size: 11px;
+  --btn-weight: 700;
+  --btn-case: uppercase;
+  --shadow-btn: inset 0 -2px 0 rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-primary: inset 0 -3px 0 rgba(0, 0, 0, 0.3);
+  --shadow-pop: 4px 4px 0 rgba(0, 0, 0, 0.5);
+  --shadow-dialog: 6px 6px 0 rgba(0, 0, 0, 0.55);
+}
+
+/* Catppuccin Mocha: pill controls, pastel gradient primary, soft glows. */
+:root[data-theme="catppuccin"] {
+  --bg-app: #181825;
+  --bg-panel: #1e1e2e;
+  --bg-panel-alt: #24273a;
+  --bg-chip: #313244;
+  --bg-input: #11111b;
+  --bg-hover: #45475a;
+  --bg-stage: #11111b;
+  --border: #45475a;
+  --border-muted: #313244;
+  --text-primary: #cdd6f4;
+  --text-secondary: #bac2de;
+  --text-muted: #7f849c;
+  --text-inverse: #1e1e2e;
+  --accent: #cba6f7;
+  --accent-strong: #dcc3fa;
+  --accent-bg: #3b2f55;
+  --primary: #f5c2e7;
+  --primary-strong: #f8d3ee;
+  --primary-text: #1e1e2e;
+  --primary-fill: linear-gradient(120deg, #cba6f7, #f5c2e7 60%, #fab387);
+  --green: #a6e3a1;
+  --cyan: #94e2d5;
+  --yellow: #f9e2af;
+  --orange: #fab387;
+  --red: #f38ba8;
+  --range: #89b4fa;
+  --playhead: #f5c2e7;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-btn: 999px;
+  --radius-seg: 999px;
+  --radius-dialog: 20px;
+  --head-case: none;
+  --head-track: 0;
+  --head-size: 12.5px;
+  --head-weight: 700;
+  --shadow-btn: none;
+  --shadow-primary: 0 4px 18px rgba(203, 166, 247, 0.35);
+  --shadow-pop: 0 18px 44px rgba(17, 17, 27, 0.7), 0 0 0 1px rgba(203, 166, 247, 0.15);
+  --shadow-dialog: 0 24px 60px rgba(17, 17, 27, 0.75), 0 0 0 1px rgba(203, 166, 247, 0.12);
+  --ctl-h: 30px;
+  --field-h: 28px;
+  --pad-panel: 14px;
+}
+
+/* Phosphor: a terminal. Black, one monospace face, green text, no corners. */
+:root[data-theme="phosphor"] {
+  --bg-app: #000;
+  --bg-panel: #030803;
+  --bg-panel-alt: #061006;
+  --bg-chip: #071207;
+  --bg-input: #000;
+  --bg-hover: #0d240d;
+  --bg-stage: #000;
+  --border: #1f5f1f;
+  --border-muted: #123812;
+  --backdrop: rgba(0, 0, 0, 0.8);
+  --text-primary: #6dff6d;
+  --text-secondary: #45d445;
+  --text-muted: #2f9a2f;
+  --text-inverse: #000;
+  --accent: #b6ff3d;
+  --accent-strong: #d4ff8a;
+  --accent-bg: #163a0a;
+  --primary: #6dff6d;
+  --primary-strong: #a3ffa3;
+  --primary-text: #000;
+  --green: #6dff6d;
+  --cyan: #5effd8;
+  --yellow: #ffd23f;
+  --orange: #ffa63f;
+  --red: #ff5f5f;
+  --range: #ffd23f;
+  --playhead: #b6ff3d;
+  --radius: 0;
+  --radius-sm: 0;
+  --radius-btn: 0;
+  --radius-seg: 0;
+  --radius-dialog: 0;
+  --sans: var(--mono);
+  --font-head: var(--mono);
+  --head-case: uppercase;
+  --head-track: 0.14em;
+  --btn-case: uppercase;
+  --btn-weight: 600;
+  --shadow-primary: 0 0 12px rgba(109, 255, 109, 0.35);
+  --shadow-pop: 0 0 0 1px #1f5f1f, 0 0 24px rgba(109, 255, 109, 0.12);
+  --shadow-dialog: 0 0 0 1px #2f8f2f, 0 0 40px rgba(109, 255, 109, 0.1);
+}
+
+/* Paper: light. */
+:root[data-theme="paper"] {
+  --bg-app: #e9e6df;
+  --bg-panel: #f6f4ef;
+  --bg-panel-alt: #efece5;
+  --bg-chip: #ffffff;
+  --bg-input: #ffffff;
+  --bg-hover: #e4e0d6;
+  --bg-stage: #1b1b1b;
+  --border: #cfc9bc;
+  --border-muted: #e0dbd0;
+  --backdrop: rgba(40, 36, 30, 0.35);
+  --text-primary: #23211d;
+  --text-secondary: #4d4941;
+  --text-muted: #857f73;
+  --text-inverse: #ffffff;
+  --accent: #3b6fd8;
+  --accent-strong: #2a5bc0;
+  --accent-bg: #dde7fb;
+  --primary: #2f8f5b;
+  --primary-strong: #277a4d;
+  --primary-text: #ffffff;
+  --green: #2f8f5b;
+  --cyan: #1f8ea8;
+  --yellow: #b07d0a;
+  --orange: #c4631b;
+  --red: #c93c3c;
+  --range: #d49a14;
+  --playhead: #c93c3c;
+  --radius: 6px;
+  --radius-sm: 4px;
+  --radius-btn: 6px;
+  --radius-seg: 6px;
+  --radius-dialog: 10px;
+  --head-case: none;
+  --head-track: 0;
+  --head-size: 12px;
+  --shadow-btn: 0 1px 0 rgba(0, 0, 0, 0.06);
+  --shadow-pop: 0 10px 30px rgba(60, 50, 30, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  --shadow-dialog: 0 18px 48px rgba(60, 50, 30, 0.25);
+  color-scheme: light;
 }
 
 * {
@@ -45,7 +319,7 @@ body {
   height: 100%;
   background: var(--bg-app);
   color: var(--text-primary);
-  font-family: var(--sans);
+  font-family: var(--font-ui);
   font-size: 13px;
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
@@ -87,14 +361,16 @@ textarea {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 28px;
+  height: var(--ctl-h);
   padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: var(--bw) solid var(--border);
+  border-radius: var(--radius-btn);
   background: var(--bg-chip);
+  box-shadow: var(--shadow-btn);
   color: var(--text-primary);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: var(--btn-weight);
+  text-transform: var(--btn-case);
   white-space: nowrap;
   cursor: pointer;
 }
@@ -106,12 +382,13 @@ textarea {
   cursor: default;
 }
 .btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--text-inverse);
+  background: var(--primary-fill);
+  border-color: transparent;
+  box-shadow: var(--shadow-primary);
+  color: var(--primary-text);
 }
 .btn.primary:hover:not(:disabled) {
-  background: var(--accent-strong);
+  background: var(--primary-strong);
 }
 .btn.on {
   background: var(--accent-bg);
@@ -119,16 +396,16 @@ textarea {
   color: var(--accent-strong);
 }
 .btn.icon {
-  width: 28px;
+  width: var(--ctl-h);
   padding: 0;
 }
 .btn.small {
-  height: 22px;
+  height: var(--ctl-h-sm);
   padding: 0 7px;
   font-size: 11px;
 }
 .btn.small.icon {
-  width: 22px;
+  width: var(--ctl-h-sm);
   padding: 0;
 }
 .btn.danger:hover:not(:disabled) {
@@ -137,10 +414,10 @@ textarea {
 }
 
 .field {
-  height: 26px;
+  height: var(--field-h);
   min-width: 0;
   padding: 0 7px;
-  border: 1px solid var(--border);
+  border: var(--bw) solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-input);
   color: var(--text-primary);
@@ -154,10 +431,6 @@ textarea {
 }
 .field.bad {
   border-color: var(--red);
-}
-select.field {
-  padding: 0 4px;
-  cursor: pointer;
 }
 input[type="number"].field::-webkit-inner-spin-button {
   opacity: 0.5;
@@ -187,6 +460,45 @@ input[type="range"] {
   color: var(--red);
 }
 
+/* group and section headings */
+.head-text {
+  font-family: var(--font-head);
+  font-size: var(--head-size);
+  font-weight: var(--head-weight);
+  letter-spacing: var(--head-track);
+  text-transform: var(--head-case);
+  color: var(--text-secondary);
+}
+
+/* dialogs (Settings, Open URL, Sample) */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--backdrop);
+}
+.dialog {
+  width: min(560px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px;
+  border: var(--bw) solid var(--border);
+  border-radius: var(--radius-dialog);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-dialog);
+}
+.dialog h2 {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: 15px;
+}
+
 kbd {
   font-family: var(--mono);
   font-size: 11px;
@@ -207,4 +519,71 @@ kbd {
 }
 *::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* hover text (src/lib/tooltip.ts) */
+.app-tip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  max-width: 320px;
+  padding: 6px 9px;
+  border: var(--bw) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-alt);
+  box-shadow: var(--shadow-pop);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-line;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 110ms ease;
+}
+.app-tip.on {
+  opacity: 1;
+}
+
+/* ---- structural rules for single presets ---- */
+
+/* Phosphor: bracketed buttons, outlined primary. (No scanlines: they would
+   also cover the video preview, which must show the real picture.) */
+:root[data-theme="phosphor"] .btn:not(.icon)::before {
+  content: "[";
+  opacity: 0.6;
+}
+:root[data-theme="phosphor"] .btn:not(.icon)::after {
+  content: "]";
+  opacity: 0.6;
+}
+:root[data-theme="phosphor"] .btn.primary {
+  background: transparent;
+  border-color: var(--primary);
+  color: var(--primary);
+}
+:root[data-theme="phosphor"] .btn.primary:hover:not(:disabled) {
+  background: var(--primary);
+  color: var(--primary-text);
+}
+:root[data-theme="phosphor"] ::selection {
+  background: var(--primary);
+  color: #000;
+}
+
+/* Gruvbox: buttons press down */
+:root[data-theme="gruvbox"] .btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.35);
+}
+
+/* Catppuccin and Nord: hover lifts */
+:root[data-theme="catppuccin"] .btn.primary:hover:not(:disabled),
+:root[data-theme="nord"] .btn.primary:hover:not(:disabled) {
+  background: var(--primary-fill);
+  filter: brightness(1.08);
+}
+:root[data-theme="catppuccin"] :focus-visible {
+  outline-offset: 2px;
 }

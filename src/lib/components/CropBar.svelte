@@ -1,8 +1,24 @@
 <script lang="ts">
   // Crop-mode controls: aspect lock, numeric x/y/w/h, full frame, clear.
   import { app } from "$lib/state.svelte";
-  import { ASPECTS } from "$lib/crop";
+  import { ASPECTS, MORE_ASPECTS, ratioOf } from "$lib/crop";
   import type { Crop } from "$lib/types";
+  import Select from "./Select.svelte";
+
+  const inMore = $derived(MORE_ASPECTS.some((m) => m.value === app.aspect));
+  const custom = $derived(!ASPECTS.includes(app.aspect) && !inMore);
+  let customText = $state("");
+  let customBad = $state(false);
+
+  function applyCustom() {
+    const t = customText.trim();
+    if (!t) return;
+    customBad = ratioOf(t) === null;
+    if (!customBad) {
+      app.setAspect(t);
+      customText = ""; // the placeholder now shows the ratio in use
+    }
+  }
 
   const FIELDS: (keyof Crop)[] = ["x", "y", "w", "h"];
 
@@ -29,6 +45,33 @@
       </button>
     {/each}
   </div>
+  <span class="more" class:on={inMore}>
+    <Select
+      label="More aspect ratios"
+      value={inMore ? app.aspect : null}
+      placeholder="More..."
+      options={MORE_ASPECTS.map((m) => ({ value: m.value as string | null, label: m.value, hint: m.hint }))}
+      onchange={(v) => v && app.setAspect(v)}
+    />
+  </span>
+  <input
+    class="field mono custom"
+    class:bad={customBad}
+    class:on={custom}
+    type="text"
+    spellcheck="false"
+    placeholder={custom ? app.aspect : "custom 5:3"}
+    aria-label="Custom aspect ratio, for example 5:3 or 1.66"
+    title="A ratio such as 5:3, 1.66:1 or 1.66. Enter applies it."
+    bind:value={customText}
+    onkeydown={(e) => {
+      if (e.key === "Enter") {
+        applyCustom();
+        (e.currentTarget as HTMLInputElement).blur();
+      }
+    }}
+    onblur={applyCustom}
+  />
 
   <div class="nums">
     {#each FIELDS as k (k)}
@@ -60,7 +103,7 @@
     flex-wrap: wrap;
     gap: 8px;
     padding: 6px 8px;
-    border: 1px solid var(--accent-line);
+    border: var(--bw) solid var(--accent-line);
     border-radius: var(--radius);
     background: color-mix(in srgb, var(--accent-bg) 50%, var(--bg-panel));
   }
@@ -73,14 +116,14 @@
     display: inline-flex;
     padding: 2px;
     gap: 2px;
-    border-radius: var(--radius);
+    border-radius: var(--radius-seg);
     background: var(--bg-chip);
-    border: 1px solid var(--border);
+    border: var(--bw) solid var(--border);
   }
   .seg button {
     padding: 2px 8px;
     border: 0;
-    border-radius: 4px;
+    border-radius: calc(var(--radius-seg) - 2px);
     background: transparent;
     color: var(--text-muted);
     font-size: 11px;
@@ -89,6 +132,24 @@
   }
   .seg button.on {
     background: var(--accent-bg);
+    color: var(--accent-strong);
+  }
+  .more :global(.sel) {
+    width: 92px;
+    height: 24px;
+  }
+  .more.on :global(.sel) {
+    border-color: var(--accent-line);
+    color: var(--accent-strong);
+  }
+  .custom {
+    width: 92px;
+    height: 24px;
+  }
+  .custom.on {
+    border-color: var(--accent-line);
+  }
+  .custom.on::placeholder {
     color: var(--accent-strong);
   }
   .nums {

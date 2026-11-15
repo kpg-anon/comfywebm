@@ -1,6 +1,9 @@
 <script lang="ts">
-  // Right panel. Preset and Rate stay at the top and the summary and Encode
-  // buttons at the bottom; the groups in between scroll and can be collapsed.
+  // Right panel. Preset and Rate stay at the top, the summary and Encode
+  // buttons at the bottom. In between, two tabs: Basic (output, resolution,
+  // motion, audio, file) and Advanced (encoder, filters, audio level,
+  // subtitles, metadata, the ffmpeg command). The Advanced tab shows how many
+  // of its settings are changed, so nothing set there goes unnoticed.
   import { app } from "$lib/state.svelte";
   import { pickFolder, pickSubtitle } from "$lib/dialogs";
   import { CODECS_BY_CONTAINER, CODEC_LABEL } from "$lib/presets";
@@ -8,12 +11,13 @@
   import type { Rotate } from "$lib/types";
   import Group from "./Group.svelte";
   import Icon from "./Icon.svelte";
+  import MotionControl from "./MotionControl.svelte";
   import PresetPicker from "./PresetPicker.svelte";
+  import ResolutionPicker from "./ResolutionPicker.svelte";
   import Seg from "./Seg.svelte";
+  import Select from "./Select.svelte";
   import SizeField from "./SizeField.svelte";
 
-  const FPS_CAPS = [60, 50, 30, 25, 24, 20, 15, 12, 10];
-  const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
   const AUDIO_RATES = [32, 48, 64, 80, 96, 112, 128, 160, 192, 256];
 
   const codecs = $derived(
@@ -56,6 +60,54 @@
   const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
   const num = (e: Event) => Number((e.currentTarget as HTMLInputElement).value) || 0;
 
+  const audioOptions = $derived([
+    { value: "off", label: "Off" },
+    ...(app.media ? app.media.audio.map((a) => ({ value: String(a.track), label: trackLabel(a, `${a.channels} ch`) })) : [{ value: "0", label: "Track 1" }]),
+  ]);
+
+  const subsOptions = $derived([
+    { value: "off", label: "Off" },
+    ...(app.media?.subs ?? []).map((s) => ({
+      value: `t${s.track}`,
+      label: trackLabel(s),
+      hint: s.textBased ? "" : "image-based, not supported",
+      disabled: !s.textBased,
+    })),
+    { value: "file", label: "From file..." },
+  ]);
+
+  function setSubs(v: string) {
+    if (v === "off") app.subsKind = "off";
+    else if (v === "file") {
+      app.subsKind = "file";
+      if (!app.subsFile) void chooseSubs();
+    } else {
+      app.subsKind = "embedded";
+      app.subsTrack = Number(v.slice(1));
+    }
+  }
+
+  const hdrAuto = $derived(!!app.media?.video.hdr && zscale);
+  /** Advanced settings that differ from what a fresh file gets. */
+  const changed = $derived(
+    [
+      app.deinterlace !== !!app.media?.video.interlaced && "deinterlace",
+      app.denoise && "denoise",
+      app.tonemap !== hdrAuto && "tone map",
+      app.rotate !== 0 && `${app.rotate}°`,
+      app.mirror && "mirror",
+      app.playback !== "forward" && app.playback,
+      (app.fadeIn > 0 || app.fadeOut > 0) && "fade",
+      app.audioOn && app.volumeDb !== 0 && `${app.volumeDb > 0 ? "+" : ""}${app.volumeDb} dB`,
+      app.audioOn && app.normalize && "normalize",
+      app.subsKind !== "off" && "subtitles",
+      app.title.trim() && "title",
+      app.extraArgs.trim() && "extra args",
+      app.effort !== "balanced" && `${app.effort} effort`,
+      app.rateMode === "crf" && app.maxBitrateK && "bitrate cap",
+    ].filter((x): x is string => !!x),
+  );
+
   const filterNote = $derived(
     [
       app.deinterlace && "deinterlace",
@@ -63,7 +115,6 @@
       app.tonemap && "tone map",
       app.rotate && `${app.rotate}°`,
       app.mirror && "mirror",
-      app.speed !== 1 && `${app.speed}x`,
       app.playback !== "forward" && app.playback,
       (app.fadeIn > 0 || app.fadeOut > 0) && "fade",
     ]
@@ -86,7 +137,7 @@
         <span>Size limit</span>
         <span class="unit"><SizeField bind:bytes={app.maxBytes} /><span class="muted">MiB</span></span>
       </div>
-      <div class="muted small">{app.maxBytes.toLocaleString("en-US")} bytes · two passes</div>
+      <div class="muted small">{app.maxBytes.toLocaleString("en-US")} bytes · two passes · aims for 99% of the limit</div>
     {:else}
       <div class="row">
         <span>CRF</span>
@@ -97,163 +148,182 @@
     {/if}
   </div>
 
+  <div class="tabs" role="tablist">
+    <button class="tab" class:on={app.tab === "basic"} role="tab" aria-selected={app.tab === "basic"} onclick={() => app.setTab("basic")}>Basic</button>
+    <button
+      class="tab"
+      class:on={app.tab === "advanced"}
+      role="tab"
+      aria-selected={app.tab === "advanced"}
+      title={changed.length ? `Changed: ${changed.join(", ")}` : "Nothing changed here"}
+      onclick={() => app.setTab("advanced")}
+    >
+      Advanced{#if changed.length}<span class="count">{changed.length}</span>{/if}
+    </button>
+  </div>
+
   <div class="scroll">
-    <Group id="output" title="Output" note="{app.container.toUpperCase()} · {CODEC_LABEL[app.codec]}">
-      <Seg
-        label="Container"
-        value={app.container}
-        onchange={(v) => app.setContainer(v)}
-        options={[{ value: "webm", label: "WebM" }, { value: "mp4", label: "MP4" }]}
-      />
-      <Seg label="Codec" value={app.codec} onchange={(v) => app.setCodec(v)} options={codecs} />
-      <div class="row">
-        <span>Effort</span>
-        <Seg
-          label="Effort"
-          bind:value={app.effort}
-          options={[
-            { value: "fast", label: "Fast" },
-            { value: "balanced", label: "Balanced" },
-            { value: "best", label: "Best" },
-          ]}
-        />
-      </div>
-      <label class="row">
-        <span>Max size</span>
-        <span class="unit">
-          <input class="field mono w" type="number" min="0" step="2" placeholder="width" aria-label="Max width" bind:value={app.maxWidth} />
-          <span class="muted">x</span>
-          <input class="field mono w" type="number" min="0" step="2" placeholder="height" aria-label="Max height" bind:value={app.maxHeight} />
-        </span>
-      </label>
-      <label class="check" class:off={app.rateMode !== "size"}>
-        <input type="checkbox" bind:checked={app.autoScale} disabled={app.rateMode !== "size"} />
-        Auto size <span class="muted small">{app.rateMode === "size" ? "lower the resolution to fit the bitrate" : "size limit mode only"}</span>
-      </label>
-      <label class="row">
-        <span>Frame rate</span>
-        <select class="field" bind:value={app.fps}>
-          <option value={null}>Source{app.media ? ` (${Math.round(app.media.video.fps * 100) / 100})` : ""}</option>
-          {#each FPS_CAPS as f (f)}
-            <option value={f}>At most {f}</option>
-          {/each}
-        </select>
-      </label>
-      {#if app.rateMode === "crf"}
+    {#if app.tab === "basic"}
+      <Group id="output" title="Video" note="{app.container.toUpperCase()} · {CODEC_LABEL[app.codec]}">
+        <div class="row">
+          <span>Format</span>
+          <Seg label="Container" value={app.container} onchange={(v) => app.setContainer(v)} options={[{ value: "webm", label: "WebM" }, { value: "mp4", label: "MP4" }]} />
+        </div>
+        <div class="row">
+          <span>Codec</span>
+          <Seg label="Codec" value={app.codec} onchange={(v) => app.setCodec(v)} options={codecs} />
+        </div>
+        <ResolutionPicker />
+        <div class="row">
+          <span>Crop</span>
+          {#if app.crop}
+            <span class="mono small">{app.crop.w}x{app.crop.h} at {app.crop.x},{app.crop.y}</span>
+            <button class="btn small" onclick={() => app.setCrop(null)}>Clear</button>
+          {:else}
+            <span class="muted small grow">none</span>
+            <button class="btn small" disabled={!app.media} onclick={() => (app.cropMode = true)}>Draw <kbd>C</kbd></button>
+          {/if}
+        </div>
+      </Group>
+
+      <Group id="motion" title="Motion" note="{app.speed !== 1 ? `${app.speed}x · ` : ''}{app.media ? `${Math.round(app.outFps * 100) / 100} fps` : ''}">
+        <MotionControl />
+      </Group>
+
+      <Group id="audio" title="Audio" note={app.audioOn ? `${app.audioCodecName} ${app.audioBitrateK}k` : "off"}>
+        {#if app.media && app.media.audio.length === 0}
+          <div class="muted small">The source has no audio.</div>
+        {:else}
+          <div class="row">
+            <span>Track</span>
+            <Select
+              label="Audio track"
+              value={app.audioOn ? String(app.audioTrack) : "off"}
+              options={audioOptions}
+              onchange={(v) => {
+                if (v === "off") app.audioOn = false;
+                else {
+                  app.audioOn = true;
+                  app.audioTrack = Number(v);
+                }
+              }}
+            />
+          </div>
+          {#if app.audioOn}
+            <div class="row">
+              <span>Bitrate ({app.audioCodecName})</span>
+              <Select label="Audio bitrate" bind:value={app.audioBitrateK} options={AUDIO_RATES.map((r) => ({ value: r, label: `${r} kbps` }))} />
+            </div>
+            {#if app.playback === "boomerang"}<div class="muted small">Boomerang output has no audio.</div>{/if}
+          {/if}
+        {/if}
+      </Group>
+
+      <Group id="file" title="File" note={app.outputName || ""}>
+        <label class="col">
+          <span>File name</span>
+          <input class="field" type="text" spellcheck="false" placeholder={app.settings.nameTemplate} bind:value={app.outputName} />
+        </label>
+        <div class="row">
+          <span>Folder</span>
+          <span class="path small" class:muted={!app.settings.outputDir}>{app.settings.outputDir ?? "Beside the source file"}</span>
+        </div>
+        <div class="btns">
+          <button class="btn small" onclick={chooseFolder}><Icon name="open" size={12} />Change</button>
+          {#if app.settings.outputDir}
+            <button class="btn small" onclick={() => app.saveSettings({ ...app.settings, outputDir: null })}>Beside source</button>
+          {/if}
+        </div>
+      </Group>
+    {:else}
+      <Group id="encoder" title="Encoder" note={app.effort}>
+        <div class="row">
+          <span>Effort</span>
+          <Seg
+            label="Effort"
+            bind:value={app.effort}
+            options={[
+              { value: "fast", label: "Fast" },
+              { value: "balanced", label: "Balanced" },
+              { value: "best", label: "Best" },
+            ]}
+          />
+        </div>
         <label class="row">
-          <span>Max bitrate</span>
+          <span>Picture limit</span>
           <span class="unit">
-            <input class="field mono" type="number" min="0" step="50" placeholder="none" bind:value={app.maxBitrateK} />
-            <span class="muted">kbps</span>
+            <input class="field mono w" type="number" min="0" step="2" placeholder="width" aria-label="Picture limit width" bind:value={app.maxWidth} />
+            <span class="muted">x</span>
+            <input class="field mono w" type="number" min="0" step="2" placeholder="height" aria-label="Picture limit height" bind:value={app.maxHeight} />
           </span>
         </label>
-        <label class="check"><input type="checkbox" bind:checked={app.twoPass} /> Two passes</label>
-      {/if}
-    </Group>
-
-    <Group id="filters" title="Filters" note={filterNote}>
-      <div class="checks">
-        <label class="check"><input type="checkbox" bind:checked={app.deinterlace} /> Deinterlace</label>
-        <label class="check"><input type="checkbox" bind:checked={app.denoise} /> Denoise</label>
-        <label class="check" class:off={!zscale}>
-          <input type="checkbox" bind:checked={app.tonemap} disabled={!zscale} /> Tone map HDR
-        </label>
-        <label class="check"><input type="checkbox" bind:checked={app.mirror} /> Mirror</label>
-      </div>
-      {#if app.media?.video.interlaced}<div class="muted small">The source is interlaced.</div>{/if}
-      {#if app.media?.video.hdr}<div class="muted small">The source is HDR.</div>{/if}
-      {#if !zscale}<div class="muted small">Tone mapping needs an ffmpeg build with the zscale filter.</div>{/if}
-      <div class="row">
-        <span>Rotate</span>
-        <Seg
-          label="Rotate"
-          value={app.rotate}
-          onchange={(v) => (app.rotate = v as Rotate)}
-          options={[
-            { value: 0, label: "0°" },
-            { value: 90, label: "90°" },
-            { value: 180, label: "180°" },
-            { value: 270, label: "270°" },
-          ]}
-        />
-      </div>
-      <label class="row">
-        <span>Speed</span>
-        <select class="field" bind:value={app.speed}>
-          {#each SPEEDS as s (s)}
-            <option value={s}>{s}x</option>
-          {/each}
-        </select>
-      </label>
-      <div class="row">
-        <span>Direction</span>
-        <Seg
-          label="Playback direction"
-          bind:value={app.playback}
-          options={[
-            { value: "forward", label: "Forward" },
-            { value: "reverse", label: "Reverse" },
-            { value: "boomerang", label: "Boomerang" },
-          ]}
-        />
-      </div>
-      <div class="row">
-        <span>Fade</span>
-        <span class="unit">
-          <span class="muted small">in</span>
-          <input class="field mono s" type="number" min="0" step="0.25" aria-label="Fade in seconds" value={app.fadeIn} onchange={(e) => (app.fadeIn = Math.max(0, num(e)))} />
-          <span class="muted small">out</span>
-          <input class="field mono s" type="number" min="0" step="0.25" aria-label="Fade out seconds" value={app.fadeOut} onchange={(e) => (app.fadeOut = Math.max(0, num(e)))} />
-          <span class="muted small">s</span>
-        </span>
-      </div>
-      <div class="row">
-        <span>Crop</span>
-        {#if app.crop}
-          <span class="mono small">{app.crop.w}x{app.crop.h} at {app.crop.x},{app.crop.y}</span>
-          <button class="btn small" onclick={() => app.setCrop(null)}>Clear</button>
-        {:else}
-          <span class="muted small">none</span>
-          <button class="btn small" disabled={!app.media} onclick={() => (app.cropMode = true)}>Draw</button>
-        {/if}
-      </div>
-    </Group>
-
-    <Group id="audio" title="Audio" note={app.audioOn ? `${app.audioCodecName} ${app.audioBitrateK}k` : "off"}>
-      {#if app.media && app.media.audio.length === 0}
-        <div class="muted small">The source has no audio.</div>
-      {:else}
-        <select
-          class="field"
-          aria-label="Audio track"
-          value={app.audioOn ? String(app.audioTrack) : "off"}
-          onchange={(e) => {
-            const v = (e.currentTarget as HTMLSelectElement).value;
-            if (v === "off") app.audioOn = false;
-            else {
-              app.audioOn = true;
-              app.audioTrack = Number(v);
-            }
-          }}
-        >
-          <option value="off">Off</option>
-          {#if app.media}
-            {#each app.media.audio as a (a.track)}
-              <option value={String(a.track)}>{trackLabel(a, `${a.channels} ch`)}</option>
-            {/each}
-          {:else}
-            <option value="0">Track 1</option>
-          {/if}
-        </select>
-        {#if app.audioOn}
+        <div class="muted small">The largest picture the destination accepts (set by the preset). Resolution choices stay inside it.</div>
+        {#if app.rateMode === "crf"}
           <label class="row">
-            <span>Bitrate ({app.audioCodecName})</span>
-            <select class="field" bind:value={app.audioBitrateK}>
-              {#each AUDIO_RATES as r (r)}
-                <option value={r}>{r} kbps</option>
-              {/each}
-            </select>
+            <span>Max bitrate</span>
+            <span class="unit">
+              <input class="field mono" type="number" min="0" step="50" placeholder="none" bind:value={app.maxBitrateK} />
+              <span class="muted">kbps</span>
+            </span>
           </label>
+          <label class="check"><input type="checkbox" bind:checked={app.twoPass} /> Two passes</label>
+        {/if}
+      </Group>
+
+      <Group id="filters" title="Filters" note={filterNote}>
+        <div class="checks">
+          <label class="check"><input type="checkbox" bind:checked={app.deinterlace} /> Deinterlace</label>
+          <label class="check"><input type="checkbox" bind:checked={app.denoise} /> Denoise</label>
+          <label class="check" class:off={!zscale}>
+            <input type="checkbox" bind:checked={app.tonemap} disabled={!zscale} /> Tone map HDR
+          </label>
+          <label class="check"><input type="checkbox" bind:checked={app.mirror} /> Mirror</label>
+        </div>
+        {#if app.media?.video.interlaced}<div class="muted small">The source is interlaced.</div>{/if}
+        {#if app.media?.video.hdr}<div class="muted small">The source is HDR.</div>{/if}
+        {#if !zscale}<div class="muted small">Tone mapping needs an ffmpeg build with the zscale filter.</div>{/if}
+        <div class="row">
+          <span>Rotate</span>
+          <Seg
+            label="Rotate"
+            value={app.rotate}
+            onchange={(v) => (app.rotate = v as Rotate)}
+            options={[
+              { value: 0, label: "0°" },
+              { value: 90, label: "90°" },
+              { value: 180, label: "180°" },
+              { value: 270, label: "270°" },
+            ]}
+          />
+        </div>
+        <div class="row">
+          <span>Direction</span>
+          <Seg
+            label="Playback direction"
+            bind:value={app.playback}
+            options={[
+              { value: "forward", label: "Forward" },
+              { value: "reverse", label: "Reverse" },
+              { value: "boomerang", label: "Boomerang" },
+            ]}
+          />
+        </div>
+        <div class="row">
+          <span>Fade</span>
+          <span class="unit">
+            <span class="muted small">in</span>
+            <input class="field mono s" type="number" min="0" step="0.25" aria-label="Fade in seconds" value={app.fadeIn} onchange={(e) => (app.fadeIn = Math.max(0, num(e)))} />
+            <span class="muted small">out</span>
+            <input class="field mono s" type="number" min="0" step="0.25" aria-label="Fade out seconds" value={app.fadeOut} onchange={(e) => (app.fadeOut = Math.max(0, num(e)))} />
+            <span class="muted small">s</span>
+          </span>
+        </div>
+      </Group>
+
+      <Group id="audiolevel" title="Audio level" note={app.audioOn ? `${app.volumeDb} dB${app.normalize ? ", normalized" : ""}` : "audio off"}>
+        {#if !app.audioOn}
+          <div class="muted small">Audio is off (Basic tab).</div>
+        {:else}
           <label class="row">
             <span>Volume</span>
             <span class="unit">
@@ -262,75 +332,39 @@
             </span>
           </label>
           <label class="check"><input type="checkbox" bind:checked={app.normalize} /> Normalize loudness</label>
-          {#if app.playback === "boomerang"}<div class="muted small">Boomerang output has no audio.</div>{/if}
         {/if}
-      {/if}
-    </Group>
+      </Group>
 
-    <Group id="subs" title="Subtitles" note={app.subsKind === "off" ? "off" : "burned in"}>
-      <select
-        class="field"
-        aria-label="Subtitles"
-        value={app.subsKind === "embedded" ? `t${app.subsTrack}` : app.subsKind}
-        onchange={(e) => {
-          const v = (e.currentTarget as HTMLSelectElement).value;
-          if (v === "off") app.subsKind = "off";
-          else if (v === "file") {
-            app.subsKind = "file";
-            if (!app.subsFile) void chooseSubs();
-          } else {
-            app.subsKind = "embedded";
-            app.subsTrack = Number(v.slice(1));
-          }
-        }}
-      >
-        <option value="off">Off</option>
-        {#each app.media?.subs ?? [] as s (s.track)}
-          <option value={`t${s.track}`} disabled={!s.textBased}>{trackLabel(s)}{s.textBased ? "" : " (image-based, not supported)"}</option>
-        {/each}
-        <option value="file">From file...</option>
-      </select>
-      {#if app.subsKind === "file"}
-        <div class="row">
-          <span class="path small" class:muted={!app.subsFile}>{app.subsFile ? baseName(app.subsFile) : "No file chosen"}</span>
-          <button class="btn small" onclick={chooseSubs}>Choose</button>
-        </div>
-      {/if}
-    </Group>
-
-    <Group id="file" title="File" note={app.outputName || ""}>
-      <label class="col">
-        <span>File name</span>
-        <input class="field" type="text" spellcheck="false" placeholder={app.settings.nameTemplate} bind:value={app.outputName} />
-      </label>
-      <div class="row">
-        <span>Folder</span>
-        <span class="path small" class:muted={!app.settings.outputDir}>{app.settings.outputDir ?? "Beside the source file"}</span>
-      </div>
-      <div class="btns">
-        <button class="btn small" onclick={chooseFolder}><Icon name="open" size={12} />Change</button>
-        {#if app.settings.outputDir}
-          <button class="btn small" onclick={() => app.saveSettings({ ...app.settings, outputDir: null })}>Beside source</button>
+      <Group id="subs" title="Subtitles" note={app.subsKind === "off" ? "off" : "burned in"}>
+        <Select label="Subtitles" value={app.subsKind === "embedded" ? `t${app.subsTrack}` : app.subsKind} options={subsOptions} onchange={setSubs} />
+        {#if app.subsKind === "file"}
+          <div class="row">
+            <span class="path small" class:muted={!app.subsFile}>{app.subsFile ? baseName(app.subsFile) : "No file chosen"}</span>
+            <button class="btn small" onclick={chooseSubs}>Choose</button>
+          </div>
         {/if}
-      </div>
-      <label class="col">
-        <span>Title metadata</span>
-        <input class="field" type="text" spellcheck="false" placeholder="none" bind:value={app.title} />
-      </label>
-      <label class="col">
-        <span>Extra ffmpeg arguments</span>
-        <input class="field mono" type="text" spellcheck="false" placeholder="none" bind:value={app.extraArgs} />
-      </label>
-    </Group>
+      </Group>
 
-    <Group id="command" title="Command">
-      {#if app.plan}
-        <textarea class="cmd mono" readonly rows="6" value={app.plan.command}></textarea>
-        <button class="btn small cmdcopy" onclick={copyCmd}><Icon name={copied ? "check" : "copy"} size={12} />{copied ? "Copied" : "Copy"}</button>
-      {:else}
-        <div class="muted small">Open a video to see the ffmpeg command.</div>
-      {/if}
-    </Group>
+      <Group id="meta" title="Metadata and arguments">
+        <label class="col">
+          <span>Title metadata</span>
+          <input class="field" type="text" spellcheck="false" placeholder="none" bind:value={app.title} />
+        </label>
+        <label class="col">
+          <span>Extra ffmpeg arguments</span>
+          <input class="field mono" type="text" spellcheck="false" placeholder="none" bind:value={app.extraArgs} />
+        </label>
+      </Group>
+
+      <Group id="command" title="ffmpeg command">
+        {#if app.plan}
+          <textarea class="cmd mono" readonly rows="6" value={app.plan.command}></textarea>
+          <button class="btn small cmdcopy" onclick={copyCmd}><Icon name={copied ? "check" : "copy"} size={12} />{copied ? "Copied" : "Copy"}</button>
+        {:else}
+          <div class="muted small">Open a video to see the ffmpeg command.</div>
+        {/if}
+      </Group>
+    {/if}
   </div>
 
   <div class="fixed bottom">
@@ -371,32 +405,81 @@
 
 <style>
   .sidebar {
-    width: 320px;
+    width: 330px;
     flex: none;
     display: flex;
     flex-direction: column;
     min-height: 0;
     border-left: 1px solid var(--border-muted);
-    background: var(--bg-panel);
+    background: var(--sidebar-bg);
   }
   .fixed {
     flex: none;
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding: 10px 12px;
-  }
-  .top {
-    border-bottom: 1px solid var(--border);
+    padding: 10px var(--pad-panel);
   }
   .bottom {
     border-top: 1px solid var(--border);
+  }
+  .tabs {
+    flex: none;
+    display: flex;
+    gap: 2px;
+    padding: 0 var(--pad-panel);
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 10px;
+    border: 0;
+    background: none;
+    color: var(--text-muted);
+    font-family: var(--font-head);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: var(--head-track);
+    text-transform: var(--head-case);
+    cursor: pointer;
+  }
+  .tab:hover {
+    color: var(--text-primary);
+  }
+  .tab.on {
+    color: var(--accent-strong);
+  }
+  .tab.on::after {
+    content: "";
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+  }
+  .count {
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: var(--text-inverse);
+    font-size: 10px;
+    line-height: 16px;
+    text-align: center;
+    letter-spacing: 0;
   }
   .scroll {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 0 12px;
+    padding: 0 var(--pad-panel);
   }
   .row {
     display: flex;
@@ -410,15 +493,18 @@
     color: var(--text-secondary);
     font-size: 12px;
   }
-  .row select {
+  .row :global(.sel) {
     flex: 1;
-    max-width: 170px;
+    max-width: 190px;
   }
   .row :global(.seg) {
     flex: 1;
-    max-width: 220px;
+    max-width: 230px;
   }
   .row input[type="range"] {
+    flex: 1;
+  }
+  .grow {
     flex: 1;
   }
   .crf {
@@ -522,7 +608,7 @@
     width: 100%;
     resize: vertical;
     padding: 6px;
-    border: 1px solid var(--border);
+    border: var(--bw) solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--bg-input);
     font-size: 11px;
@@ -540,7 +626,7 @@
   }
   .big {
     flex: 1;
-    height: 34px;
+    height: calc(var(--ctl-h) + 6px);
     font-size: 13px;
   }
   .big kbd {
@@ -548,5 +634,9 @@
     background: transparent;
     border-color: color-mix(in srgb, var(--text-inverse) 40%, transparent);
     color: inherit;
+  }
+  .btn kbd {
+    font-size: 10px;
+    padding: 0 3px;
   }
 </style>

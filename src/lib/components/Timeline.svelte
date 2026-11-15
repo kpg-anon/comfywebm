@@ -1,21 +1,107 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { app } from "$lib/state.svelte";
   import { fmtTime } from "$lib/time";
   import Icon from "./Icon.svelte";
   import TimeField from "./TimeField.svelte";
   import CropBar from "./CropBar.svelte";
+  import EditStrip from "./EditStrip.svelte";
 
   let track: HTMLDivElement;
   let drag: { kind: "seek" } | { kind: "start" | "end"; i: number } | null = null;
+  let trackW = $state(0);
+  /** Time under the pointer while it is over the track. */
+  let hoverT = $state<number | null>(null);
 
   const dur = $derived(app.duration || 0);
-  const pct = (t: number) => (dur > 0 ? (Math.min(Math.max(t, 0), dur) / dur) * 100 : 0);
   const many = $derived(app.segments.length > 1);
 
-  function timeAt(e: PointerEvent) {
+  // Zoom: the track shows [viewStart, viewStart + viewLen]. 1 = the whole file.
+  // The deepest zoom shows about 20 frames (at least 0.4 s).
+  let zoom = $state(1);
+  let viewStart = $state(0);
+  const viewLen = $derived(dur > 0 ? dur / zoom : 0);
+  const maxZoom = $derived(dur > 0 ? Math.max(1, dur / Math.max(0.4, 20 / app.fpsSrc)) : 1);
+  const zoomed = $derived(zoom > 1.001);
+
+  const clampStart = (s: number, len = viewLen) => Math.min(Math.max(0, s), Math.max(0, dur - len));
+  /** Position of time t on the track in percent (outside 0..100 when off view). */
+  const pct = (t: number) => (viewLen > 0 ? ((Math.min(Math.max(t, 0), dur) - viewStart) / viewLen) * 100 : 0);
+
+  function timeAt(e: { clientX: number }) {
     const b = track.getBoundingClientRect();
     const f = b.width > 0 ? (e.clientX - b.left) / b.width : 0;
-    return Math.min(Math.max(f, 0), 1) * dur;
+    return Math.min(Math.max(viewStart + Math.min(Math.max(f, 0), 1) * viewLen, 0), dur);
+  }
+
+  /** Zoom to z, keeping time `at` under the same spot (fraction `frac` of the width). */
+  function setZoom(z: number, at = app.current, frac = viewLen > 0 ? (at - viewStart) / viewLen : 0.5) {
+    const nz = Math.min(maxZoom, Math.max(1, z));
+    const len = dur / nz;
+    zoom = nz;
+    viewStart = clampStart(at - Math.min(Math.max(frac, 0), 1) * len, len);
+  }
+
+  // a new file starts unzoomed
+  $effect(() => {
+    void app.media?.path;
+    zoom = 1;
+    viewStart = 0;
+  });
+
+  // keep the playhead in view: page forward or back when it leaves
+  $effect(() => {
+    const t = app.current;
+    if (!zoomed || drag) return;
+    const s = untrack(() => viewStart);
+    if (t < s || t > s + viewLen) viewStart = clampStart(t - viewLen * 0.1);
+  });
+
+  // Ctrl+wheel zooms at the pointer; the wheel alone pans while zoomed.
+  // Added by hand because the listener must be able to call preventDefault.
+  $effect(() => {
+    const el = track;
+    const onWheel = (e: WheelEvent) => {
+      if (!app.media) return;
+      const d = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
+      if (e.ctrlKey) {
+        e.preventDefault();
+        const b = el.getBoundingClientRect();
+        const frac = b.width > 0 ? (e.clientX - b.left) / b.width : 0.5;
+        setZoom(zoom * Math.pow(1.0015, -d), timeAt(e), frac);
+      } else if (zoomed) {
+        e.preventDefault();
+        const dx = Math.abs(e.deltaX) > Math.abs(d) ? e.deltaX : d;
+        viewStart = clampStart(viewStart + (dx / 600) * viewLen);
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  });
+
+  // ruler: about one label per 90 px
+  const STEPS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
+  const ticks = $derived.by(() => {
+    if (!viewLen || !trackW) return [];
+    const want = viewLen / Math.max(1, trackW / 90);
+    const step = STEPS.find((s) => s >= want) ?? 7200;
+    const out: { t: number; label: string }[] = [];
+    for (let t = Math.ceil(viewStart / step) * step; t <= viewStart + viewLen + 1e-9; t += step) out.push({ t, label: label(t, step) });
+    return out;
+  });
+
+  function label(t: number, step: number) {
+    const s = fmtTime(t);
+    // fmtTime gives m:ss.mmm; keep tenths only when the step needs them
+    return step < 1 ? s.replace(/(\.\d)\d\d$/, "$1") : s.replace(/\.\d+$/, "");
+  }
+
+  // overview bar (shown while zoomed): click or drag to move the view
+  let ovDrag = false;
+  function ovMove(e: PointerEvent) {
+    const b = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const t = ((e.clientX - b.left) / Math.max(1, b.width)) * dur;
+    viewStart = clampStart(t - viewLen / 2);
   }
 
   function down(e: PointerEvent, kind: "seek" | "start" | "end" | "body", i = -1) {
@@ -34,6 +120,7 @@
   }
 
   function moveEv(e: PointerEvent) {
+    if (app.media) hoverT = timeAt(e);
     if (!drag) return;
     const t = timeAt(e);
     if (drag.kind === "seek") app.seek(t);
@@ -52,15 +139,26 @@
 </script>
 
 <div class="timeline">
+  <div class="ruler" aria-hidden="true">
+    {#each ticks as k (k.t)}
+      <span class="tick" style:left="{pct(k.t)}%">{#if pct(k.t) < 96}<span class="tl mono">{k.label}</span>{/if}</span>
+    {/each}
+    {#if hoverT !== null}
+      <span class="hover mono" style:left="{Math.min(94, Math.max(4, pct(hoverT)))}%">{fmtTime(hoverT)}</span>
+    {/if}
+  </div>
   <div
     class="track"
     class:disabled={!app.media}
+    class:zoomed
     bind:this={track}
+    bind:clientWidth={trackW}
     role="presentation"
     onpointerdown={(e) => down(e, "seek")}
     onpointermove={moveEv}
     onpointerup={up}
     onpointercancel={up}
+    onpointerleave={() => (hoverT = null)}
   >
     <div class="rail"></div>
     {#each app.segments as s, i (i)}
@@ -79,6 +177,33 @@
     {/each}
     <div class="head" style:left="{pct(app.current)}%"></div>
   </div>
+
+  {#if zoomed}
+    <div
+      class="overview"
+      role="scrollbar"
+      aria-controls="timeline"
+      aria-valuenow={Math.round(viewStart)}
+      tabindex="-1"
+      onpointerdown={(e) => {
+        ovDrag = true;
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        ovMove(e);
+      }}
+      onpointermove={(e) => ovDrag && ovMove(e)}
+      onpointerup={() => (ovDrag = false)}
+    >
+      {#each app.segments as s, i (i)}
+        <span class="ovseg" style:left="{(s.start / dur) * 100}%" style:width="{((s.end - s.start) / dur) * 100}%"></span>
+      {/each}
+      <span class="ovwin" style:left="{(viewStart / dur) * 100}%" style:width="{(viewLen / dur) * 100}%"></span>
+      <span class="ovhead" style:left="{(app.current / dur) * 100}%"></span>
+    </div>
+  {/if}
+
+  {#if many}
+    <EditStrip />
+  {/if}
 
   <div class="row">
     <div class="group">
@@ -101,6 +226,12 @@
         <span class="mono">{fmtTime(app.clipLen)}</span>
       </div>
     {/if}
+    <span class="grow"></span>
+    <div class="group zoom">
+      <button class="btn icon" disabled={!app.media || !zoomed} aria-label="Zoom out (Ctrl+wheel)" onclick={() => setZoom(zoom / 2)}><Icon name="zoomOut" size={15} /></button>
+      <button class="btn zl mono" disabled={!app.media || !zoomed} aria-label="Show the whole file" onclick={() => setZoom(1)}>{zoomed ? `${zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}x` : "Fit"}</button>
+      <button class="btn icon" disabled={!app.media || zoom >= maxZoom} aria-label="Zoom in (Ctrl+wheel)" onclick={() => setZoom(zoom * 2)}><Icon name="zoomIn" size={15} /></button>
+    </div>
   </div>
 
   <div class="row">
@@ -108,6 +239,8 @@
       <button class="btn" disabled={!app.media} onclick={() => app.markIn()}><Icon name="markIn" size={14} />In <kbd>I</kbd></button>
       <button class="btn" disabled={!app.media} onclick={() => app.markOut()}><Icon name="markOut" size={14} />Out <kbd>O</kbd></button>
       <button class="btn" disabled={!app.media} onclick={() => app.addRange()}><Icon name="plus" size={14} />Range <kbd>N</kbd></button>
+      <button class="btn icon" disabled={!app.canUndo} aria-label="Undo (Ctrl+Z)" onclick={() => app.undo()}><Icon name="undo" size={15} /></button>
+      <button class="btn icon" disabled={!app.canRedo} aria-label="Redo (Ctrl+Shift+Z)" onclick={() => app.redo()}><Icon name="redo" size={15} /></button>
       <button class="btn" disabled={app.sel < 0} onclick={() => app.removeRange()} aria-label="Remove the selected range">
         <Icon name="x" size={14} />Remove{#if many}&nbsp;<kbd>Del</kbd>{/if}
       </button>
@@ -141,12 +274,93 @@
     padding: 8px 10px 10px;
     border-top: 1px solid var(--border-muted);
     background: var(--bg-panel);
+    padding-left: var(--pad-panel);
+    padding-right: var(--pad-panel);
   }
   .track {
     position: relative;
     height: 26px;
     cursor: pointer;
     touch-action: none;
+  }
+  .track.zoomed {
+    overflow: hidden;
+  }
+  .ruler {
+    position: relative;
+    height: 14px;
+    margin-bottom: -4px;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .tick {
+    position: absolute;
+    bottom: 0;
+    width: 1px;
+    height: 5px;
+    background: var(--border);
+  }
+  .tl {
+    position: absolute;
+    bottom: 4px;
+    left: 3px;
+    font-size: 9.5px;
+    line-height: 1;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .hover {
+    position: absolute;
+    top: 0;
+    z-index: 1;
+    transform: translateX(-50%);
+    padding: 0 4px;
+    border-radius: 3px;
+    background: var(--bg-chip);
+    box-shadow: 0 0 0 1px var(--border);
+    color: var(--text-primary);
+    font-size: 10px;
+    line-height: 13px;
+    white-space: nowrap;
+  }
+  .overview {
+    position: relative;
+    height: 8px;
+    margin-top: -3px;
+    border-radius: 3px;
+    background: var(--bg-input);
+    cursor: pointer;
+    touch-action: none;
+  }
+  .ovseg {
+    position: absolute;
+    top: 2px;
+    height: 4px;
+    background: color-mix(in srgb, var(--range) 60%, transparent);
+  }
+  .ovwin {
+    position: absolute;
+    top: 0;
+    height: 8px;
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+  .ovhead {
+    position: absolute;
+    top: 0;
+    width: 2px;
+    height: 8px;
+    margin-left: -1px;
+    background: var(--playhead);
+  }
+  .zoom {
+    gap: 2px;
+  }
+  .zl {
+    min-width: 46px;
+    padding: 0 6px;
+    font-size: 11px;
   }
   .track.disabled {
     cursor: default;
@@ -207,7 +421,7 @@
     width: 2px;
     height: 26px;
     margin-left: -1px;
-    background: var(--accent);
+    background: var(--playhead);
     pointer-events: none;
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
   }

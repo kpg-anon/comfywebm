@@ -13,10 +13,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-const MAX_ATTEMPTS: u32 = 3;
+const MAX_ATTEMPTS: u32 = 4;
 const STDERR_LINES: usize = 20;
-/// an output under this share of the limit is encoded again at a higher bitrate
-const UNDERSHOOT: f64 = 0.88;
 /// a higher bitrate that grows the file by less than this means the encoder is at its quality ceiling
 const CEILING_GROWTH: f64 = 1.03;
 const SAMPLE_SECS: f64 = 3.0;
@@ -223,12 +221,13 @@ fn better(new: u64, old: u64, max: Option<f64>) -> bool {
 
 /// Encodes `spec` to `final_path` (through `<final_path>.part`).
 ///
-/// Size mode fits the file to the limit in at most 3 attempts: over the
-/// limit, encode again at `kbps * max/actual * 0.98`; under 88% of it, again
-/// at `kbps * max/actual * 0.97` (at most 2x). The best attempt is kept (the
-/// largest under the limit, else the smallest). A higher bitrate that grows
-/// the file by less than 3% stops the loop. Retries repeat only pass 2 where
-/// the pass 1 log does not depend on the bitrate (libvpx, x264).
+/// Size mode fits the file to the limit in at most 4 attempts. An output over
+/// the limit, or under `plan::FILL_ACCEPT` of it, is encoded again at the
+/// bitrate from `plan::next_video_kbps`, which aims at `plan::FILL_TARGET`.
+/// The best attempt is kept (the largest under the limit, else the smallest).
+/// A higher bitrate that grows the file by less than 3% stops the loop.
+/// Retries repeat only pass 2 where the pass 1 log does not depend on the
+/// bitrate (libvpx, x264).
 pub fn run_job(
     ffmpeg: &Path,
     spec: &EncodeSpec,
@@ -298,19 +297,17 @@ pub fn run_job(
             break;
         }
         let s = size as f64;
-        let next = if s > max {
-            plan::retry_video_kbps(k, max, s)
-        } else if s < max * UNDERSHOOT {
+        if s <= max && s >= max * plan::FILL_ACCEPT {
+            break;
+        }
+        if s <= max {
             if let Some((pk, ps)) = prev {
                 if k > pk && s < ps as f64 * CEILING_GROWTH {
                     break;
                 }
             }
-            plan::undershoot_video_kbps(k, max, s)
-        } else {
-            break;
-        };
-        kbps_override = Some(next);
+        }
+        kbps_override = Some(plan::next_video_kbps(&history, max));
         attempt += 1;
     }
 

@@ -10,6 +10,7 @@
   let errorOpen = $state<Record<number, boolean>>({});
 
   const pending = $derived(app.jobs.filter((j) => j.status === "pending").length);
+  const finished = $derived(app.jobs.filter((j) => j.status !== "pending" && j.status !== "running").length);
 
   const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
   const jobName = (j: Job) => baseName(j.output ?? j.spec.outputName ?? j.spec.input);
@@ -40,18 +41,18 @@
 
 <div class="queue">
   <div class="head">
-    <button class="toggle" aria-expanded={app.queueOpen} onclick={() => (app.queueOpen = !app.queueOpen)}>
-      <span class="chev" class:open={app.queueOpen}><Icon name="chevron" size={12} /></span>
-      Queue
-      <span class="muted">{app.jobs.length ? `${app.jobs.length} job${app.jobs.length === 1 ? "" : "s"}` : "empty"}{pending ? `, ${pending} waiting` : ""}</span>
-    </button>
-    <button class="btn small" disabled={!pending} onclick={() => app.startQueue()}><Icon name="start" size={11} />Start</button>
+    <span class="title head-text">Queue</span>
+    <span class="muted count">
+      {app.jobs.length ? `${app.jobs.length} job${app.jobs.length === 1 ? "" : "s"}` : "empty"}{pending ? `, ${pending} waiting` : ""}
+    </span>
+    <span class="grow"></span>
+    <button class="btn small" disabled={!finished} onclick={() => app.clearFinished()}><Icon name="trash" size={11} />Clear finished</button>
+    <button class="btn small primary" disabled={!pending} onclick={() => app.startQueue()}><Icon name="start" size={11} />Start</button>
   </div>
 
-  {#if app.queueOpen}
     <div class="list">
       {#if !app.jobs.length}
-        <div class="muted empty">Nothing queued. "Add to queue" collects jobs here; "Start" runs them one at a time.</div>
+        <div class="muted empty">Nothing queued. "Add to queue" collects jobs here and "Start" runs them one at a time; "Encode" adds a job and starts it.</div>
       {/if}
       {#each app.jobs as j (j.id)}
         <div class="job {j.status}">
@@ -99,52 +100,34 @@
         </div>
       {/each}
     </div>
-  {/if}
 </div>
 
 <style>
   .queue {
+    flex: 1;
     display: flex;
     flex-direction: column;
     min-height: 0;
-    border-top: 1px solid var(--border);
-    background: var(--bg-panel-alt);
+    background: var(--bg-app);
   }
   .head {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 4px 10px;
+    gap: 10px;
+    padding: 10px var(--pad-panel);
+    border-bottom: 1px solid var(--border-muted);
+    background: var(--bg-panel);
   }
-  .toggle {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    height: 26px;
-    padding: 0;
-    border: 0;
-    background: none;
+  .title {
+    font-size: 13px;
+  }
+  .count {
     font-size: 12px;
-    font-weight: 700;
-    color: var(--text-secondary);
-    text-align: left;
-    cursor: pointer;
-  }
-  .toggle .muted {
-    font-weight: 500;
-  }
-  .chev {
-    display: inline-flex;
-    transform: rotate(-90deg);
-  }
-  .chev.open {
-    transform: none;
   }
   .list {
-    max-height: 190px;
+    flex: 1;
     overflow-y: auto;
-    padding: 0 10px 8px;
+    padding: 10px var(--pad-panel);
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -157,8 +140,8 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding: 6px 8px;
-    border: 1px solid var(--border-muted);
+    padding: 8px 10px;
+    border: var(--bw) solid var(--border-muted);
     border-radius: var(--radius);
     background: var(--bg-panel);
   }

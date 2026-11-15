@@ -5,6 +5,7 @@
   import { BUILTIN_PRESETS, isBuiltin } from "$lib/presets";
   import { pickPresetsFile, savePresetsFile } from "$lib/dialogs";
   import Icon from "./Icon.svelte";
+  import Select from "./Select.svelte";
 
   let manage = $state(false);
   let mode = $state<"new" | "rename" | null>(null);
@@ -13,6 +14,10 @@
   let confirmDelete = $state(false);
 
   const builtin = $derived(isBuiltin(app.presetName));
+  const options = $derived([
+    ...BUILTIN_PRESETS.map((p) => ({ value: p.name, label: p.name, group: "Built-in" })),
+    ...app.settings.presets.map((p) => ({ value: p.name, label: p.name, group: "Saved" })),
+  ]);
 
   function begin(m: "new" | "rename") {
     mode = m;
@@ -52,30 +57,17 @@
 
 <div class="preset">
   <div class="line">
-    <select
-      class="field"
-      aria-label="Preset"
+    <Select
+      label="Preset"
       value={app.presetName}
-      onchange={(e) => {
-        app.applyPreset((e.currentTarget as HTMLSelectElement).value);
+      {options}
+      onchange={(v) => {
+        app.applyPreset(v);
         confirmDelete = false;
         mode = null;
         msg = null;
       }}
-    >
-      <optgroup label="Built-in">
-        {#each BUILTIN_PRESETS as p (p.name)}
-          <option value={p.name}>{p.name}</option>
-        {/each}
-      </optgroup>
-      {#if app.settings.presets.length}
-        <optgroup label="Saved">
-          {#each app.settings.presets as p (p.name)}
-            <option value={p.name}>{p.name}</option>
-          {/each}
-        </optgroup>
-      {/if}
-    </select>
+    />
     <button class="btn icon" class:on={manage} aria-label="Manage presets" aria-pressed={manage} onclick={() => { manage = !manage; mode = null; msg = null; }}>
       <Icon name="edit" size={14} />
     </button>
@@ -126,11 +118,11 @@
     display: flex;
     gap: 4px;
   }
-  .line select,
+  .line :global(.sel),
   .line input {
     flex: 1;
     min-width: 0;
-    height: 28px;
+    height: var(--ctl-h);
   }
   .tools {
     display: flex;

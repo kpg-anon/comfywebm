@@ -332,6 +332,8 @@ pub struct Settings {
     pub ytdlp_args: Vec<String>,
     /// None = "downloads" in the app cache dir
     pub download_dir: Option<String>,
+    /// where "Download only" keeps originals; None = the user's Downloads folder
+    pub keep_dir: Option<String>,
     /// None = beside the source file
     pub output_dir: Option<String>,
     pub name_template: String,
@@ -346,6 +348,7 @@ impl Default for Settings {
             ytdlp_path: None,
             ytdlp_args: Vec::new(),
             download_dir: None,
+            keep_dir: None,
             output_dir: None,
             name_template: DEFAULT_NAME_TEMPLATE.to_string(),
             last_preset: None,

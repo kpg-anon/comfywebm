@@ -11,6 +11,7 @@ Work on the `exp` branch.
 
 ### Added
 
+- Batch: a small picture of each file (from 10% in), made two at a time.
 - Batch: "Join into one file" makes one job from the included files in list
   order, each with its trim, at the first file's picture size and frame
   rate; other sizes get black bars, files without sound get silence.

@@ -60,6 +60,18 @@ async fn timeline_thumbs(app: AppHandle, path: String) -> Result<String, String>
     .await
 }
 
+/// A small picture of a file for lists (cached).
+#[tauri::command]
+async fn poster(app: AppHandle, path: String) -> Result<String, String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let ffmpeg = state.ffmpeg()?;
+        let info = state.media(&path)?;
+        Ok(strip::poster(&ffmpeg, &info, &state.cache_dir)?.to_string_lossy().into_owned())
+    })
+    .await
+}
+
 /// Scene cut times of the video, in seconds (cached).
 #[tauri::command]
 async fn scene_cuts(app: AppHandle, path: String) -> Result<Vec<f64>, String> {
@@ -756,6 +768,7 @@ pub fn run() {
             timeline_thumbs,
             timeline_wave,
             scene_cuts,
+            poster,
             proxy_cancel,
             cache_info,
             cache_clear,

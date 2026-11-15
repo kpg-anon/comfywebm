@@ -47,6 +47,7 @@ export const exportFrameProcessed = (spec: EncodeSpec, time: number) => invoke<s
 /** Filmstrip JPEG / waveform PNG for the timeline; paths in the cache dir. */
 export const timelineThumbs = (path: string) => invoke<string>("timeline_thumbs", { path });
 export const proxyCancel = () => invoke<void>("proxy_cancel");
+export const poster = (path: string) => invoke<string>("poster", { path });
 export const sceneCuts = (path: string) => invoke<number[]>("scene_cuts", { path });
 export const timelineWave = (path: string, track: number) => invoke<string>("timeline_wave", { path, track });
 export type CacheInfo = { dir: string; bytes: number; files: number; downloadBytes: number };

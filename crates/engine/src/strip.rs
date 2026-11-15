@@ -62,6 +62,29 @@ pub fn thumbs(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path, cancel: &Cancel
     publish(&part, &out, res)
 }
 
+/// One small JPEG (160 px wide) from 10% into the file, for lists. Cached.
+pub fn poster(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path) -> Result<PathBuf, String> {
+    let dir = cache_dir.join("strips");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+    let out = dir.join(format!("poster-{}.jpg", source_key(&info.path)?));
+    if out.is_file() {
+        return Ok(out);
+    }
+    let part = out.with_extension(format!("{}.part.jpg", std::process::id()));
+    let at = crate::plan::fmt_num((info.duration * 0.1).max(0.0));
+    let mut cmd = crate::tools::command(ffmpeg);
+    cmd.args(["-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-ss", &at, "-i", &info.path]);
+    cmd.args(["-map", &format!("0:{}", info.video.stream_index), "-frames:v", "1", "-vf", "scale=160:-2", "-q:v", "5", "-f", "image2"]);
+    cmd.arg(&part);
+    let res = crate::tools::output_within(cmd, std::time::Duration::from_secs(30), "ffmpeg (poster)")?;
+    if !res.status.success() || !part.is_file() {
+        let _ = std::fs::remove_file(&part);
+        return Err("ffmpeg made no picture.".into());
+    }
+    std::fs::rename(&part, &out).map_err(|e| format!("Cannot rename {}: {e}", part.display()))?;
+    Ok(out)
+}
+
 /// Times (seconds) where the picture changes to a new shot: ffmpeg's scene
 /// score above 0.3 on a 160-pixel-wide copy. Decodes every frame, so a long
 /// file takes a while; the result is cached as text.

@@ -1,4 +1,32 @@
 <script lang="ts">
+  import { convertFileSrc } from "@tauri-apps/api/core";
+  import * as ipcP from "$lib/ipc";
+
+  // Small pictures of the files, made two at a time in list order (first 300).
+  let posters = $state<Record<string, string>>({});
+  const asked = new Set<string>();
+  let running = 0;
+  function pump() {
+    while (running < 2) {
+      const next = batch.items.slice(0, 300).find((i) => i.info && !asked.has(i.path));
+      if (!next) return;
+      asked.add(next.path);
+      running++;
+      ipcP
+        .poster(next.path)
+        .then((p) => (posters[next.path] = convertFileSrc(p)))
+        .catch(() => {})
+        .finally(() => {
+          running--;
+          pump();
+        });
+    }
+  }
+  $effect(() => {
+    void batch.items.map((i) => i.path + (i.info ? "1" : "0")).join();
+    if (!app.ffmpegMissing) pump();
+  });
+
   // The Batch view. The sidebar's settings apply to every file; each file can
   // be trimmed and cropped (in the editor), get its own frame rate cap, or
   // leave out the sound. Each file is planned with the current settings and
@@ -90,6 +118,7 @@
         <div class="item" class:off={!it.include} class:bad={issues.some((x) => x.level === "error")}>
           <div class="top">
             <input type="checkbox" aria-label="Include {it.name}" checked={it.include} disabled={!it.info} onchange={(e) => batch.update(it.id, { include: (e.currentTarget as HTMLInputElement).checked })} />
+            {#if posters[it.path]}<img class="poster" src={posters[it.path]} alt="" draggable="false" />{:else}<span class="poster"></span>{/if}
             <span class="name" title={it.path}>{it.name}</span>
             {#if p && it.include}
               {#if p.quality}<span class="badge {p.quality}">{p.quality}</span>{/if}
@@ -271,6 +300,14 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+  .poster {
+    width: 64px;
+    height: 36px;
+    flex: none;
+    object-fit: cover;
+    border-radius: var(--radius-sm, 3px);
+    background: var(--bg-input);
   }
   .name {
     flex: 1;

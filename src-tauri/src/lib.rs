@@ -5,7 +5,7 @@ mod winstate;
 use comfywebm_engine::config;
 use comfywebm_engine::run::{self, Cancel, RunError};
 use comfywebm_engine::{
-    naming, plan, proxy, ytdl, Codec, Container, Crop, DownloadProgress, EncodeSpec, Job, MediaInfo, PlanInfo, Preset,
+    naming, plan, proxy, strip, ytdl, Codec, Container, Crop, DownloadProgress, EncodeSpec, Job, MediaInfo, PlanInfo, Preset,
     Segment, Settings, ToolsStatus, UrlInfo,
 };
 use serde::Serialize;
@@ -19,6 +19,121 @@ use tauri::{AppHandle, Emitter, Manager, State};
 /// Running downloads by the exact url string the frontend passed.
 #[derive(Default)]
 struct Downloads(Mutex<HashMap<String, Arc<Cancel>>>);
+
+/// Running timeline picture jobs by kind ("thumbs", "wave"); a new request of
+/// a kind cancels the previous one (the user opened another file).
+#[derive(Default)]
+struct Strips(Mutex<HashMap<&'static str, Arc<Cancel>>>);
+
+fn strip_job<T>(app: &AppHandle, kind: &'static str, f: impl FnOnce(&Cancel) -> Result<T, RunError>) -> Result<T, String> {
+    let strips = app.state::<Strips>();
+    let cancel = Arc::new(Cancel::new());
+    if let Some(old) = strips.0.lock().unwrap().insert(kind, cancel.clone()) {
+        old.cancel();
+    }
+    let res = f(&cancel);
+    let mut map = strips.0.lock().unwrap();
+    if map.get(kind).is_some_and(|c| Arc::ptr_eq(c, &cancel)) {
+        map.remove(kind);
+    }
+    res.map_err(run_err)
+}
+
+/// Filmstrip JPEG for the timeline (cached).
+#[tauri::command]
+async fn timeline_thumbs(app: AppHandle, path: String) -> Result<String, String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let ffmpeg = state.ffmpeg()?;
+        let info = state.media(&path)?;
+        let out = strip_job(&app, "thumbs", |c| strip::thumbs(&ffmpeg, &info, &state.cache_dir, c))?;
+        Ok(out.to_string_lossy().into_owned())
+    })
+    .await
+}
+
+/// Waveform PNG of one audio track for the timeline (cached).
+#[tauri::command]
+async fn timeline_wave(app: AppHandle, path: String, track: u32) -> Result<String, String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let ffmpeg = state.ffmpeg()?;
+        let info = state.media(&path)?;
+        let out = strip_job(&app, "wave", |c| strip::waveform(&ffmpeg, &info, track, &state.cache_dir, c))?;
+        Ok(out.to_string_lossy().into_owned())
+    })
+    .await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CacheInfo {
+    dir: String,
+    /// preview proxies, samples and timeline pictures
+    bytes: u64,
+    files: u64,
+    /// the default download folder for "Download and edit" (inside the cache dir)
+    download_bytes: u64,
+}
+
+fn dir_size(dir: &std::path::Path, depth: u32) -> (u64, u64) {
+    let mut t = (0, 0);
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            match e.file_type() {
+                Ok(ft) if ft.is_dir() && depth < 4 => {
+                    let (b, n) = dir_size(&e.path(), depth + 1);
+                    t = (t.0 + b, t.1 + n);
+                }
+                Ok(ft) if ft.is_file() => {
+                    t = (t.0 + e.metadata().map(|m| m.len()).unwrap_or(0), t.1 + 1);
+                }
+                _ => {}
+            }
+        }
+    }
+    t
+}
+
+#[tauri::command]
+async fn cache_info(app: AppHandle) -> Result<CacheInfo, String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let dir = &state.cache_dir;
+        let (all, files) = dir_size(dir, 0);
+        let dl = dir.join("downloads");
+        let (dl_bytes, dl_files) = dir_size(&dl, 0);
+        Ok(CacheInfo { dir: dir.to_string_lossy().into_owned(), bytes: all - dl_bytes, files: files - dl_files, download_bytes: dl_bytes })
+    })
+    .await
+}
+
+/// Deletes proxies, samples and timeline pictures; with `downloads`, also the
+/// default download folder in the cache dir. Files in use (Windows) are skipped.
+#[tauri::command]
+async fn cache_clear(app: AppHandle, downloads: bool) -> Result<(), String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let dir = &state.cache_dir;
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            for e in rd.flatten() {
+                let p = e.path();
+                let name = e.file_name().to_string_lossy().into_owned();
+                if name == "downloads" {
+                    if downloads {
+                        let _ = std::fs::remove_dir_all(&p);
+                    }
+                } else if name == "samples" || name == "strips" {
+                    let _ = std::fs::remove_dir_all(&p);
+                } else if name.starts_with("proxy-") {
+                    let _ = std::fs::remove_file(&p);
+                }
+            }
+        }
+        Ok(())
+    })
+    .await
+}
 
 /// The running sample encode (a new one replaces it) and the sample files
 /// this process wrote, newest last.
@@ -43,6 +158,16 @@ fn run_err(e: RunError) -> String {
 #[tauri::command]
 async fn tools_status(app: AppHandle) -> Result<ToolsStatus, String> {
     blocking(move || Ok(app.state::<AppState>().tools().1)).await
+}
+
+#[tauri::command]
+async fn tools_rescan(app: AppHandle) -> Result<ToolsStatus, String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        state.forget_tools();
+        Ok(state.tools().1)
+    })
+    .await
 }
 
 /// First command-line argument, if it is an existing file.
@@ -457,6 +582,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(Downloads::default())
         .manage(Samples::default())
+        .manage(Strips::default())
         .setup(|app| {
             let config_dir = app.path().app_config_dir()?;
             let cache_dir = app.path().app_cache_dir()?;
@@ -470,6 +596,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             tools_status,
+            tools_rescan,
             initial_file,
             probe,
             make_proxy,
@@ -483,6 +610,10 @@ pub fn run() {
             queue_retry,
             queue_move,
             sample_cancel,
+            timeline_thumbs,
+            timeline_wave,
+            cache_info,
+            cache_clear,
             queue_cancel,
             queue_remove,
             settings_get,
@@ -512,6 +643,9 @@ pub fn run() {
                     state.queue.shutdown();
                 }
                 for c in app.state::<Downloads>().0.lock().unwrap().values() {
+                    c.cancel();
+                }
+                for c in app.state::<Strips>().0.lock().unwrap().values() {
                     c.cancel();
                 }
                 let samples = app.state::<Samples>();

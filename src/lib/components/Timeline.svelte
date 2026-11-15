@@ -7,7 +7,36 @@
   import CropBar from "./CropBar.svelte";
   import EditStrip from "./EditStrip.svelte";
 
+  import { convertFileSrc } from "@tauri-apps/api/core";
+  import * as ipc from "$lib/ipc";
+  import { load, save } from "$lib/persist";
+
   let track: HTMLDivElement;
+
+  // Filmstrip and waveform behind the track. Made in the background after a
+  // file opens (cached on disk); a newer file or track replaces the request.
+  let showFilm = $state(load<boolean>("timelineFilm") ?? true);
+  let showWave = $state(load<boolean>("timelineWave") ?? true);
+  let filmUrl = $state<string | null>(null);
+  let waveUrl = $state<string | null>(null);
+  $effect(() => {
+    const path = app.media?.path;
+    filmUrl = null;
+    if (!path || !showFilm || app.ffmpegMissing) return;
+    let live = true;
+    ipc.timelineThumbs(path).then((p) => live && (filmUrl = convertFileSrc(p))).catch(() => {});
+    return () => (live = false);
+  });
+  $effect(() => {
+    const path = app.media?.path;
+    const hasAudio = !!app.media?.audio.length;
+    const t = app.audioTrack;
+    waveUrl = null;
+    if (!path || !hasAudio || !showWave || app.ffmpegMissing) return;
+    let live = true;
+    ipc.timelineWave(path, t).then((p) => live && (waveUrl = convertFileSrc(p))).catch(() => {});
+    return () => (live = false);
+  });
   let drag: { kind: "seek" } | { kind: "start" | "end"; i: number } | null = null;
   let trackW = $state(0);
   /** Time under the pointer while it is over the track. */
@@ -160,7 +189,15 @@
     onpointercancel={up}
     onpointerleave={() => (hoverT = null)}
   >
-    <div class="rail"></div>
+    {#if filmUrl || waveUrl}
+      <div class="clip">
+        <div class="pics" style:left="{-(viewStart / (viewLen || 1)) * 100}%" style:width="{zoom * 100}%">
+          {#if filmUrl}<img class="film" src={filmUrl} alt="" draggable="false" />{/if}
+          {#if waveUrl}<div class="wave" style:mask-image="url('{waveUrl}')" style:-webkit-mask-image="url('{waveUrl}')"></div>{/if}
+        </div>
+      </div>
+    {/if}
+    <div class="rail" class:faint={filmUrl || waveUrl}></div>
     {#each app.segments as s, i (i)}
       <div
         class="sel"
@@ -227,6 +264,12 @@
       </div>
     {/if}
     <span class="grow"></span>
+    <div class="group">
+      <button class="btn icon" class:on={showFilm} aria-pressed={showFilm} disabled={!app.media} aria-label="Show thumbnails on the timeline"
+        onclick={() => { showFilm = !showFilm; save("timelineFilm", showFilm); }}><Icon name="film" size={14} /></button>
+      <button class="btn icon" class:on={showWave} aria-pressed={showWave} disabled={!app.media || !app.media.audio.length} aria-label="Show the audio waveform on the timeline"
+        onclick={() => { showWave = !showWave; save("timelineWave", showWave); }}><Icon name="wave" size={14} /></button>
+    </div>
     <div class="group zoom">
       <button class="btn icon" disabled={!app.media || !zoomed} aria-label="Zoom out (Ctrl+wheel)" onclick={() => setZoom(zoom / 2)}><Icon name="zoomOut" size={15} /></button>
       <button class="btn zl mono" disabled={!app.media || !zoomed} aria-label="Show the whole file" onclick={() => setZoom(1)}>{zoomed ? `${zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}x` : "Fit"}</button>
@@ -365,6 +408,38 @@
   .track.disabled {
     cursor: default;
     opacity: 0.5;
+  }
+  .clip {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: 3px;
+    pointer-events: none;
+  }
+  .pics {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    pointer-events: none;
+  }
+  .film {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
+    opacity: 0.45;
+  }
+  .wave {
+    position: absolute;
+    inset: 0;
+    background: var(--accent);
+    opacity: 0.55;
+    mask-size: 100% 100%;
+    -webkit-mask-size: 100% 100%;
+  }
+  .rail.faint {
+    opacity: 0.35;
   }
   .rail {
     position: absolute;

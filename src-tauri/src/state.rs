@@ -113,6 +113,11 @@ impl AppState {
         Ok(())
     }
 
+    /// The next `tools()` searches again.
+    pub fn forget_tools(&self) {
+        *self.tools.lock().unwrap() = None;
+    }
+
     pub fn tools(&self) -> (Tools, ToolsStatus) {
         let mut slot = self.tools.lock().unwrap();
         if slot.is_none() {

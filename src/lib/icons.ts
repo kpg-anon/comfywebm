@@ -25,6 +25,7 @@ export const ICONS = {
   save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/>',
   start: '<path d="M7 4.5v15l12.5-7.5z"/>',
   chevron: '<path d="M6 9l6 6 6-6"/>',
+  wave: '<path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 7v10M21 12h0"/>',
   up: '<path d="M6 15l6-6 6 6"/>',
   retry: '<path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',

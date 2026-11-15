@@ -19,6 +19,8 @@ import type {
 } from "./types";
 
 export const toolsStatus = () => invoke<ToolsStatus>("tools_status");
+/** Searches for the tools again and returns the new status. */
+export const toolsRescan = () => invoke<ToolsStatus>("tools_rescan");
 export const initialFile = () => invoke<string | null>("initial_file");
 export const probe = (path: string) => invoke<MediaInfo>("probe", { path });
 export const makeProxy = (path: string) => invoke<string>("make_proxy", { path });
@@ -37,6 +39,12 @@ export const queueRetry = (id: number) => invoke<Job>("queue_retry", { id });
 /** Moves a job to list position `to`; returns the new list. */
 export const queueMove = (id: number, to: number) => invoke<Job[]>("queue_move", { id, to });
 export const sampleCancel = () => invoke<void>("sample_cancel");
+/** Filmstrip JPEG / waveform PNG for the timeline; paths in the cache dir. */
+export const timelineThumbs = (path: string) => invoke<string>("timeline_thumbs", { path });
+export const timelineWave = (path: string, track: number) => invoke<string>("timeline_wave", { path, track });
+export type CacheInfo = { dir: string; bytes: number; files: number; downloadBytes: number };
+export const cacheInfo = () => invoke<CacheInfo>("cache_info");
+export const cacheClear = (downloads: boolean) => invoke<void>("cache_clear", { downloads });
 export const settingsGet = () => invoke<Settings>("settings_get");
 export const settingsSet = (settings: Settings) => invoke<void>("settings_set", { settings });
 

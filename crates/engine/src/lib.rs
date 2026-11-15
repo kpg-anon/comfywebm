@@ -8,6 +8,7 @@ pub mod probe;
 pub mod proxy;
 pub mod run;
 pub mod spec;
+pub mod strip;
 pub mod tools;
 pub mod ytdl;
 

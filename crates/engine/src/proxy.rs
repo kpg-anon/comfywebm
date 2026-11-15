@@ -14,8 +14,8 @@ fn fnv1a(bytes: &[u8]) -> u64 {
     h
 }
 
-/// Cache file for `path`, keyed by path + size + mtime.
-pub fn proxy_path(cache_dir: &Path, path: &str) -> Result<PathBuf, String> {
+/// Hex key of a source file from its path, size and mtime; a changed file gets a new key.
+pub fn source_key(path: &str) -> Result<String, String> {
     let meta = std::fs::metadata(path).map_err(|e| format!("Cannot read {path}: {e}"))?;
     let mtime = meta
         .modified()
@@ -24,7 +24,12 @@ pub fn proxy_path(cache_dir: &Path, path: &str) -> Result<PathBuf, String> {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let key = format!("{path}\n{}\n{mtime}", meta.len());
-    Ok(cache_dir.join(format!("proxy-{:016x}.mp4", fnv1a(key.as_bytes()))))
+    Ok(format!("{:016x}", fnv1a(key.as_bytes())))
+}
+
+/// Cache file for `path`, keyed by path + size + mtime.
+pub fn proxy_path(cache_dir: &Path, path: &str) -> Result<PathBuf, String> {
+    Ok(cache_dir.join(format!("proxy-{}.mp4", source_key(path)?)))
 }
 
 /// Returns the cached proxy, or transcodes one. `duration` (seconds, from

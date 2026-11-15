@@ -75,6 +75,35 @@
   let downloadDir = $state(app.settings.downloadDir ?? "");
   let keepDir = $state(app.settings.keepDir ?? "");
   let nameTemplate = $state(app.settings.nameTemplate);
+  let cache = $state<ipc.CacheInfo | null>(null);
+  let cacheBusy = $state(false);
+  let rescanning = $state(false);
+  const mib = (b: number) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(2)} GiB` : `${(b / 1048576).toFixed(1)} MiB`);
+  ipc.cacheInfo().then((c) => (cache = c)).catch(() => {});
+
+  async function clearCache(downloads: boolean) {
+    cacheBusy = true;
+    try {
+      await ipc.cacheClear(downloads);
+      cache = await ipc.cacheInfo();
+    } catch (e) {
+      msg = ipc.errText(e);
+    } finally {
+      cacheBusy = false;
+    }
+  }
+
+  async function rescan() {
+    rescanning = true;
+    try {
+      app.tools = await ipc.toolsRescan();
+    } catch (e) {
+      msg = ipc.errText(e);
+    } finally {
+      rescanning = false;
+    }
+  }
+
   let msg = $state<string | null>(null);
   let saving = $state(false);
 
@@ -231,6 +260,7 @@
           {/each}
         </div>
         <div><span class="k">yt-dlp</span> <span class="mono" class:err={!app.tools.ytdlp}>{app.tools.ytdlp ?? "not found"}</span>{#if app.tools.ytdlpVersion} <span class="mono muted">{app.tools.ytdlpVersion}</span>{/if}</div>
+        <div><button class="btn small" disabled={rescanning} title="Search for ffmpeg, ffprobe and yt-dlp again, for example after installing or updating them" onclick={rescan}>{rescanning ? "Searching..." : "Search again"}</button></div>
       {:else}
         <div class="muted">Tool status not loaded.</div>
       {/if}
@@ -305,6 +335,19 @@
       <span class="hint">Tokens: <code>{"{name}"}</code> <code>{"{start}"}</code> <code>{"{end}"}</code> <code>{"{codec}"}</code> <code>{"{height}"}</code> <code>{"{date}"}</code>. The extension (.webm or .mp4) is added. Existing files are never overwritten.</span>
     </label>
 
+    <div class="col">
+      <span>Cache</span>
+      <div class="line cacheline">
+        <span class="mono muted">{cache ? `${mib(cache.bytes)} in ${cache.files} files` : "..."}</span>
+        <button class="btn small" disabled={cacheBusy || !cache?.files} title="Delete preview copies, samples and timeline pictures. They are made again when needed." onclick={() => clearCache(false)}>Clear</button>
+        {#if cache && cache.downloadBytes > 0}
+          <span class="mono muted">downloads {mib(cache.downloadBytes)}</span>
+          <button class="btn small danger" disabled={cacheBusy} title="Also delete videos downloaded with &quot;Download and edit&quot; into the cache folder" onclick={() => clearCache(true)}>Clear downloads</button>
+        {/if}
+      </div>
+      <span class="hint">Preview copies of files the player cannot show, samples and timeline pictures{cache ? ` (${cache.dir})` : ""}. Downloads saved with "Download only" are never in the cache.</span>
+    </div>
+
     {#if msg}<div class="err">{msg}</div>{/if}
 
     <div class="actions">
@@ -326,6 +369,11 @@
   .line {
     display: flex;
     gap: 4px;
+  }
+  .cacheline {
+    align-items: center;
+    gap: 8px;
+    font-weight: 400;
   }
   .line input {
     flex: 1;

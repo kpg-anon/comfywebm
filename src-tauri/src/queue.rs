@@ -345,7 +345,8 @@ fn verify(state: &AppState, out: &std::path::Path, spec: &EncodeSpec, planned: &
         w.push("Sound was selected, but the output has no audio stream.".to_string());
     }
     let want = planned.duration_out;
-    if want > 0.0 && info.duration > 0.0 && (info.duration - want).abs() > 0.5_f64.max(want * 0.03) {
+    // a stream copy starts at a key frame, so its length differs by design
+    if want > 0.0 && !spec.stream_copy && info.duration > 0.0 && (info.duration - want).abs() > 0.5_f64.max(want * 0.03) {
         w.push(format!("The output is {:.2} s long, planned {:.2} s.", info.duration, want));
     }
     w

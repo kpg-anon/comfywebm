@@ -96,6 +96,8 @@ export type EncodeSpec = {
   title: string | null;
   extraArgs: string[];
   outputName: string | null;
+  /** cut only: copy the streams, no encode (one range, filters ignored) */
+  streamCopy?: boolean;
 };
 
 export type PlanInfo = {

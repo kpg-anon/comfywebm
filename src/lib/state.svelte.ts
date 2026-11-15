@@ -166,6 +166,8 @@ class AppState {
   segments = $state<Segment[]>([]);
   sel = $state(-1); // index of the selected range
   separate = $state(false); // each range as its own job
+  /** Cut only: copy the streams without encoding. Not remembered between sessions. */
+  streamCopy = $state(false);
   /** Output order as range ids, once the edit strip has reordered them. */
   order = $state<number[] | null>(null);
   private nextSegId = 1;
@@ -328,8 +330,7 @@ class AppState {
     !!this.spec &&
       !this.ffmpegMissing &&
       this.clipLen > 0 &&
-      (!this.tools || this.tools.encoders[this.codec]) &&
-      (this.rateMode !== "size" || this.maxBytes > 0),
+      (this.streamCopy || ((!this.tools || this.codecAvailable(this.codec)) && (this.rateMode !== "size" || this.maxBytes > 0))),
   );
 
   /** Build a spec from the current fields for one source. `own` = the open file (crop, subs, title apply). */
@@ -374,6 +375,7 @@ class AppState {
       title: own ? this.title.trim() || null : null,
       extraArgs: splitArgs(this.extraArgs),
       outputName: own ? this.outputName.trim() || null : null,
+      streamCopy: this.streamCopy,
     };
   }
 
@@ -926,6 +928,22 @@ class AppState {
   codecAvailable(c: Codec): boolean {
     // ToolsStatus from a build without the gif field: ffmpeg always has the GIF encoder
     return !this.tools || (this.tools.encoders[c] ?? c === "gif");
+  }
+
+  /** WebM or MP4, whichever can hold the source's streams as they are (plan.rs `copy_container`). */
+  copyContainer(m: MediaInfo | null = this.media): Container | null {
+    if (!m) return null;
+    const a = this.audioOn ? m.audio.find((t) => t.track === this.audioTrack)?.codec : undefined;
+    const fits = (v: string[], au: string[]) => v.includes(m.video.codec) && (!a || au.includes(a));
+    if (fits(["vp8", "vp9", "av1"], ["opus", "vorbis"])) return "webm";
+    if (fits(["h264", "hevc", "av1", "mpeg4"], ["aac", "mp3", "opus", "ac3", "eac3", "flac", "alac"])) return "mp4";
+    return null;
+  }
+
+  setStreamCopy(on: boolean) {
+    this.streamCopy = on;
+    const c = on ? this.copyContainer() : null;
+    if (c && c !== this.container) this.setContainer(c);
   }
 
   setContainer(c: Container) {

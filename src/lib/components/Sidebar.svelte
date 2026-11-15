@@ -143,6 +143,19 @@
 <aside class="sidebar">
   <div class="fixed top">
     <PresetPicker />
+    <label class="copy" title="Copy the video and audio as they are, without encoding: fast and lossless, but the cut starts at a key frame (up to a few seconds early) and crop, resolution, speed and filters do nothing.">
+      <input type="checkbox" checked={app.streamCopy} onchange={(e) => app.setStreamCopy((e.currentTarget as HTMLInputElement).checked)} />
+      Cut only (no re-encode)
+    </label>
+    {#if app.streamCopy}
+      <div class="muted small">
+        {#if app.media && !app.copyContainer()}
+          This file's {app.media.video.codec} video cannot be copied into WebM or MP4. Turn this off to encode it.
+        {:else}
+          The streams are copied into {app.container.toUpperCase()}; the file size is what the cut holds.
+        {/if}
+      </div>
+    {:else}
     <Seg
       label="Rate mode"
       value={app.rateMode}
@@ -164,6 +177,7 @@
         <span class="mono crf">{app.crf}</span>
       </div>
       <div class="ends muted small"><span>better, larger ({app.crfRange[0]})</span><span>worse, smaller ({app.crfRange[1]})</span></div>
+    {/if}
     {/if}
   </div>
 
@@ -550,6 +564,12 @@
     gap: 3px;
     font-size: 12px;
     color: var(--text-secondary);
+  }
+  .copy {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
   }
   .unit {
     display: flex;

@@ -520,6 +520,9 @@ fn push(args: &mut Vec<String>, items: &[&str]) {
 }
 
 pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned, String> {
+    if spec.stream_copy {
+        return build_copy(spec, info, opts);
+    }
     let mut warnings = Vec::new();
     let v = &info.video;
     let codec = spec.codec;
@@ -926,6 +929,116 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     })
 }
 
+/// Video and audio codecs (ffprobe names) a container can take by stream copy.
+fn copy_fits(container: Container, video: &str, audio: Option<&str>) -> bool {
+    let (v_ok, a_ok): (&[&str], &[&str]) = match container {
+        Container::Webm => (&["vp8", "vp9", "av1"], &["opus", "vorbis"]),
+        Container::Mp4 => (&["h264", "hevc", "av1", "mpeg4"], &["aac", "mp3", "opus", "ac3", "eac3", "flac", "alac"]),
+        Container::Gif => (&[], &[]),
+    };
+    v_ok.contains(&video) && audio.is_none_or(|a| a_ok.contains(&a))
+}
+
+/// The container a stream copy of these codecs fits in, WebM first.
+pub fn copy_container(video: &str, audio: Option<&str>) -> Option<Container> {
+    [Container::Webm, Container::Mp4].into_iter().find(|c| copy_fits(*c, video, audio))
+}
+
+/// Cut only: one range, streams copied. ffmpeg starts at the key frame at
+/// or before the in point, so the clip can start early; every filter and
+/// the rate settings are ignored (and listed in the warnings when set).
+fn build_copy(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned, String> {
+    let v = &info.video;
+    let segs = resolve_segments(&spec.segments, info.duration)?;
+    if segs.len() > 1 {
+        return Err("Cut only (stream copy) makes one range per file. Turn on Separate files, or turn off Cut only.".into());
+    }
+    let audio = match spec.audio {
+        Some(a) => Some(info.audio.get(a.track as usize).ok_or(format!("Audio track {} does not exist.", a.track))?),
+        None => None,
+    };
+    let acodec = audio.map(|a| a.codec.as_str());
+    if !copy_fits(spec.container, &v.codec, acodec) {
+        let what = match acodec {
+            Some(a) => format!("{} video with {a} audio", v.codec),
+            None => format!("{} video", v.codec),
+        };
+        return Err(match copy_container(&v.codec, acodec) {
+            Some(c) => format!("{what} cannot be copied into {}. Choose {}.", spec.container.ext().to_uppercase(), c.ext().to_uppercase()),
+            None => format!("{what} cannot be copied into WebM or MP4. Turn off Cut only to encode it."),
+        });
+    }
+    let mut warnings = vec!["Cut only: the clip starts at the key frame at or before the in point, so it can begin up to a few seconds early.".to_string()];
+    let mut ignored = Vec::new();
+    if spec.crop.is_some() {
+        ignored.push("crop");
+    }
+    if spec.rotate != 0 || spec.mirror || spec.vflip {
+        ignored.push("rotate and flip");
+    }
+    if spec.max_width.is_some_and(|w| w < v.width) || spec.max_height.is_some_and(|h| h < v.height) {
+        ignored.push("resolution");
+    }
+    if spec.fps.is_some() || (spec.speed - 1.0).abs() > 1e-9 || spec.playback != Playback::Forward {
+        ignored.push("frame rate, speed and direction");
+    }
+    if spec.deinterlace || spec.denoise || spec.tonemap || spec.adjust.as_ref().is_some_and(|a| !adjust_filters(a).is_empty()) {
+        ignored.push("filters and adjustments");
+    }
+    if spec.fade_in > 0.0 || spec.fade_out > 0.0 {
+        ignored.push("fades");
+    }
+    if spec.subs.is_some() {
+        ignored.push("subtitles");
+    }
+    if spec.audio.is_some_and(|a| a.normalize || a.volume_db != 0.0) {
+        ignored.push("audio level");
+    }
+    if matches!(spec.rate, Rate::Size { .. }) {
+        ignored.push("size limit");
+    }
+    if !ignored.is_empty() {
+        warnings.push(format!("Cut only copies the streams, so these settings do nothing: {}.", ignored.join(", ")));
+    }
+    let (start, end) = segs[0];
+    let mut a = Vec::new();
+    push(&mut a, &["-hide_banner"]);
+    if !opts.display {
+        push(&mut a, &["-nostdin", "-loglevel", "error", "-progress", "pipe:1", "-nostats"]);
+    }
+    push(&mut a, &["-y"]);
+    if start > 0.0 {
+        push(&mut a, &["-ss", &fmt_num(start)]);
+    }
+    push(&mut a, &["-t", &fmt_num(end - start), "-i", &spec.input, "-map", &format!("0:{}", v.stream_index)]);
+    match spec.audio {
+        Some(au) => push(&mut a, &["-map", &format!("0:a:{}", au.track)]),
+        None => push(&mut a, &["-an"]),
+    }
+    push(&mut a, &["-c", "copy", "-avoid_negative_ts", "make_zero", "-map_metadata", "-1", "-map_chapters", "-1", "-sn", "-dn"]);
+    if let Some(t) = spec.title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        push(&mut a, &["-metadata", &format!("title={t}")]);
+    }
+    a.extend(spec.extra_args.iter().cloned());
+    match spec.container {
+        Container::Mp4 => push(&mut a, &["-movflags", "+faststart", "-f", "mp4", opts.output]),
+        _ => push(&mut a, &["-f", "webm", opts.output]),
+    }
+    Ok(Planned {
+        out_width: v.width,
+        out_height: v.height,
+        duration_out: end - start,
+        video_kbps: None,
+        audio_kbps: 0.0,
+        bits_per_pixel: None,
+        quality: None,
+        auto_scaled: false,
+        passes: vec![a],
+        reuse_pass1: false,
+        warnings,
+    })
+}
+
 /// Joins arguments into one line for display. Arguments with characters a
 /// shell treats specially are wrapped in double quotes.
 pub fn shell_join(program: &str, args: &[String]) -> String {
@@ -998,6 +1111,7 @@ mod tests {
             title: None,
             extra_args: vec![],
             output_name: None,
+            stream_copy: false,
         }
     }
 
@@ -1176,6 +1290,29 @@ mod tests {
         let p = build(&sp, &m, &opts()).unwrap();
         assert_eq!((p.out_width, p.out_height), (426, 240));
         assert!(p.warnings.iter().any(|w| w.starts_with("Even at 426x240")));
+    }
+
+    #[test]
+    fn stream_copy_args() {
+        let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
+        sp.stream_copy = true;
+        sp.container = Container::Mp4;
+        sp.crop = Some(Crop { x: 0.0, y: 0.0, w: 100.0, h: 100.0 });
+        let m = media();
+        let p = build(&sp, &m, &Opts { output: "out.mp4", ..opts() }).unwrap();
+        let s = strs(&p.passes[0]).join(" ");
+        assert!(s.contains("-ss 10 -t 4 -i in.mp4"), "{s}");
+        assert!(s.contains("-c copy -avoid_negative_ts make_zero"), "{s}");
+        assert!(s.ends_with("-movflags +faststart -f mp4 out.mp4"), "{s}");
+        assert!(p.warnings.iter().any(|w| w.contains("crop")), "{:?}", p.warnings);
+        // the test source is H.264: WebM cannot hold it
+        sp.container = Container::Webm;
+        let e = build(&sp, &m, &opts()).unwrap_err();
+        assert!(e.contains("Choose MP4"), "{e}");
+        // two ranges are refused
+        sp.container = Container::Mp4;
+        sp.segments.push(Segment { start: 20.0, end: 21.0 });
+        assert!(build(&sp, &m, &opts()).is_err());
     }
 
     #[test]

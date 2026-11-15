@@ -276,6 +276,9 @@ pub struct EncodeSpec {
     #[serde(default)]
     pub extra_args: Vec<String>,
     pub output_name: Option<String>,
+    /// cut only: copy the streams without encoding (one range, no filters)
+    #[serde(default)]
+    pub stream_copy: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

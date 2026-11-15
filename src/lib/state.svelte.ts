@@ -517,6 +517,21 @@ class AppState {
     save("recent", this.recent);
   }
 
+  /** Interface size (CSS zoom on the page), since browser zoom is turned off. */
+  uiScale = $state(load<number>("uiScale") ?? 1);
+  setUiScale(v: number) {
+    this.uiScale = v;
+    save("uiScale", v);
+    this.applyUiScale();
+  }
+  applyUiScale() {
+    try {
+      document.documentElement.style.zoom = this.uiScale === 1 ? "" : String(this.uiScale);
+    } catch {
+      // no document (tests)
+    }
+  }
+
   setRefreshHz(hz: number) {
     this.refreshHz = hz;
     save("refreshHz", hz);
@@ -1432,3 +1447,4 @@ class AppState {
 }
 
 export const app = new AppState();
+app.applyUiScale();

@@ -220,6 +220,19 @@
     {/if}
 
     <div class="col">
+      <span>Interface size</span>
+      <div class="line">
+        <Select
+          label="Interface size"
+          value={app.uiScale}
+          onchange={(v) => app.setUiScale(v)}
+          options={[0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.5].map((r) => ({ value: r, label: `${Math.round(r * 100)}%` }))}
+        />
+      </div>
+      <span class="hint">Scales the whole window's text and controls, on top of the system's display scaling.</span>
+    </div>
+
+    <div class="col">
       <span>Display refresh rate</span>
       <div class="line">
         <Select

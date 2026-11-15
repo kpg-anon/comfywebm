@@ -18,6 +18,8 @@ Work on the `exp` branch.
 - Sample dialog: "Compare with the source" plays the source over the same
   seconds next to the sample.
 - A queued job keeps the output folder that was set when it was added.
+- Settings: Interface size (80-150%), since browser zoom is turned off.
+- Queue: Copy error on a failed job.
 - Animated WebP output (libwebp_anim): quality on a 0-100 scale in quality
   mode (shown as 100 minus the libwebp quality, so lower is better as for
   the other codecs); in size mode quality 75 and the picture size is chosen

@@ -40,6 +40,19 @@
     }
   }
 
+  let copiedErr = $state<number | null>(null);
+  /** The error text with the input and settings, for a bug report or a search. */
+  async function copyError(j: Job) {
+    const text = [`comfywebm job ${j.id} failed`, `input: ${j.spec.input}`, `format: ${j.spec.container} ${j.spec.codec}`, "", j.error ?? ""].join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      copiedErr = j.id;
+      setTimeout(() => (copiedErr = null), 1200);
+    } catch (e) {
+      app.error = `Could not copy: ${errText(e)}`;
+    }
+  }
+
   async function copyPath(j: Job) {
     if (!j.output) return;
     await run(() => navigator.clipboard.writeText(j.output!));
@@ -119,6 +132,9 @@
             </div>
             {#if j.status === "failed" && j.error && errorOpen[j.id]}
               <pre class="error mono">{j.error}</pre>
+              <div class="meta">
+                <button class="btn small" onclick={() => copyError(j)}><Icon name={copiedErr === j.id ? "check" : "copy"} size={11} />{copiedErr === j.id ? "Copied" : "Copy error"}</button>
+              </div>
             {/if}
             {#if j.status === "done" && j.result?.warnings?.length}
               <div class="warns">{#each j.result.warnings as w (w)}<div>{w}</div>{/each}</div>

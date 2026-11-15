@@ -323,6 +323,7 @@ pub fn run_job(
             elapsed_secs: started.elapsed().as_secs_f64(),
             attempts: attempt,
             over_limit: max_bytes.is_some_and(|m| size as f64 > m),
+            warnings: Vec::new(),
         },
         attempts: history,
     })

@@ -1237,10 +1237,11 @@ class AppState {
     const r = j.result;
     const mib = r ? `${(r.sizeBytes / 1048576).toFixed(2)} MiB` : "";
     const extra = r && r.attempts > 1 ? ` · ${r.attempts} attempts` : "";
+    const warn = r?.warnings?.length ? `\n${r.warnings.join("\n")}` : "";
     this.toast({
-      kind: r?.overLimit ? "over" : "done",
-      title: r?.overLimit ? "Encoded, but over the size limit" : "Encode finished",
-      text: `${name}\n${mib}${extra}`,
+      kind: r?.overLimit || r?.warnings?.length ? "over" : "done",
+      title: r?.overLimit ? "Encoded, but over the size limit" : r?.warnings?.length ? "Encoded, but the output differs from the plan" : "Encode finished",
+      text: `${name}\n${mib}${extra}${warn}`,
       path: j.output,
     });
   }

@@ -327,6 +327,9 @@ pub struct JobResult {
     pub elapsed_secs: f64,
     pub attempts: u32,
     pub over_limit: bool,
+    /// differences between the probed output and the plan (empty = as planned)
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -97,6 +97,7 @@
               {#if j.status === "done" && j.result}
                 <span>{fmtBytes(j.result.sizeBytes)}</span>
                 {#if j.result.overLimit}<span class="over">over limit</span>{/if}
+                {#if j.result.warnings?.length}<span class="over" title={j.result.warnings.join("\n")}>check output</span>{/if}
                 <span class="muted">{fmtEta(j.result.elapsedSecs)}</span>
                 {#if j.result.attempts > 1}<span class="muted">{j.result.attempts} attempts</span>{/if}
               {/if}
@@ -114,6 +115,9 @@
             </div>
             {#if j.status === "failed" && j.error && errorOpen[j.id]}
               <pre class="error mono">{j.error}</pre>
+            {/if}
+            {#if j.status === "done" && j.result?.warnings?.length}
+              <div class="warns">{#each j.result.warnings as w (w)}<div>{w}</div>{/each}</div>
             {/if}
           {/if}
         </div>
@@ -225,6 +229,10 @@
   }
   .pending .bar > div {
     background: var(--text-muted);
+  }
+  .warns {
+    font-size: 11px;
+    color: var(--orange);
   }
   .error {
     margin: 0;

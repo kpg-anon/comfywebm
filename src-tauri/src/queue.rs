@@ -322,6 +322,35 @@ pub fn emit_state(app: &AppHandle, queue: &Queue) {
     let _ = app.emit("queue-state", queue.state());
 }
 
+/// Probes a finished output and lists what does not match the plan: no
+/// video, no audio when audio was asked for, another picture size, or a
+/// duration off by more than 0.5 s and 3%.
+fn verify(state: &AppState, out: &std::path::Path, spec: &EncodeSpec, planned: &plan::Planned) -> Vec<String> {
+    let Some(ffprobe) = state.tools().0.ffprobe else { return Vec::new() };
+    let info = match comfywebm_engine::probe::probe(&ffprobe, &out.to_string_lossy()) {
+        Ok(i) => i,
+        Err(e) => return vec![format!("ffprobe cannot read the output: {e}")],
+    };
+    let mut w = Vec::new();
+    if info.video.width == 0 || info.video.height == 0 {
+        w.push("The output has no readable video stream.".to_string());
+    } else if (info.video.width, info.video.height) != (planned.out_width, planned.out_height) {
+        w.push(format!(
+            "The picture is {}x{}, planned {}x{}.",
+            info.video.width, info.video.height, planned.out_width, planned.out_height
+        ));
+    }
+    // boomerang drops the sound on purpose
+    if spec.audio.is_some() && spec.playback != comfywebm_engine::Playback::Boomerang && info.audio.is_empty() {
+        w.push("Sound was selected, but the output has no audio stream.".to_string());
+    }
+    let want = planned.duration_out;
+    if want > 0.0 && info.duration > 0.0 && (info.duration - want).abs() > 0.5_f64.max(want * 0.03) {
+        w.push(format!("The output is {:.2} s long, planned {:.2} s.", info.duration, want));
+    }
+    w
+}
+
 /// Taskbar progress of the main window: Some(fraction) while a job runs, None to clear.
 fn taskbar(app: &AppHandle, fraction: Option<f64>) {
     let Some(w) = app.get_webview_window("main") else { return };
@@ -361,9 +390,9 @@ fn run_one(app: &AppHandle, queue: &Queue, job: Job, cancel: &Cancel) {
             state.output_dir().as_deref(),
             &settings.name_template,
         );
-        Ok((ffmpeg, info, out))
+        Ok((ffmpeg, info, out, planned))
     })();
-    let (ffmpeg, info, out) = match prepared {
+    let (ffmpeg, info, out, planned) = match prepared {
         Ok(p) => p,
         Err(e) => {
             emit(
@@ -388,8 +417,13 @@ fn run_one(app: &AppHandle, queue: &Queue, job: Job, cancel: &Cancel) {
             emit(app, job);
         }
     });
+    let checks = match &res {
+        Ok(o) => verify(&state, &o.output, &job.spec, &planned),
+        Err(_) => Vec::new(),
+    };
     let updated = queue.update(id, |j| match res {
-        Ok(outcome) => {
+        Ok(mut outcome) => {
+            outcome.result.warnings = checks;
             j.status = JobStatus::Done;
             j.output = Some(outcome.output.to_string_lossy().into_owned());
             if let Some(p) = j.progress.as_mut() {

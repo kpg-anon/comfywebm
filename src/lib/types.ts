@@ -126,7 +126,7 @@ export type Job = {
     speed: number | null;
     etaSecs: number | null;
   } | null;
-  result: { sizeBytes: number; elapsedSecs: number; attempts: number; overLimit: boolean } | null;
+  result: { sizeBytes: number; elapsedSecs: number; attempts: number; overLimit: boolean; warnings?: string[] } | null;
   error: string | null;
 };
 

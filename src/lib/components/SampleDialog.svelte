@@ -89,6 +89,12 @@
         {#if s.kbps !== null}· {Math.round(s.kbps)} kbps total{/if}
         {#if app.plan?.videoKbps}· full job: video {Math.round(app.plan.videoKbps)} kbps{/if}
       </div>
+      {#if app.rateMode === "crf" && s.kbps !== null && app.plan}
+        <div class="small">
+          At this rate the whole output ({fmtTime(app.plan.durationOut)}) would be about
+          <b class="mono">{fmtBytes((s.kbps * 1000 * app.plan.durationOut) / 8)}</b>. A rough guess: other parts of the clip may need more or fewer bits.
+        </div>
+      {/if}
       <div class="muted small">One pass at the bitrate the full job would get; the final file uses two passes and can look slightly better.</div>
     {/if}
 

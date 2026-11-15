@@ -599,8 +599,13 @@ const MEDIA_EXT: &[&str] = &[
 ];
 
 /// Video files in a folder (and its subfolders when `recursive`), sorted by path.
+/// Runs on a worker thread: a large or network folder must not stop the window.
 #[tauri::command]
-fn list_media(dir: String, recursive: bool) -> Result<Vec<String>, String> {
+async fn list_media(dir: String, recursive: bool) -> Result<Vec<String>, String> {
+    blocking(move || list_media_sync(&dir, recursive)).await
+}
+
+fn list_media_sync(dir: &str, recursive: bool) -> Result<Vec<String>, String> {
     fn walk(dir: &std::path::Path, recursive: bool, depth: u32, out: &mut Vec<String>) -> Result<(), String> {
         let rd = std::fs::read_dir(dir).map_err(|e| format!("Cannot read {}: {e}", dir.display()))?;
         for e in rd.flatten() {
@@ -620,7 +625,7 @@ fn list_media(dir: String, recursive: bool) -> Result<Vec<String>, String> {
         Ok(())
     }
     let mut out = Vec::new();
-    walk(std::path::Path::new(&dir), recursive, 0, &mut out)?;
+    walk(std::path::Path::new(dir), recursive, 0, &mut out)?;
     out.sort_by_key(|p| p.to_lowercase());
     Ok(out)
 }

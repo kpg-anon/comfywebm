@@ -18,6 +18,8 @@ Work on the `exp` branch.
   ranges, speed, reverse, fades, volume and normalization apply. In size mode
   the bitrate comes from the limit (8-320 kbps) and is corrected by the same
   retry loop as video.
+- Sample dialog in quality mode: a rough size estimate for the whole output
+  from the sample's bitrate.
 - Sample dialog: "Compare with the source" plays the source over the same
   seconds next to the sample.
 - A queued job keeps the output folder that was set when it was added.
@@ -102,6 +104,8 @@ Work on the `exp` branch.
 - ffprobe on a file on a stalled network share, or a hanging tool check,
   blocked forever; they now stop after 60 s and 20 s.
 - After the last job ended, the queue still reported itself as started.
+- Adding a large or network folder to the batch no longer freezes the
+  window while it is listed.
 - Preview copies and timeline pictures above 4 GiB are deleted at start,
   oldest first.
 

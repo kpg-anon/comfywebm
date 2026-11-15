@@ -28,6 +28,7 @@ Work on the `exp` branch.
 - Settings are split into Look, Tools and Files tabs; with ffmpeg missing
   the dialog opens on Tools.
 - Queue: Copy error on a failed job.
+- The system's "reduce motion" setting turns off the app's animations.
 - Dialogs keep Tab inside themselves (wrapping at the ends) and give focus
   back to the control that had it when they close.
 - Filters: Stabilize (ffmpeg deshake, per range, before the crop) and Smooth

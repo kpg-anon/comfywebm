@@ -10,7 +10,7 @@
   import { convertFileSrc } from "@tauri-apps/api/core";
   import * as ipc from "$lib/ipc";
 
-  let track: HTMLDivElement;
+  let track = $state<HTMLDivElement>() as HTMLDivElement;
 
   // Filmstrip and waveform behind the track. Made in the background after a
   // file opens (cached on disk); a newer file or track replaces the request.
@@ -48,7 +48,7 @@
     ipc.timelineWave(path, t).then((p) => live && (waveUrl = convertFileSrc(p))).catch(() => {});
     return () => (live = false);
   });
-  let drag: { kind: "seek" } | { kind: "start" | "end"; i: number; snaps: number[] } | null = null;
+  let drag = $state<{ kind: "seek" } | { kind: "start" | "end"; i: number; snaps: number[] } | null>(null);
   /** Snap distance in pixels for range edges; Alt while dragging turns snapping off. */
   const SNAP_PX = 7;
   let trackW = $state(0);
@@ -194,6 +194,21 @@
 </script>
 
 <div class="timeline">
+  {#if filmUrl && hoverT !== null && !drag && app.media && dur > 0}
+    {@const ph = 96}
+    {@const pw = Math.round((ph * app.media.video.width) / Math.max(1, app.media.video.height))}
+    {@const k = Math.min(THUMBS - 1, Math.max(0, Math.floor((hoverT / dur) * THUMBS)))}
+    {@const x = (track?.offsetLeft ?? 0) + (pct(hoverT) / 100) * trackW}
+    <div
+      class="peek"
+      style:left="{Math.min(Math.max(x - pw / 2, 4), (track?.offsetLeft ?? 0) + trackW - pw)}px"
+      style:width="{pw}px"
+      style:height="{ph}px"
+      style:background-image="url('{filmUrl}')"
+      style:background-size="{THUMBS * pw}px {ph}px"
+      style:background-position="{-k * pw}px 0"
+    ></div>
+  {/if}
   <div class="ruler" aria-hidden="true">
     {#each ticks as k (k.t)}
       <span class="tick" style:left="{pct(k.t)}%">{#if pct(k.t) < 96}<span class="tl mono">{k.label}</span>{/if}</span>
@@ -445,6 +460,18 @@
   .track.disabled {
     cursor: default;
     opacity: 0.5;
+  }
+  .timeline {
+    position: relative;
+  }
+  .peek {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    z-index: 5;
+    border-radius: var(--radius-sm, 4px);
+    box-shadow: 0 0 0 1px var(--border), 0 4px 14px rgba(0, 0, 0, 0.5);
+    background-repeat: no-repeat;
+    pointer-events: none;
   }
   .clip {
     position: absolute;

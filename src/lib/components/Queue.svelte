@@ -55,6 +55,9 @@
       {app.jobs.length ? `${app.jobs.length} job${app.jobs.length === 1 ? "" : "s"}` : "empty"}{pending ? `, ${pending} waiting` : ""}
     </span>
     <span class="grow"></span>
+    {#if app.outputPath}
+      <button class="btn small" title={app.outputPath} onclick={() => run(() => openPath(app.outputPath!))}><Icon name="open" size={11} />Output folder</button>
+    {/if}
     <button class="btn small" disabled={!finished} onclick={() => app.clearFinished()}><Icon name="trash" size={11} />Clear finished</button>
     {#if app.queueStarted && pending}
       <button class="btn small" title="Finish the running job, then stop" onclick={() => app.pauseQueue()}><Icon name="pause" size={11} />Pause after this</button>

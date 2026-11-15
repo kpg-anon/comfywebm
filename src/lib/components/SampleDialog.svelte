@@ -6,6 +6,24 @@
 
   const s = $derived(app.sample!);
   let box: HTMLDivElement;
+  // Side by side with the source over the same 3 seconds; the source restarts
+  // whenever the sample loops, so the two stay roughly in step.
+  let compare = $state(false);
+  let src = $state<HTMLVideoElement>();
+  let lastT = 0;
+  function sampleTime(e: Event) {
+    const v = e.currentTarget as HTMLVideoElement;
+    const t = v.currentTime;
+    if (src) {
+      // follow the sample: restart with it, and correct a drift over 0.25 s
+      if (t < lastT - 0.5 || Math.abs(src.currentTime - (s.at + t)) > 0.25) src.currentTime = s.at + t;
+      if (src.paused !== v.paused) void (v.paused ? src.pause() : src.play().catch(() => {}));
+    }
+    lastT = t;
+  }
+  function sourceTime() {
+    if (src && src.currentTime > s.at + 3.05) src.currentTime = s.at;
+  }
 
   $effect(() => {
     box?.focus();
@@ -41,11 +59,31 @@
       <div class="err msg">{s.error}</div>
     {:else if s.path}
       <!-- svelte-ignore a11y_media_has_caption -->
-      {#if /\.(gif|webp)$/i.test(s.path)}
-        <img src={convertFileSrc(s.path)} alt="Sample" />
-      {:else}
-        <video src={convertFileSrc(s.path)} autoplay loop controls playsinline></video>
-      {/if}
+      <div class="panes" class:two={compare}>
+        <div class="pane">
+          {#if compare}<div class="cap small muted">Sample (encoded)</div>{/if}
+          {#if /\.(gif|webp)$/i.test(s.path)}
+            <img src={convertFileSrc(s.path)} alt="Sample" />
+          {:else}
+            <video src={convertFileSrc(s.path)} autoplay loop controls playsinline ontimeupdate={sampleTime}></video>
+          {/if}
+        </div>
+        {#if compare && app.videoSrc}
+          <div class="pane">
+            <div class="cap small muted">Source{app.usingProxy ? " (preview copy)" : ""}, no filters or crop</div>
+            <video
+              bind:this={src}
+              src={app.videoSrc}
+              muted
+              autoplay
+              playsinline
+              onloadedmetadata={(e) => ((e.currentTarget as HTMLVideoElement).currentTime = s.at)}
+              ontimeupdate={sourceTime}
+            ></video>
+          </div>
+        {/if}
+      </div>
+      <label class="small cmp"><input type="checkbox" bind:checked={compare} /> Compare with the source</label>
       <div class="mono small">
         {s.sizeBytes !== null ? fmtBytes(s.sizeBytes) : "size unknown"}
         {#if s.kbps !== null}· {Math.round(s.kbps)} kbps total{/if}
@@ -64,6 +102,25 @@
   .wide {
     width: min(820px, calc(100vw - 40px));
     gap: 10px;
+  }
+  .wide:has(.panes.two) {
+    width: min(1500px, calc(100vw - 40px));
+  }
+  .panes.two {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .pane {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .cmp {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
   video,
   img {

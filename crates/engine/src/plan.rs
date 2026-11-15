@@ -1706,6 +1706,30 @@ mod tests {
     }
 
     #[test]
+    fn join_other_file() {
+        let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
+        let mut other = media();
+        other.path = "b.mp4".into();
+        other.duration = 3.0;
+        other.audio.clear();
+        other.video.width = 320;
+        other.video.height = 240;
+        sp.segments.push(Segment { start: 0.0, end: 9.0 });
+        sp.segment_sources = vec![None, Some("b.mp4".into())];
+        // not probed: refused
+        assert!(build(&sp, &media(), &opts()).is_err());
+        let mut m = std::collections::HashMap::new();
+        m.insert("b.mp4".to_string(), other);
+        let p = build(&sp, &media(), &Opts { sources: Some(&m), ..opts() }).unwrap();
+        let s = strs(&p.passes[0]).join(" ");
+        // the second range is clamped to b.mp4's 3 s and read from it
+        assert!(s.contains("-t 3 -i b.mp4"), "{s}");
+        assert!(s.contains("force_original_aspect_ratio=decrease,pad="), "{s}");
+        assert!(s.contains("anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=3"), "{s}");
+        assert!((p.duration_out - 7.0).abs() < 1e-9);
+    }
+
+    #[test]
     fn gif_args() {
         let mut sp = spec(Rate::Size { max_bytes: 4_194_304.0 });
         sp.container = Container::Gif;

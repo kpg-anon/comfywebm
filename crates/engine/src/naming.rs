@@ -66,7 +66,9 @@ pub fn render(template: &str, spec: &EncodeSpec, info: &MediaInfo, out_height: u
         .unwrap_or_else(|| "clip".into());
     // first range's start and last range's end; no ranges = the whole file
     let start = spec.segments.first().map(|s| s.start).unwrap_or(0.0);
-    let end = spec.segments.last().map(|s| s.end).unwrap_or(info.duration);
+    // joined files: the last range of the first file (others have their own timelines)
+    let own = |i: usize| spec.segment_sources.get(i).and_then(|s| s.as_deref()).is_none_or(|p| p == spec.input);
+    let end = spec.segments.iter().enumerate().rev().find(|(i, _)| own(*i)).map(|(_, s)| s.end).unwrap_or(info.duration);
     let t = if template.trim().is_empty() { crate::spec::DEFAULT_NAME_TEMPLATE } else { template };
     sanitize(
         &t.replace("{name}", &stem)

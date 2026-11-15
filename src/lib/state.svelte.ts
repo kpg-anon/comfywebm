@@ -101,6 +101,7 @@ export const REFRESH_RATES = [50, 60, 75, 90, 100, 120, 144, 165, 240];
 
 /** One undo step: ranges, output order, selected range, crop. */
 type EditSnap = { segments: Segment[]; order: number[] | null; sel: number; crop: Crop | null };
+type EditMemory = { segments: Segment[]; order: number[] | null; crop: Crop | null; t: number };
 
 function loadRecent(): string[] {
   const r = load<unknown>("recent");
@@ -404,6 +405,7 @@ class AppState {
       if (this.past.length > 200) this.past.shift();
       this.future = [];
     }
+    if (!this.committed || AppState.key(this.committed) !== AppState.key(now)) this.saveEditMemory(now);
     this.committed = now;
     this.canUndo = this.past.length > 0;
     this.canRedo = this.future.length > 0;
@@ -572,11 +574,33 @@ class AppState {
 
   // ---------- source ----------
 
+  private openSeq = 0;
+
+  /** Key of a file's remembered edit: path, size and duration, so a replaced file does not get it. */
+  private static editMemoryKey(m: MediaInfo): string {
+    return `${m.path.replace(/\\/g, "/").toLowerCase()}|${m.sizeBytes}|${m.duration.toFixed(3)}`;
+  }
+
+  /** Ranges, output order and crop of the last 40 files, so reopening a file brings its edit back. */
+  private saveEditMemory(s: EditSnap) {
+    const m = this.media;
+    if (!m) return;
+    const key = AppState.editMemoryKey(m);
+    const all = (load<Record<string, EditMemory>>("edits") ?? {}) as Record<string, EditMemory>;
+    if (!s.segments.length && !s.crop) delete all[key];
+    else all[key] = { segments: s.segments, order: s.order, crop: s.crop, t: Date.now() };
+    const keep = Object.entries(all).sort((a, b) => b[1].t - a[1].t).slice(0, 40);
+    save("edits", Object.fromEntries(keep));
+  }
+
   async open(path: string): Promise<boolean> {
+    // the newest open wins: a slow probe of an earlier file must not replace it
+    const seq = ++this.openSeq;
     this.busy = "Reading file...";
     this.error = null;
     try {
       const info = await ipc.probe(path);
+      if (seq !== this.openSeq) return false;
       this.video?.pause();
       this.media = info;
       this.usingProxy = false;
@@ -610,12 +634,24 @@ class AppState {
       this.outputName = "";
       this.title = "";
       this.remember(path);
+      const mem = load<Record<string, EditMemory>>("edits")?.[AppState.editMemoryKey(info)];
+      if (mem && (mem.segments.length || mem.crop)) {
+        // the empty state is the first undo step, so Ctrl+Z drops the restored edit
+        this.committed = this.snap();
+        this.segments = mem.segments.filter((g) => g.end > g.start && g.start < info.duration + 0.5);
+        this.order = mem.order && mem.order.length === this.segments.length ? mem.order : null;
+        this.crop = mem.crop;
+        this.sel = this.segments.length ? 0 : -1;
+        if (this.segments.length) this.loop = true;
+        const what = [this.segments.length ? `${this.segments.length} range${this.segments.length > 1 ? "s" : ""}` : "", mem.crop ? "the crop" : ""].filter(Boolean).join(" and ");
+        this.toast({ kind: "info", title: "Restored your last edit", text: `${what} from the last time this file was open. Ctrl+Z removes them.`, path: null });
+      }
       return true;
     } catch (e) {
-      this.error = `Could not open ${path}: ${ipc.errText(e)}`;
+      if (seq === this.openSeq) this.error = `Could not open ${path}: ${ipc.errText(e)}`;
       return false;
     } finally {
-      this.busy = null;
+      if (seq === this.openSeq) this.busy = null;
     }
   }
 

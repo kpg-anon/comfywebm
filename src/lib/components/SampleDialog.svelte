@@ -41,7 +41,11 @@
       <div class="err msg">{s.error}</div>
     {:else if s.path}
       <!-- svelte-ignore a11y_media_has_caption -->
-      <video src={convertFileSrc(s.path)} autoplay loop controls playsinline></video>
+      {#if s.path.toLowerCase().endsWith(".gif")}
+        <img src={convertFileSrc(s.path)} alt="Sample" />
+      {:else}
+        <video src={convertFileSrc(s.path)} autoplay loop controls playsinline></video>
+      {/if}
       <div class="mono small">
         {s.sizeBytes !== null ? fmtBytes(s.sizeBytes) : "size unknown"}
         {#if s.kbps !== null}· {Math.round(s.kbps)} kbps total{/if}
@@ -61,7 +65,8 @@
     width: min(820px, calc(100vw - 40px));
     gap: 10px;
   }
-  video {
+  video,
+  img {
     width: 100%;
     max-height: calc(100vh - 200px);
     background: #000;

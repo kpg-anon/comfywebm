@@ -150,7 +150,7 @@ pub fn output_path(spec: &EncodeSpec, info: &MediaInfo, out_height: u32, out_dir
     let stem = match spec.output_name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
         Some(n) => {
             let lower = n.to_ascii_lowercase();
-            let n = if lower.ends_with(".webm") || lower.ends_with(".mp4") { &n[..n.rfind('.').unwrap()] } else { n };
+            let n = if lower.ends_with(".webm") || lower.ends_with(".mp4") || lower.ends_with(".gif") { &n[..n.rfind('.').unwrap()] } else { n };
             sanitize(n)
         }
         None => render(template, spec, info, out_height),

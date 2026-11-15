@@ -219,6 +219,24 @@ fn default_platform() -> Vec<(&'static str, i64, Preset)> {
     ));
     v.push(("quality-webm.toml", 90, quality("Quality WebM", Container::Webm, Codec::Vp9, 30.0, 128.0)));
     v.push(("quality-mp4.toml", 100, quality("Quality MP4", Container::Mp4, Codec::H264, 20.0, 160.0)));
+    v.push((
+        "gif-4mib.toml",
+        110,
+        Preset {
+            name: "GIF (4 MiB)".into(),
+            container: Container::Gif,
+            codec: Codec::Gif,
+            rate: Rate::Size { max_bytes: 4194304.0 },
+            auto_scale: true,
+            max_width: Some(640),
+            max_height: Some(640),
+            fps: Some(15.0),
+            audio_bitrate_k: None,
+            effort: Effort::Balanced,
+            two_pass: false,
+            max_duration: None,
+        },
+    ));
     v
 }
 

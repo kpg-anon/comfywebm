@@ -235,6 +235,7 @@ async fn plan(app: AppHandle, spec: EncodeSpec) -> Result<PlanInfo, String> {
                 Codec::Av1 => (e.av1, "libsvtav1"),
                 Codec::H264 => (e.h264, "libx264"),
                 Codec::Hevc => (e.hevc, "libx265"),
+                Codec::Gif => (e.gif, "gif"),
             };
             if !have {
                 info.warnings.push(format!("This ffmpeg has no {name} encoder."));

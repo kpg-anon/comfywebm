@@ -132,6 +132,8 @@ pub enum Codec {
     Av1,
     H264,
     Hevc,
+    /// animated GIF (ffmpeg's own encoder, two-step palette)
+    Gif,
 }
 
 impl Codec {
@@ -142,6 +144,7 @@ impl Codec {
             Codec::Av1 => "av1",
             Codec::H264 => "h264",
             Codec::Hevc => "hevc",
+            Codec::Gif => "gif",
         }
     }
 }
@@ -152,6 +155,7 @@ pub enum Container {
     #[default]
     Webm,
     Mp4,
+    Gif,
 }
 
 impl Container {
@@ -159,6 +163,7 @@ impl Container {
         match self {
             Container::Webm => "webm",
             Container::Mp4 => "mp4",
+            Container::Gif => "gif",
         }
     }
 }
@@ -431,6 +436,9 @@ pub struct Encoders {
     pub av1: bool,
     pub h264: bool,
     pub hevc: bool,
+    /// ffmpeg's built-in GIF encoder
+    #[serde(default)]
+    pub gif: bool,
     pub opus: bool,
     pub vorbis: bool,
     pub aac: bool,

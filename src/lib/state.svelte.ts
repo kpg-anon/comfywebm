@@ -551,7 +551,7 @@ class AppState {
       if (v === null || cur === null || typeof v === typeof cur) self[k] = v;
     }
     if (!this.presets.some((p) => p.name === this.presetName)) this.presetName = this.defaultPreset;
-    if (!CODECS_BY_CONTAINER[this.container]?.includes(this.codec)) this.setContainer(this.container === "mp4" ? "mp4" : "webm");
+    if (!CODECS_BY_CONTAINER[this.container]?.includes(this.codec)) this.setContainer(this.container in CODECS_BY_CONTAINER ? this.container : "webm");
     const [lo, hi] = this.crfRange;
     this.crf = Math.min(hi, Math.max(lo, Number(this.crf) || this.crfRange[2]));
     // a remembered step from another list (steps were widths before 1.2) snaps to the nearest
@@ -924,7 +924,8 @@ class AppState {
   // ---------- container and codec ----------
 
   codecAvailable(c: Codec): boolean {
-    return !this.tools || this.tools.encoders[c];
+    // ToolsStatus from a build without the gif field: ffmpeg always has the GIF encoder
+    return !this.tools || (this.tools.encoders[c] ?? c === "gif");
   }
 
   setContainer(c: Container) {
@@ -957,7 +958,7 @@ class AppState {
     const p = this.presets.find((q) => q.name === name);
     if (!p) return;
     this.presetName = p.name;
-    this.container = p.container === "mp4" ? "mp4" : "webm";
+    this.container = p.container in CODECS_BY_CONTAINER ? p.container : "webm";
     const list = CODECS_BY_CONTAINER[this.container];
     this.codec = list.includes(p.codec) && this.codecAvailable(p.codec) ? p.codec : (list.find((k) => this.codecAvailable(k)) ?? p.codec);
     if (p.rate.mode === "size") {

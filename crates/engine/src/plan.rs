@@ -120,6 +120,8 @@ pub fn bpp_floor(codec: Codec) -> f64 {
         Codec::Vp9 | Codec::Hevc => 0.030,
         Codec::H264 => 0.045,
         Codec::Vp8 => 0.055,
+        // GIF is palette-coded and compresses far worse than video codecs
+        Codec::Gif => 1.0,
     }
 }
 
@@ -501,6 +503,7 @@ fn codec_label(c: Codec) -> &'static str {
         Codec::Av1 => "AV1",
         Codec::H264 => "H.264",
         Codec::Hevc => "HEVC",
+        Codec::Gif => "GIF",
     }
 }
 
@@ -522,7 +525,10 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     let codec = spec.codec;
 
     match (spec.container, codec) {
-        (Container::Webm, Codec::Vp9 | Codec::Vp8 | Codec::Av1) | (Container::Mp4, Codec::H264 | Codec::Hevc | Codec::Av1) => {}
+        (Container::Webm, Codec::Vp9 | Codec::Vp8 | Codec::Av1)
+        | (Container::Mp4, Codec::H264 | Codec::Hevc | Codec::Av1)
+        | (Container::Gif, Codec::Gif) => {}
+        (Container::Gif, _) | (_, Codec::Gif) => return Err("GIF output needs the GIF format and codec together.".into()),
         (Container::Webm, c) => return Err(format!("{} cannot be stored in WebM. Choose MP4.", codec_label(c))),
         (Container::Mp4, c) => return Err(format!("{} cannot be stored in MP4. Choose WebM.", codec_label(c))),
     }
@@ -551,10 +557,21 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         .fps
         .filter(|f| f.is_finite() && *f > 0.0)
         .filter(|f| src_fps_out <= 0.0 || *f < src_fps_out - 0.01);
+    // GIF frame delays are whole centiseconds and players treat under 2 as
+    // slow, so a GIF is capped at 50 fps
+    let fps_cap = if codec == Codec::Gif && fps_cap.unwrap_or(src_fps_out) > 50.0 { Some(50.0) } else { fps_cap };
     let out_fps = fps_cap.unwrap_or(if src_fps_out > 0.0 { src_fps_out } else { 30.0 });
+    if codec == Codec::Gif && out_fps > 25.0 {
+        warnings.push(format!("A GIF at {} fps is large. 10 to 20 fps is usual; set a frame rate cap.", out_fps.round()));
+    }
 
     // --- audio ---
+    let gif = codec == Codec::Gif;
     let audio = match spec.audio {
+        Some(_) if gif => {
+            warnings.push("GIF has no sound, so audio is left out.".into());
+            None
+        }
         Some(_) if boomerang => {
             warnings.push("Boomerang has no sound, so audio is left out.".into());
             None
@@ -606,6 +623,12 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         }
         auto_scaled = (ng.out_w, ng.out_h) != (g.out_w, g.out_h);
         g = ng;
+    }
+    if gif && size_mode && !spec.auto_scale {
+        warnings.push(
+            "GIF has no bitrate setting: the size limit can only be met by the picture size. Choose Auto resolution, or the file may end over the limit."
+                .into(),
+        );
     }
     let bpp = video_kbps.map(|k| bits_per_pixel(k, g.out_w, g.out_h, out_fps));
     let qual = bpp.map(|b| quality(b, codec));
@@ -690,8 +713,16 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             Codec::Av1 => false,
             Codec::H264 | Codec::Hevc => size_mode,
             Codec::Vp9 | Codec::Vp8 => size_mode || spec.two_pass,
+            Codec::Gif => false,
         };
     let reuse_pass1 = matches!(codec, Codec::Vp9 | Codec::Vp8 | Codec::H264);
+    // GIF: one palette per clip from the frames' differences, then dithered
+    let vpost = if gif {
+        let base = if vpost.is_empty() { String::new() } else { format!("{vpost},") };
+        format!("{base}split[gs0][gs1];[gs0]palettegen=stats_mode=diff[gpal];[gs1][gpal]paletteuse=dither=sierra2_4a:diff_mode=rectangle")
+    } else {
+        vpost
+    };
 
     // --- arguments ---
     let threads = opts.threads.max(1).to_string();
@@ -738,6 +769,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
                     }
                 }
             }
+            Codec::Gif => push(&mut a, &["-c:v", "gif"]),
             Codec::H264 | Codec::Hevc => {
                 if codec == Codec::H264 {
                     push(&mut a, &["-c:v", "libx264", "-profile:v", "high", "-preset", ["fast", "slow", "veryslow"][e]]);
@@ -840,9 +872,13 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
                 push(&mut a, &["-map", "[aout]"]);
             }
         }
-        push(&mut a, &["-pix_fmt", "yuv420p"]);
+        if !gif {
+            push(&mut a, &["-pix_fmt", "yuv420p"]);
+        }
         a.extend(video_args(pass));
-        push(&mut a, &["-colorspace", &color.0, "-color_primaries", &color.1, "-color_trc", &color.2]);
+        if !gif {
+            push(&mut a, &["-colorspace", &color.0, "-color_primaries", &color.1, "-color_trc", &color.2]);
+        }
         if pass == 1 {
             push(&mut a, &["-an"]);
             a.extend(spec.extra_args.iter().cloned());
@@ -868,6 +904,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         match spec.container {
             Container::Webm => push(&mut a, &["-f", "webm", opts.output]),
             Container::Mp4 => push(&mut a, &["-movflags", "+faststart", "-f", "mp4", opts.output]),
+            Container::Gif => push(&mut a, &["-loop", "0", "-f", "gif", opts.output]),
         }
         a
     };
@@ -1139,6 +1176,24 @@ mod tests {
         let p = build(&sp, &m, &opts()).unwrap();
         assert_eq!((p.out_width, p.out_height), (426, 240));
         assert!(p.warnings.iter().any(|w| w.starts_with("Even at 426x240")));
+    }
+
+    #[test]
+    fn gif_args() {
+        let mut sp = spec(Rate::Size { max_bytes: 4_194_304.0 });
+        sp.container = Container::Gif;
+        sp.codec = Codec::Gif;
+        sp.fps = Some(15.0);
+        let p = build(&sp, &media(), &Opts { output: "out.gif", ..opts() }).unwrap();
+        assert_eq!(p.passes.len(), 1);
+        let s = strs(&p.passes[0]).join(" ");
+        assert!(s.contains("fps=15,"), "{s}");
+        assert!(s.contains("palettegen=stats_mode=diff[gpal];[gs1][gpal]paletteuse"), "{s}");
+        assert!(!s.contains("yuv420p") && !s.contains("-c:a"), "{s}");
+        assert!(s.ends_with("-c:v gif -threads 8 -an -map_metadata -1 -map_chapters -1 -sn -loop 0 -f gif out.gif"), "{s}");
+        // GIF only with the GIF codec
+        sp.codec = Codec::Vp9;
+        assert!(build(&sp, &media(), &opts()).is_err());
     }
 
     #[test]

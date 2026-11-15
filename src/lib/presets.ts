@@ -83,15 +83,30 @@ export const BUILTIN_PRESETS: Preset[] = [
     twoPass: false,
     maxDuration: null,
   },
+  {
+    name: "GIF (4 MiB)",
+    container: "gif",
+    codec: "gif",
+    rate: { mode: "size", maxBytes: 4194304 },
+    autoScale: true,
+    maxWidth: 640,
+    maxHeight: 640,
+    fps: 15,
+    audioBitrateK: null,
+    effort: "balanced",
+    twoPass: false,
+    maxDuration: null,
+  },
 ];
 
 /** Codecs each container can hold, in menu order. */
 export const CODECS_BY_CONTAINER: Record<Container, Codec[]> = {
   webm: ["vp9", "vp8", "av1"],
   mp4: ["h264", "hevc", "av1"],
+  gif: ["gif"],
 };
 
-export const CODEC_LABEL: Record<Codec, string> = { vp9: "VP9", vp8: "VP8", av1: "AV1", h264: "H.264", hevc: "HEVC" };
+export const CODEC_LABEL: Record<Codec, string> = { vp9: "VP9", vp8: "VP8", av1: "AV1", h264: "H.264", hevc: "HEVC", gif: "GIF" };
 
 /** CRF scale per codec: [min, max, default]. */
 export const CRF_RANGE: Record<Codec, [number, number, number]> = {
@@ -100,6 +115,8 @@ export const CRF_RANGE: Record<Codec, [number, number, number]> = {
   av1: [0, 63, 32],
   h264: [0, 51, 20],
   hevc: [0, 51, 24],
+  // GIF has no quality scale; the value is not used
+  gif: [0, 63, 30],
 };
 
 /** The audio encoder ffmpeg uses for a container and video codec. */

@@ -2,7 +2,7 @@
 //!
 //! cargo run -p comfywebm-engine --example encode -- <input> <output>
 //!     [--range S-E]... [--crop x,y,w,h] [--max-bytes N] [--audio-k K]
-//!     [--container webm|mp4] [--codec vp9|vp8|av1|h264|hevc] [--effort fast|balanced|best]
+//!     [--container webm|mp4|gif] [--codec vp9|vp8|av1|h264|hevc|gif] [--effort fast|balanced|best]
 //! cargo run -p comfywebm-engine --example encode -- --url-info <url>
 
 use comfywebm_engine::{
@@ -47,13 +47,18 @@ fn real_main() -> Result<(), String> {
                 }
                 crop = Some(Crop { x: v[0], y: v[1], w: v[2], h: v[3] });
             }
-            "--container" => container = if args.next().as_deref() == Some("mp4") { Container::Mp4 } else { Container::Webm },
+            "--container" => container = match args.next().as_deref() {
+                Some("mp4") => Container::Mp4,
+                Some("gif") => Container::Gif,
+                _ => Container::Webm,
+            },
             "--codec" => {
                 codec = match args.next().as_deref() {
                     Some("vp8") => Codec::Vp8,
                     Some("av1") => Codec::Av1,
                     Some("h264") => Codec::H264,
                     Some("hevc") => Codec::Hevc,
+                    Some("gif") => Codec::Gif,
                     _ => Codec::Vp9,
                 }
             }
@@ -96,8 +101,8 @@ fn real_main() -> Result<(), String> {
         adjust: None,
         max_width: None,
         max_height: None,
-        auto_scale: false,
-        fps: None,
+        auto_scale: codec == Codec::Gif,
+        fps: if codec == Codec::Gif { Some(15.0) } else { None },
         speed: 1.0,
         playback: Playback::Forward,
         deinterlace: info.video.interlaced,

@@ -158,7 +158,7 @@
     } else {
       app.sel = i;
       // targets: the playhead where the drag began, the other ranges' edges, the file's ends
-      const snaps = [0, dur, app.current];
+      const snaps = [0, dur, app.current, ...(app.cuts ?? [])];
       app.segments.forEach((g, k) => k !== i && snaps.push(g.start, g.end));
       drag = { kind, i, snaps };
     }
@@ -250,6 +250,11 @@
       </div>
     {/if}
     <div class="rail" class:faint={filmUrl || waveUrl}></div>
+    {#if app.cuts}
+      {#each app.cuts as c (c)}
+        {#if pct(c) >= 0 && pct(c) <= 100}<span class="cut" style:left="{pct(c)}%"></span>{/if}
+      {/each}
+    {/if}
     {#each app.segments as s, i (i)}
       <div
         class="sel"
@@ -351,6 +356,7 @@
       <button class="btn" class:on={app.cropMode} disabled={!app.media} aria-pressed={app.cropMode} onclick={() => (app.cropMode = !app.cropMode)}>
         <Icon name="crop" size={14} />Crop <kbd>C</kbd>
       </button>
+      <button class="btn" disabled={!app.media || app.ffmpegMissing || app.findingCuts} title="Find where the picture cuts to a new shot. Range edges then snap to the cuts, and [ and ] jump between them. Reads the whole video once." onclick={() => app.findCuts()}><Icon name="cut" size={14} />{app.findingCuts ? "Finding..." : app.cuts ? `${app.cuts.length} cuts` : "Find cuts"}</button>
       <button class="btn" disabled={!app.media || app.ffmpegMissing} onclick={() => app.runSample()}><Icon name="film" size={14} />Sample <kbd>P</kbd></button>
       <button class="btn" disabled={!app.media || app.ffmpegMissing} title="Save the frame at the playhead as PNG with the crop. Shift+click (Shift+S): as the encode sees it, with filters, adjustments and the output size." onclick={(e) => app.exportFrame(e.shiftKey)}><Icon name="image" size={14} />Frame <kbd>S</kbd></button>
     </div>
@@ -471,6 +477,16 @@
     border-radius: var(--radius-sm, 4px);
     box-shadow: 0 0 0 1px var(--border), 0 4px 14px rgba(0, 0, 0, 0.5);
     background-repeat: no-repeat;
+    pointer-events: none;
+  }
+  .cut {
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    width: 2px;
+    margin-left: -1px;
+    background: var(--orange, #e8a33d);
+    opacity: 0.85;
     pointer-events: none;
   }
   .clip {

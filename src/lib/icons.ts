@@ -27,6 +27,7 @@ export const ICONS = {
   chevron: '<path d="M6 9l6 6 6-6"/>',
   wave: '<path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 7v10M21 12h0"/>',
   fitSel: '<path d="M4 7v10M20 7v10"/><path d="M8 12h8"/><path d="M10 10l-2 2 2 2M14 10l2 2-2 2"/>',
+  cut: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.1 15.9M14.5 14.5L20 20M8.1 8.1L12 12"/>',
   up: '<path d="M6 15l6-6 6 6"/>',
   retry: '<path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',

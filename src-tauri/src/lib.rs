@@ -52,6 +52,18 @@ async fn timeline_thumbs(app: AppHandle, path: String) -> Result<String, String>
     .await
 }
 
+/// Scene cut times of the video, in seconds (cached).
+#[tauri::command]
+async fn scene_cuts(app: AppHandle, path: String) -> Result<Vec<f64>, String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let ffmpeg = state.ffmpeg()?;
+        let info = state.media(&path)?;
+        strip_job(&app, "scenes", |c| strip::scenes(&ffmpeg, &info, &state.cache_dir, c))
+    })
+    .await
+}
+
 /// Waveform PNG of one audio track for the timeline (cached).
 #[tauri::command]
 async fn timeline_wave(app: AppHandle, path: String, track: u32) -> Result<String, String> {
@@ -710,6 +722,7 @@ pub fn run() {
             detect_crop,
             timeline_thumbs,
             timeline_wave,
+            scene_cuts,
             cache_info,
             cache_clear,
             queue_cancel,

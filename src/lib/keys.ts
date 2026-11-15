@@ -42,6 +42,7 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["Ctrl + Shift + Z / Ctrl + Y", "redo"],
       ["Ctrl + wheel", "zoom the timeline (wheel pans while zoomed)"],
       ["Alt + drag", "move a range edge without snapping"],
+      ["[ / ]", "previous / next scene cut (after Find cuts)"],
     ],
   },
   {
@@ -141,6 +142,12 @@ export function installKeys(actions: KeyActions): () => void {
         // frame step on < and > (Shift + , and Shift + . on US layouts)
         case "<":
           app.stepFrame(-1);
+          break;
+        case "[":
+          app.jumpCut(-1);
+          break;
+        case "]":
+          app.jumpCut(1);
           break;
         case ">":
           app.stepFrame(1);

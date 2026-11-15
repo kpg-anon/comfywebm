@@ -707,6 +707,8 @@ class AppState {
       this.subsDelay = 0;
       this.outputName = "";
       this.title = "";
+      this.cuts = null;
+      this.findingCuts = false;
       this.captionText = "";
       this.remember(path);
       const mem = load<Record<string, EditMemory>>("edits")?.[AppState.editMemoryKey(info)];
@@ -1420,6 +1422,33 @@ class AppState {
     } catch (e) {
       this.error = ipc.errText(e);
     }
+  }
+
+  /** Scene cut times of the open file (seconds), from "Find cuts"; null = not looked for. */
+  cuts = $state<number[] | null>(null);
+  findingCuts = $state(false);
+  async findCuts() {
+    const m = this.media;
+    if (!m || this.findingCuts || this.ffmpegMissing) return;
+    this.findingCuts = true;
+    try {
+      const c = await ipc.sceneCuts(m.path);
+      if (this.media?.path !== m.path) return;
+      this.cuts = c;
+      this.toast({ kind: "info", title: `${c.length} scene cut${c.length === 1 ? "" : "s"} found`, text: "Range edges snap to them; [ and ] jump between them.", path: null });
+    } catch (e) {
+      if (this.media?.path === m.path && ipc.errText(e) !== "Canceled") this.error = `Could not find scene cuts: ${ipc.errText(e)}`;
+    } finally {
+      if (this.media?.path === m.path) this.findingCuts = false;
+    }
+  }
+  /** Seek to the previous (-1) or next (+1) scene cut. */
+  jumpCut(dir: number) {
+    const c = this.cuts;
+    if (!c?.length) return;
+    const t = this.current;
+    const next = dir > 0 ? c.find((x) => x > t + 0.02) : [...c].reverse().find((x) => x < t - 0.02);
+    if (next !== undefined) this.seek(next);
   }
 
   detectingCrop = $state(false);

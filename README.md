@@ -36,7 +36,8 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   pans while zoomed), a button zooms to the selected range, with a time ruler,
   an overview of the whole file while zoomed, and the time under the pointer.
   Range edges snap to the playhead, the other ranges and the file's ends (hold
-  Alt to place freely). Undo and redo (Ctrl+Z, Ctrl+Shift+Z) cover ranges,
+  Alt to place freely). "Find cuts" marks where the picture cuts to a new shot;
+  edges snap to those too, and `[` / `]` jump between them. Undo and redo (Ctrl+Z, Ctrl+Shift+Z) cover ranges,
   their order and the crop. Reopening a file brings back its ranges and crop.
 - **Edit strip**: with two or more ranges, a strip under the timeline shows the
   joined output in order. Drag a block to change the order, click it to jump to

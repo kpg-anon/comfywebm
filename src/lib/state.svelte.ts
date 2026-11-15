@@ -339,7 +339,12 @@ class AppState {
     const r = this.fpsSrc * sp;
     return this.fps && this.fps > 0 && this.fps < r - 0.01 ? this.fps : r;
   });
-  motionIssues = $derived(this.media ? motionWarnings(this.fpsSrc, this.speed || 1, numOrNull(this.fps), this.refreshHz) : []);
+  // with smooth slow motion the output runs at the source rate, as at 1x
+  motionIssues = $derived(
+    this.media
+      ? motionWarnings(this.fpsSrc, this.smoothSlowmo && (this.speed || 1) < 1 ? 1 : this.speed || 1, numOrNull(this.fps), this.refreshHz)
+      : [],
+  );
 
   spec = $derived.by((): EncodeSpec | null => (this.media ? this.specFor(this.media, this.outSegments, true) : null));
 

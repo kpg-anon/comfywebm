@@ -55,6 +55,23 @@
       video.playbackRate = r;
     }
   });
+  // Fade preview: how dark the picture is at the playhead, from the fades at
+  // the start of the first output range and the end of the last (in source
+  // seconds, so the speed counts).
+  const fadeDark = $derived.by(() => {
+    const fi = Number(app.fadeIn) || 0;
+    const fo = Number(app.fadeOut) || 0;
+    if ((!fi && !fo) || app.cropMode || app.playback !== "forward") return 0;
+    const segs = app.outSegments;
+    const sp = Number(app.speed) || 1;
+    const start = segs.length ? segs[0].start : 0;
+    const end = segs.length ? segs[segs.length - 1].end : app.duration;
+    const t = app.current;
+    let d = 0;
+    if (fi > 0 && t >= start && t < start + fi * sp) d = Math.max(d, 1 - (t - start) / (fi * sp));
+    if (fo > 0 && t <= end && t > end - fo * sp) d = Math.max(d, 1 - (end - t) / (fo * sp));
+    return Math.min(1, Math.max(0, d));
+  });
   const adj = $derived(app.adjust);
   const showAdj = $derived(app.adjustPreview && !isNeutral(adj));
   const table = $derived(adj.curve.length ? sample(adj.curve, 33).map((v) => v.toFixed(4)).join(" ") : "");
@@ -126,6 +143,9 @@
       ></video>
       <CropOverlay rect={{ x: 0, y: 0, w: box.w, h: box.h }} />
     </div>
+    {#if fadeDark > 0}
+      <div class="fade" style:left="{box.x}px" style:top="{box.y}px" style:width="{box.w}px" style:height="{box.h}px" style:opacity={fadeDark}></div>
+    {/if}
     {#if app.logoPath && !app.cropMode && app.container !== "audio"}
       {@const c = app.crop && !turned ? app.crop : null}
       {@const r = c && app.srcW ? { x: box.x + (c.x / app.srcW) * box.w, y: box.y + (c.y / app.srcH) * box.h, w: (c.w / app.srcW) * box.w, h: (c.h / app.srcH) * box.h } : { x: box.x, y: box.y, w: box.w, h: box.h }}
@@ -192,6 +212,11 @@
 <style>
   .logo {
     position: absolute;
+    pointer-events: none;
+  }
+  .fade {
+    position: absolute;
+    background: #000;
     pointer-events: none;
   }
   .caption {

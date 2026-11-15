@@ -74,6 +74,8 @@ Work on the `exp` branch.
   filters, adjustments, crop, rotation, flips and the output size.
 - Hovering the timeline shows the thumbnail at the pointer.
 - The player plays at the Speed setting (pitch kept, as in the encode).
+- The player shows fade in and fade out (darkening at the output's start
+  and end).
 - Find cuts: scene cuts of the video (ffmpeg scene score over 0.3) shown as
   ticks on the timeline; range edges snap to them, and `[` / `]` jump to the
   previous / next cut. Cached per file.

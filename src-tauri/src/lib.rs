@@ -521,7 +521,7 @@ async fn export_frame_processed(app: AppHandle, spec: EncodeSpec, time: f64) -> 
 }
 
 #[tauri::command]
-async fn preview_sample(app: AppHandle, spec: EncodeSpec, at: f64) -> Result<String, String> {
+async fn preview_sample(app: AppHandle, spec: EncodeSpec, at: f64, secs: Option<f64>) -> Result<String, String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     blocking(move || {
         let state = app.state::<AppState>();
@@ -537,7 +537,7 @@ async fn preview_sample(app: AppHandle, spec: EncodeSpec, at: f64) -> Result<Str
         }
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
         let out = dir.join(format!("sample-{}-{n}.{}", std::process::id(), spec.ext()));
-        let res = run::sample(&ffmpeg, &spec, &info, at, &out, state.zscale(), &cancel);
+        let res = run::sample(&ffmpeg, &spec, &info, at, &out, state.zscale(), secs.unwrap_or(run::SAMPLE_SECS), &cancel);
         {
             let mut r = samples.running.lock().unwrap();
             if r.as_ref().is_some_and(|c| Arc::ptr_eq(c, &cancel)) {

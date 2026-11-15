@@ -19,6 +19,8 @@ Work on the `exp` branch.
   ranges, speed, reverse, fades, volume and normalization apply. In size mode
   the bitrate comes from the limit (8-320 kbps) and is corrected by the same
   retry loop as video.
+- Sample length: 3, 6 or 10 seconds, chosen in the Sample dialog.
+- Ctrl+Shift+Enter adds to the queue without starting it.
 - Sample dialog in quality mode: a rough size estimate for the whole output
   from the sample's bitrate.
 - Sample dialog: "Compare with the source" plays the source over the same

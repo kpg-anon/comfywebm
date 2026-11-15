@@ -107,7 +107,7 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   MKV and TS files) they are copied into an MP4 at full resolution in seconds;
   otherwise, or when that copy does not play, a 480p H.264 copy is made.
   Encoding always reads the original.
-- **Sample**: encodes 3 seconds at the playhead with the current settings and
+- **Sample**: encodes 3, 6 or 10 seconds at the playhead with the current settings and
   plays it in a loop, with its size and bitrate; "Compare with the source"
   shows the source next to it.
 - **Frame**: saves the frame at the playhead as a full-resolution PNG, with the

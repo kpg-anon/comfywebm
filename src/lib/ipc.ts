@@ -63,7 +63,7 @@ export const urlDownload = (url: string, maxHeight: number | null, section: Segm
 export const urlCancel = (url: string) => invoke<void>("url_cancel", { url });
 export const exportFrame = (path: string, time: number, crop: Crop | null) =>
   invoke<string>("export_frame", { path, time, crop });
-export const previewSample = (spec: EncodeSpec, at: number) => invoke<string>("preview_sample", { spec, at });
+export const previewSample = (spec: EncodeSpec, at: number, secs = 3) => invoke<string>("preview_sample", { spec, at, secs });
 export const presetsExport = (path: string, presets: Preset[]) => invoke<void>("presets_export", { path, presets });
 export const presetsImport = (path: string) => invoke<Preset[]>("presets_import", { path });
 

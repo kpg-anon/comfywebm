@@ -17,7 +17,8 @@ const MAX_ATTEMPTS: u32 = 4;
 const STDERR_LINES: usize = 20;
 /// a higher bitrate that grows the file by less than this means the encoder is at its quality ceiling
 const CEILING_GROWTH: f64 = 1.03;
-const SAMPLE_SECS: f64 = 3.0;
+/// default sample length in seconds
+pub const SAMPLE_SECS: f64 = 3.0;
 
 /// Shared between the thread running a process and whoever wants to stop it.
 #[derive(Default)]
@@ -348,6 +349,7 @@ pub fn sample(
     at: f64,
     out: &Path,
     zscale: bool,
+    secs: f64,
     cancel: &Cancel,
 ) -> Result<(), RunError> {
     // a joined spec: the sample uses the first file's ranges only
@@ -367,9 +369,10 @@ pub fn sample(
     let mut s = own.clone();
     let mut start = at.max(0.0);
     if info.duration > 0.0 {
-        start = start.min((info.duration - SAMPLE_SECS).max(0.0));
+        start = start.min((info.duration - secs).max(0.0));
     }
-    let end = if info.duration > 0.0 { (start + SAMPLE_SECS).min(info.duration) } else { start + SAMPLE_SECS };
+    let secs = if secs.is_finite() && secs > 0.0 { secs.min(30.0) } else { SAMPLE_SECS };
+    let end = if info.duration > 0.0 { (start + secs).min(info.duration) } else { start + secs };
     s.segments = vec![Segment { start, end }];
     s.fade_in = 0.0;
     s.fade_out = 0.0;

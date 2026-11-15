@@ -22,7 +22,7 @@
     lastT = t;
   }
   function sourceTime() {
-    if (src && src.currentTime > s.at + 3.05) src.currentTime = s.at;
+    if (src && src.currentTime > s.at + app.sampleSecs + 0.05) src.currentTime = s.at;
   }
 
   $effect(() => {
@@ -51,10 +51,17 @@
       }
     }}
   >
-    <h2 id="sample-title">Sample at {fmtTime(s.at)}</h2>
+    <div class="titlerow">
+      <h2 id="sample-title">Sample at {fmtTime(s.at)}</h2>
+      <span class="grow"></span>
+      <span class="small muted">Length</span>
+      {#each [3, 6, 10] as n (n)}
+        <button class="btn small" class:on={app.sampleSecs === n} disabled={s.busy} onclick={() => { app.sampleSecs = n; void app.runSample(s.at); }}>{n} s</button>
+      {/each}
+    </div>
 
     {#if s.busy}
-      <div class="wait muted">Encoding a 3-second sample with the current settings...</div>
+      <div class="wait muted">Encoding a {app.sampleSecs}-second sample with the current settings...</div>
     {:else if s.error}
       <div class="err msg">{s.error}</div>
     {:else if s.path}
@@ -105,6 +112,17 @@
 </div>
 
 <style>
+  .titlerow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .titlerow h2 {
+    margin: 0;
+  }
+  .grow {
+    flex: 1;
+  }
   .wide {
     width: min(820px, calc(100vw - 40px));
     gap: 10px;

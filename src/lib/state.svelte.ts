@@ -1265,15 +1265,17 @@ class AppState {
   }
 
   /** `P`: encode 3 seconds at the playhead with the current settings. */
-  async runSample() {
+  /** Sample length in seconds (3, 6 or 10), remembered for the session. */
+  sampleSecs = $state(3);
+
+  async runSample(at = this.current) {
     const s = this.spec;
     if (!s || this.ffmpegMissing) return;
     const seq = ++this.sampleSeq;
-    const at = this.current;
     this.video?.pause();
     this.sample = { busy: true, at, path: null, sizeBytes: null, kbps: null, error: null };
     try {
-      const path = await ipc.previewSample($state.snapshot(s) as EncodeSpec, at);
+      const path = await ipc.previewSample($state.snapshot(s) as EncodeSpec, at, this.sampleSecs);
       if (seq !== this.sampleSeq) return;
       // the sample's size and bitrate come from probing the file
       let sizeBytes: number | null = null;

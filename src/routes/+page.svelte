@@ -19,6 +19,28 @@
   import Player from "$lib/components/Player.svelte";
   import Timeline from "$lib/components/Timeline.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
+  import { load as loadPref, save as savePref } from "$lib/persist";
+
+  // Sidebar width: dragged on the splitter, double-click resets; remembered.
+  const SIDE_DEFAULT = 330;
+  let sideW = $state(Math.min(620, Math.max(280, loadPref<number>("sideWidth") ?? SIDE_DEFAULT)));
+  let mainEl: HTMLDivElement;
+  function splitDown(e: PointerEvent) {
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => {
+      const b = mainEl.getBoundingClientRect();
+      // leave the preview at least 420 px
+      sideW = Math.round(Math.min(620, Math.max(280, Math.min(b.right - ev.clientX, b.width - 420))));
+    };
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      savePref("sideWidth", sideW);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+  }
   import Queue from "$lib/components/Queue.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import DropZone from "$lib/components/DropZone.svelte";
@@ -228,7 +250,7 @@
     </div>
   {/if}
 
-  <div class="main">
+  <div class="main" bind:this={mainEl} style:--side-w="{sideW}px">
     <div class="left" class:hidden={app.view !== "editor"}>
       <div class="preview" bind:this={preview}>
         {#if app.media}
@@ -260,6 +282,17 @@
         {/if}
       </div>
     {/if}
+    <div
+      class="splitter"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Sidebar width (double-click resets)"
+      onpointerdown={splitDown}
+      ondblclick={() => {
+        sideW = SIDE_DEFAULT;
+        savePref("sideWidth", sideW);
+      }}
+    ></div>
     <Sidebar />
   </div>
 
@@ -361,6 +394,17 @@
     flex: 1;
     min-height: 0;
     display: flex;
+  }
+  .splitter {
+    flex: none;
+    width: 5px;
+    margin-right: -5px;
+    position: relative;
+    z-index: 3;
+    cursor: col-resize;
+  }
+  .splitter:hover {
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
   }
   .left {
     position: relative;

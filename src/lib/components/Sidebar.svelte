@@ -430,7 +430,7 @@
 
 <style>
   .sidebar {
-    width: 330px;
+    width: var(--side-w, 330px);
     flex: none;
     display: flex;
     flex-direction: column;

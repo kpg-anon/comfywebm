@@ -9,20 +9,31 @@
 
   import { convertFileSrc } from "@tauri-apps/api/core";
   import * as ipc from "$lib/ipc";
-  import { load, save } from "$lib/persist";
 
   let track: HTMLDivElement;
 
   // Filmstrip and waveform behind the track. Made in the background after a
   // file opens (cached on disk); a newer file or track replaces the request.
-  let showFilm = $state(load<boolean>("timelineFilm") ?? true);
-  let showWave = $state(load<boolean>("timelineWave") ?? true);
   let filmUrl = $state<string | null>(null);
+  // Slots across the whole (zoomed) strip at the picture's aspect ratio, 26 px
+  // high; each shows the sprite tile nearest its middle.
+  const THUMBS = 60;
+  const film = $derived.by(() => {
+    const m = app.media;
+    if (!m || !trackW || !m.video.height) return null;
+    const slotW = (26 * m.video.width) / m.video.height;
+    const count = Math.max(1, Math.min(400, Math.round((trackW * zoom) / Math.max(12, slotW))));
+    return {
+      n: THUMBS,
+      slots: Array.from({ length: count }, (_, i) => i),
+      pick: (k: number) => Math.min(THUMBS - 1, Math.floor(((k + 0.5) / count) * THUMBS)),
+    };
+  });
   let waveUrl = $state<string | null>(null);
   $effect(() => {
     const path = app.media?.path;
     filmUrl = null;
-    if (!path || !showFilm || app.ffmpegMissing) return;
+    if (!path || !app.showFilm || app.ffmpegMissing) return;
     let live = true;
     ipc.timelineThumbs(path).then((p) => live && (filmUrl = convertFileSrc(p))).catch(() => {});
     return () => (live = false);
@@ -32,7 +43,7 @@
     const hasAudio = !!app.media?.audio.length;
     const t = app.audioTrack;
     waveUrl = null;
-    if (!path || !hasAudio || !showWave || app.ffmpegMissing) return;
+    if (!path || !hasAudio || !app.showWave || app.ffmpegMissing) return;
     let live = true;
     ipc.timelineWave(path, t).then((p) => live && (waveUrl = convertFileSrc(p))).catch(() => {});
     return () => (live = false);
@@ -207,7 +218,18 @@
     {#if filmUrl || waveUrl}
       <div class="clip">
         <div class="pics" style:left="{-(viewStart / (viewLen || 1)) * 100}%" style:width="{zoom * 100}%">
-          {#if filmUrl}<img class="film" src={filmUrl} alt="" draggable="false" />{/if}
+          {#if filmUrl && film}
+            {#each film.slots as k (k)}
+              <span
+                class="film"
+                style:left="{(k / film.slots.length) * 100}%"
+                style:width="{100 / film.slots.length}%"
+                style:background-image="url('{filmUrl}')"
+                style:background-size="{film.n * 100}% 100%"
+                style:background-position-x="{film.n > 1 ? (film.pick(k) / (film.n - 1)) * 100 : 0}%"
+              ></span>
+            {/each}
+          {/if}
           {#if waveUrl}<div class="wave" style:mask-image="url('{waveUrl}')" style:-webkit-mask-image="url('{waveUrl}')"></div>{/if}
         </div>
       </div>
@@ -279,12 +301,6 @@
       </div>
     {/if}
     <span class="grow"></span>
-    <div class="group">
-      <button class="btn icon" class:on={showFilm} aria-pressed={showFilm} disabled={!app.media} aria-label="Show thumbnails on the timeline"
-        onclick={() => { showFilm = !showFilm; save("timelineFilm", showFilm); }}><Icon name="film" size={14} /></button>
-      <button class="btn icon" class:on={showWave} aria-pressed={showWave} disabled={!app.media || !app.media.audio.length} aria-label="Show the audio waveform on the timeline"
-        onclick={() => { showWave = !showWave; save("timelineWave", showWave); }}><Icon name="wave" size={14} /></button>
-    </div>
     <div class="group zoom">
       <button class="btn icon" disabled={!app.media || !zoomed} aria-label="Zoom out (Ctrl+wheel)" onclick={() => setZoom(zoom / 2)}><Icon name="zoomOut" size={15} /></button>
       <button class="btn icon" disabled={!app.selSeg} aria-label="Zoom to the selected range" onclick={() => {
@@ -445,10 +461,9 @@
   }
   .film {
     position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: fill;
+    top: 0;
+    bottom: 0;
+    background-repeat: no-repeat;
     opacity: 0.45;
   }
   .wave {

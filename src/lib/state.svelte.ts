@@ -168,6 +168,15 @@ class AppState {
   separate = $state(false); // each range as its own job
   /** Cut only: copy the streams without encoding. Not remembered between sessions. */
   streamCopy = $state(false);
+  /** Timeline pictures (Settings), remembered. */
+  showFilm = $state(load<boolean>("timelineFilm") ?? true);
+  showWave = $state(load<boolean>("timelineWave") ?? true);
+  setTimelinePics(film: boolean, wave: boolean) {
+    this.showFilm = film;
+    this.showWave = wave;
+    save("timelineFilm", film);
+    save("timelineWave", wave);
+  }
   /** Output order as range ids, once the edit strip has reordered them. */
   order = $state<number[] | null>(null);
   private nextSegId = 1;

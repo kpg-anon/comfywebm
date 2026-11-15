@@ -204,6 +204,8 @@ pub struct Outcome {
     pub result: JobResult,
     /// (video kbps, bytes) of every attempt, in order
     pub attempts: Vec<(f64, u64)>,
+    /// picture size of the attempt that was kept (auto size can change it between attempts)
+    pub out_size: (u32, u32),
 }
 
 /// Which of two outputs to keep under a size limit: one under the limit
@@ -257,6 +259,7 @@ pub fn run_job(
     let mut attempt = 1;
     let mut pass1_done = false;
     let mut best: Option<u64> = None;
+    let mut best_size = (0, 0);
     let mut history: Vec<(f64, u64)> = Vec::new();
     loop {
         let opts = Opts { video_kbps: kbps_override, zscale, ..Opts::new(&part_s, &passlog_s) };
@@ -286,6 +289,7 @@ pub fn run_job(
         if best.is_none_or(|b| better(size, b, max_bytes)) {
             std::fs::rename(&part, &best_path).map_err(|e| format!("Cannot rename {}: {e}", part.display()))?;
             best = Some(size);
+            best_size = (planned.out_width, planned.out_height);
         } else {
             let _ = std::fs::remove_file(&part);
         }
@@ -330,6 +334,7 @@ pub fn run_job(
             warnings: Vec::new(),
         },
         attempts: history,
+        out_size: best_size,
     })
 }
 

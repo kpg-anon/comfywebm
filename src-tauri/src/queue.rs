@@ -325,7 +325,7 @@ pub fn emit_state(app: &AppHandle, queue: &Queue) {
 /// Probes a finished output and lists what does not match the plan: no
 /// video, no audio when audio was asked for, another picture size, or a
 /// duration off by more than 0.5 s and 3%.
-fn verify(state: &AppState, out: &std::path::Path, spec: &EncodeSpec, planned: &plan::Planned) -> Vec<String> {
+fn verify(state: &AppState, out: &std::path::Path, spec: &EncodeSpec, size: (u32, u32), want: f64) -> Vec<String> {
     let Some(ffprobe) = state.tools().0.ffprobe else { return Vec::new() };
     let info = match comfywebm_engine::probe::probe(&ffprobe, &out.to_string_lossy()) {
         Ok(i) => i,
@@ -334,17 +334,13 @@ fn verify(state: &AppState, out: &std::path::Path, spec: &EncodeSpec, planned: &
     let mut w = Vec::new();
     if info.video.width == 0 || info.video.height == 0 {
         w.push("The output has no readable video stream.".to_string());
-    } else if (info.video.width, info.video.height) != (planned.out_width, planned.out_height) {
-        w.push(format!(
-            "The picture is {}x{}, planned {}x{}.",
-            info.video.width, info.video.height, planned.out_width, planned.out_height
-        ));
+    } else if (info.video.width, info.video.height) != size {
+        w.push(format!("The picture is {}x{}, planned {}x{}.", info.video.width, info.video.height, size.0, size.1));
     }
     // boomerang drops the sound on purpose
     if spec.audio.is_some() && spec.playback != comfywebm_engine::Playback::Boomerang && info.audio.is_empty() {
         w.push("Sound was selected, but the output has no audio stream.".to_string());
     }
-    let want = planned.duration_out;
     // a stream copy starts at a key frame, so its length differs by design
     if want > 0.0 && !spec.stream_copy && info.duration > 0.0 && (info.duration - want).abs() > 0.5_f64.max(want * 0.03) {
         w.push(format!("The output is {:.2} s long, planned {:.2} s.", info.duration, want));
@@ -419,7 +415,7 @@ fn run_one(app: &AppHandle, queue: &Queue, job: Job, cancel: &Cancel) {
         }
     });
     let checks = match &res {
-        Ok(o) => verify(&state, &o.output, &job.spec, &planned),
+        Ok(o) => verify(&state, &o.output, &job.spec, o.out_size, planned.duration_out),
         Err(_) => Vec::new(),
     };
     let updated = queue.update(id, |j| match res {

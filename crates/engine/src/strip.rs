@@ -37,7 +37,7 @@ pub fn thumbs(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path, cancel: &Cancel
     }
     let dir = cache_dir.join("strips");
     std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
-    let out = dir.join(format!("thumbs-{}.jpg", source_key(&info.path)?));
+    let out = dir.join(format!("thumbs2-{}.jpg", source_key(&info.path)?));
     if out.is_file() {
         return Ok(out);
     }
@@ -45,7 +45,9 @@ pub fn thumbs(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path, cancel: &Cancel
     let v = &info.video;
     let w = if v.height > 0 { ((THUMB_H as f64 * v.width as f64 / v.height as f64 / 2.0).round() as u32 * 2).clamp(16, 256) } else { 96 };
     let rate = THUMBS as f64 / info.duration;
-    let vf = format!("fps={rate:.6},scale={w}:{THUMB_H},setsar=1,tile={THUMBS}x1");
+    // the last key frame is often seconds before the end: repeat it so the
+    // last tiles are filled (the stream is endless; -frames:v 1 stops it)
+    let vf = format!("tpad=stop=-1:stop_mode=clone,fps={rate:.6},scale={w}:{THUMB_H},setsar=1,tile={THUMBS}x1");
     let args: Vec<String> = [
         "-hide_banner", "-nostdin", "-loglevel", "error", "-progress", "pipe:1", "-nostats", "-y",
         "-skip_frame", "nokey", "-i", &info.path,

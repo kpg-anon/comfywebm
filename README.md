@@ -1,7 +1,7 @@
 # comfywebm
 
-A desktop app for cutting clips out of a video and encoding them to WebM or MP4,
-either under a file size limit or at a constant quality. Open a file or a web
+A desktop app for cutting clips out of a video and encoding them to WebM, MP4
+or GIF, either under a file size limit or at a constant quality. Open a file or a web
 link, mark one or more ranges, optionally draw a crop, pick a preset, encode.
 
 Built with Tauri 2 (Rust) and Svelte 5. Runs on Windows, Linux and macOS.
@@ -28,10 +28,13 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
 - **Ranges**: one or more ranges on the timeline, set with `I` / `O` at the
   playhead or by dragging handles. Several ranges are joined into one file, or
   sent as separate jobs with "Separate files". Loop playback of the selected range.
-- **Timeline**: Ctrl+wheel zooms (the wheel pans while zoomed), with a time
-  ruler, an overview of the whole file while zoomed, and the time under the
-  pointer. Undo and redo (Ctrl+Z, Ctrl+Shift+Z) cover ranges, their order and
-  the crop.
+- **Timeline**: thumbnails and the audio waveform behind the ranges (made in
+  the background, cached; switch off in Settings). Ctrl+wheel zooms (the wheel
+  pans while zoomed), a button zooms to the selected range, with a time ruler,
+  an overview of the whole file while zoomed, and the time under the pointer.
+  Range edges snap to the playhead, the other ranges and the file's ends (hold
+  Alt to place freely). Undo and redo (Ctrl+Z, Ctrl+Shift+Z) cover ranges,
+  their order and the crop. Reopening a file brings back its ranges and crop.
 - **Edit strip**: with two or more ranges, a strip under the timeline shows the
   joined output in order. Drag a block to change the order, click it to jump to
   it, and "Play edit" plays the ranges one after another.
@@ -57,7 +60,14 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   or stutters is explained, with the nearest smooth speeds and caps as buttons.
 - **Quality mode**: CRF on the codec's own scale, with an optional bitrate cap.
 - **Codecs**: WebM with VP9, VP8 or AV1 (Opus audio, Vorbis with VP8); MP4 with
-  H.264, HEVC or AV1 (AAC audio).
+  H.264, HEVC or AV1 (AAC audio); GIF (one palette per clip, no sound). GIF has
+  no bitrate setting, so in size limit mode the picture size is chosen to fit.
+- **Cut only (no re-encode)**: copies one range's video and audio as they are
+  into WebM or MP4, when the source's codecs fit that container. Fast and
+  lossless, but the clip starts on the key frame at or before the in point, and
+  crop, resolution, speed and filters do nothing.
+- **Size field**: a number is MiB; `10 MB` means 10,000,000 bytes, and KB, GB,
+  KiB, GiB work too. Up and Down change it by 0.5 MiB.
 - **Filters**: deinterlace, denoise, HDR to SDR tone mapping, rotate, flip
   horizontal and vertical, reverse, boomerang (forward then reverse), fade in
   and out.
@@ -82,7 +92,14 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   list. While jobs run or wait, the Queue tab shows a badge with their count
   and the running job's percentage; jobs that finish while the editor is shown
   are counted on the badge (red when one failed) until the queue is opened.
-  The taskbar shows the progress of the running job.
+  The taskbar shows the progress of the running job. The list is saved and
+  comes back after a restart: a job that was encoding when the app closed is
+  marked "Interrupted", and waiting jobs wait for Start. Retry (or "Encode
+  again") puts a finished job back in the queue, Edit opens its source in the
+  editor with its ranges and crop, waiting jobs move up and down, and "Pause
+  after this" stops when the running job ends. Each finished file is read back
+  with ffprobe and compared with the plan (video, audio, picture size, length).
+  Closing the app stops any running ffmpeg or yt-dlp.
 - **Presets**: platform presets (below) and your own, each a commented `.toml`
   file in the config folder that can be edited by hand ("Reload config" reads
   them again). Save, overwrite, rename, delete, restore the platform presets,
@@ -217,6 +234,7 @@ MiB limits are binary: 1 MiB = 1,048,576 bytes.
 | X / Twitter | MP4, H.264 | CRF 20 | AAC 128 kbps | at most 1280x1280, 60 fps | 1200 s |
 | Quality WebM | WebM, VP9 | CRF 30 | Opus 128 kbps | source | none |
 | Quality MP4 | MP4, H.264 | CRF 20 | AAC 160 kbps | source | none |
+| GIF (4 MiB) | GIF | 4,194,304 bytes | none | at most 640x640, 15 fps, auto size | none |
 
 The longest clip is advisory: the app warns when the output is longer.
 
@@ -232,9 +250,12 @@ The longest clip is advisory: the app warns when the output is longer.
 - `presets/platform/*.toml` and `presets/saved/*.toml`: one preset per file.
   Presets saved in `settings.json` by 1.1.0 are moved to `presets/saved` on the
   first start of 1.2.0.
-- Downloads opened for editing, preview copies and samples: the app cache folder
-  (`%LOCALAPPDATA%\com.comfywebm.app` on Windows). The download folder can be
-  changed in Settings.
+- Downloads opened for editing, preview copies, samples and timeline pictures:
+  the app cache folder (`%LOCALAPPDATA%\com.comfywebm.app` on Windows). The
+  download folder can be changed in Settings. Settings shows the cache size and
+  can clear it; preview copies and timeline pictures over 4 GiB are deleted at
+  start, oldest first.
+- The queue: `queue.json` in the app config folder.
 - "Download only" files: your Downloads folder, or the folder set in Settings.
 - Window size and position: `window.json` in the app config folder.
 - The theme, the display refresh rate, the sidebar tab, recent files and the

@@ -38,6 +38,20 @@ Work on the `exp` branch.
 - The size field takes units: MB, KB, GB are decimal, MiB, KiB, GiB (or a
   bare number) binary. Up and Down step 0.5 MiB (Shift: 5 MiB).
 - CI workflow: frontend typecheck and build, engine tests.
+- Shift+S (or Shift+click Frame) saves the frame as the encode sees it:
+  filters, adjustments, crop, rotation, flips and the output size.
+- Hovering the timeline shows the thumbnail at the pointer.
+- The preset line lists which settings differ from the preset, with Reset.
+- Range edges snap to the playhead, other ranges and the file's ends; Alt
+  places them freely.
+- The window title shows the running job's percentage and the open file.
+- Queue: Output folder button.
+- Hints in the Open URL dialog for common yt-dlp errors (sign-in needed,
+  format not available, rate limits, outdated yt-dlp).
+- Preview copies: when the webview cannot open the file but can decode its
+  streams (for example an MKV from "Download and edit" with H.264 or VP9),
+  the streams are copied into an MP4 at full resolution in seconds instead
+  of a 480p transcode. If that copy does not play, the transcode follows.
 
 ### Fixed
 
@@ -54,6 +68,9 @@ Work on the `exp` branch.
 - A file changed on disk kept its old probe result until restart.
 - Opening two files quickly could show the first one after the second.
 - Double-clicking Encode added the job twice.
+- ffprobe on a file on a stalled network share, or a hanging tool check,
+  blocked forever; they now stop after 60 s and 20 s.
+- After the last job ended, the queue still reported itself as started.
 - Preview copies and timeline pictures above 4 GiB are deleted at start,
   oldest first.
 

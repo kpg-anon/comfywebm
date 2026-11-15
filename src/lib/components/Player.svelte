@@ -149,7 +149,7 @@
     </div>
   {/if}
   {#if app.usingProxy}
-    <span class="badge">Preview copy</span>
+    <span class="badge" title={app.proxyRemuxed ? "The source's own video and audio, copied into an MP4 the player can read" : "A 480p H.264 copy for the player; encoding uses the original"}>{app.proxyRemuxed ? "Preview copy (full quality)" : "Preview copy (480p)"}</span>
   {/if}
 </div>
 

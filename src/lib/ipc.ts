@@ -23,7 +23,8 @@ export const toolsStatus = () => invoke<ToolsStatus>("tools_status");
 export const toolsRescan = () => invoke<ToolsStatus>("tools_rescan");
 export const initialFile = () => invoke<string | null>("initial_file");
 export const probe = (path: string) => invoke<MediaInfo>("probe", { path });
-export const makeProxy = (path: string) => invoke<string>("make_proxy", { path });
+/** `remux` false: skip the stream copy (it was tried and did not play). */
+export const makeProxy = (path: string, remux = true) => invoke<{ path: string; remuxed: boolean }>("make_proxy", { path, remux });
 export const plan = (spec: EncodeSpec) => invoke<PlanInfo>("plan", { spec });
 export const queueList = () => invoke<Job[]>("queue_list");
 export const queueAdd = (spec: EncodeSpec, start: boolean) => invoke<Job>("queue_add", { spec, start });

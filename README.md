@@ -84,6 +84,11 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   normalization.
 - **Subtitles**: burn in a text subtitle track from the file, or an external
   `.srt` / `.ass` file. Timing follows the cut.
+- **Preview**: a file the player cannot open gets a preview copy. When its
+  streams can be decoded (H.264, VP9 or AV1 with AAC, MP3 or Opus, as in most
+  MKV and TS files) they are copied into an MP4 at full resolution in seconds;
+  otherwise, or when that copy does not play, a 480p H.264 copy is made.
+  Encoding always reads the original.
 - **Sample**: encodes 3 seconds at the playhead with the current settings and
   plays it in a loop, with its size and bitrate.
 - **Frame**: saves the frame at the playhead as a full-resolution PNG, with the

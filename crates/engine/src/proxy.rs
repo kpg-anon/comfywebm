@@ -1,6 +1,7 @@
 //! Preview proxy: an H.264/AAC MP4 copy the webview can play, for sources it cannot.
 
 use crate::run::{run_ffmpeg, Cancel, RunError};
+use crate::spec::MediaInfo;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -30,6 +31,59 @@ pub fn source_key(path: &str) -> Result<String, String> {
 /// Cache file for `path`, keyed by path + size + mtime.
 pub fn proxy_path(cache_dir: &Path, path: &str) -> Result<PathBuf, String> {
     Ok(cache_dir.join(format!("proxy-{}.mp4", source_key(path)?)))
+}
+
+/// Whether the webview can play the source's streams once they are in an MP4
+/// (Chromium: H.264 8-bit, VP9, AV1; AAC, MP3, Opus). Sources already in a
+/// container it reads failed for another reason, so they are transcoded.
+pub fn can_remux(info: &MediaInfo) -> bool {
+    let ext = std::path::Path::new(&info.path).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    if matches!(ext.as_str(), "mp4" | "m4v" | "webm") {
+        return false;
+    }
+    let v = &info.video;
+    let pix = v.pix_fmt.as_deref().unwrap_or("");
+    let video_ok = match v.codec.as_str() {
+        "h264" => matches!(pix, "yuv420p" | "yuvj420p"),
+        "vp9" | "av1" => matches!(pix, "yuv420p" | "yuvj420p" | "yuv420p10le"),
+        _ => false,
+    };
+    let audio_ok = info.audio.first().is_none_or(|a| matches!(a.codec.as_str(), "aac" | "mp3" | "opus"));
+    video_ok && audio_ok && !v.interlaced
+}
+
+/// A playable MP4 with the source's own streams, copied (no encode): full
+/// resolution, made in about the time it takes to read the file.
+pub fn make_remux(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path, mut on_progress: impl FnMut(f64)) -> Result<PathBuf, String> {
+    let out = cache_dir.join(format!("proxy-{}-copy.mp4", source_key(&info.path)?));
+    if out.is_file() {
+        return Ok(out);
+    }
+    std::fs::create_dir_all(cache_dir).map_err(|e| format!("Cannot create {}: {e}", cache_dir.display()))?;
+    let part = out.with_extension(format!("{}.part", std::process::id()));
+    let args: Vec<String> = [
+        "-hide_banner", "-nostdin", "-loglevel", "error", "-progress", "pipe:1", "-nostats", "-y",
+        "-i", &info.path,
+        "-map", &format!("0:{}", info.video.stream_index), "-map", "0:a:0?",
+        "-c", "copy", "-sn", "-dn", "-movflags", "+faststart", "-f", "mp4",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .chain(std::iter::once(part.to_string_lossy().into_owned()))
+    .collect();
+    if let Err(e) = run_ffmpeg(ffmpeg, &args, info.duration, &Cancel::new(), |p| on_progress(p.fraction)) {
+        let _ = std::fs::remove_file(&part);
+        return Err(match e {
+            RunError::Canceled => "Canceled".into(),
+            RunError::Failed(s) => s,
+        });
+    }
+    std::fs::rename(&part, &out).map_err(|e| {
+        let _ = std::fs::remove_file(&part);
+        format!("Cannot rename {}: {e}", part.display())
+    })?;
+    on_progress(1.0);
+    Ok(out)
 }
 
 /// Returns the cached proxy, or transcodes one. `duration` (seconds, from

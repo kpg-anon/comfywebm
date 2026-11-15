@@ -150,6 +150,8 @@ class AppState {
   media = $state<MediaInfo | null>(null);
   videoSrc = $state<string | null>(null);
   usingProxy = $state(false);
+  /** The preview copy holds the source's own streams (full resolution). */
+  proxyRemuxed = $state(false);
   proxyFraction = $state<number | null>(null); // non-null while a proxy is being made
   busy = $state<string | null>(null);
   error = $state<string | null>(null);
@@ -718,16 +720,19 @@ class AppState {
   async useProxy() {
     const m = this.media;
     if (!m || this.proxyFraction !== null) return;
-    if (this.usingProxy) {
+    if (this.usingProxy && !this.proxyRemuxed) {
       this.error = "The preview copy cannot be played either. Encoding may still work.";
       return;
     }
+    // a stream copy that does not play either: make the transcoded copy
+    const remux = !this.usingProxy;
     this.proxyFraction = 0;
     try {
-      const p = await ipc.makeProxy(m.path);
+      const p = await ipc.makeProxy(m.path, remux);
       if (this.media?.path !== m.path) return; // another file was opened meanwhile
       this.usingProxy = true;
-      this.videoSrc = convertFileSrc(p);
+      this.proxyRemuxed = p.remuxed;
+      this.videoSrc = convertFileSrc(p.path);
     } catch (e) {
       if (this.media?.path === m.path) this.error = `Could not make a preview copy: ${ipc.errText(e)}`;
     } finally {

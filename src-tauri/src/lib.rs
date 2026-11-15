@@ -193,20 +193,38 @@ struct ProxyProgress {
     fraction: f64,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProxyResult {
+    path: String,
+    /// the streams were copied into an MP4 (full resolution); false = a 480p H.264 transcode
+    remuxed: bool,
+}
+
+/// A preview copy the webview can play. With `remux` (the first try) the
+/// streams are copied into an MP4 when the webview can decode them; else, or
+/// when the copy did not play either, a 480p H.264 transcode.
 #[tauri::command]
-async fn make_proxy(app: AppHandle, path: String) -> Result<String, String> {
+async fn make_proxy(app: AppHandle, path: String, remux: Option<bool>) -> Result<ProxyResult, String> {
     blocking(move || {
         let state = app.state::<AppState>();
         let ffmpeg = state.ffmpeg()?;
-        let duration = state.media(&path).map(|i| i.duration).unwrap_or(0.0);
+        let info = state.media(&path).ok();
+        let duration = info.as_ref().map(|i| i.duration).unwrap_or(0.0);
         let mut last = Instant::now() - Duration::from_secs(1);
-        let out = proxy::make_proxy(&ffmpeg, &path, &state.cache_dir, duration, |fraction| {
+        let mut progress = |fraction: f64| {
             if fraction >= 1.0 || last.elapsed() >= Duration::from_millis(200) {
                 last = Instant::now();
                 let _ = app.emit("proxy-progress", ProxyProgress { path: path.clone(), fraction });
             }
-        })?;
-        Ok(out.to_string_lossy().into_owned())
+        };
+        if let Some(i) = info.as_ref().filter(|i| remux.unwrap_or(true) && proxy::can_remux(i)) {
+            if let Ok(out) = proxy::make_remux(&ffmpeg, i, &state.cache_dir, &mut progress) {
+                return Ok(ProxyResult { path: out.to_string_lossy().into_owned(), remuxed: true });
+            }
+        }
+        let out = proxy::make_proxy(&ffmpeg, &path, &state.cache_dir, duration, &mut progress)?;
+        Ok(ProxyResult { path: out.to_string_lossy().into_owned(), remuxed: false })
     })
     .await
 }

@@ -110,6 +110,7 @@
                 <button class="btn small" onclick={() => run(() => revealItemInDir(j.output!))}><Icon name="reveal" size={11} />Reveal</button>
                 <button class="btn small" onclick={() => copyPath(j)}><Icon name={copiedId === j.id ? "check" : "copy"} size={11} />{copiedId === j.id ? "Copied" : "Copy path"}</button>
               {/if}
+              <button class="btn small" title="Open the source in the editor with this job's ranges and crop" onclick={() => app.editJob(j)}><Icon name="edit" size={11} />Edit</button>
               <button class="btn small" title="Put this job back in the queue with the same settings" onclick={() => app.retryJob(j.id)}><Icon name="retry" size={11} />{j.status === "done" ? "Encode again" : "Retry"}</button>
               <button class="btn small icon danger" aria-label="Remove from list" onclick={() => app.removeJob(j.id)}><Icon name="x" size={11} /></button>
             </div>

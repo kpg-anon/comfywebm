@@ -576,6 +576,41 @@ async fn theme_import(app: AppHandle) -> Result<Option<String>, String> {
     std::fs::read_to_string(&path).map(Some).map_err(|e| format!("Cannot read {}: {e}", path.display()))
 }
 
+/// Preview proxies and timeline pictures above this total are deleted at
+/// start, oldest first. Downloads and samples are not counted.
+const CACHE_LIMIT: u64 = 4 << 30;
+
+fn trim_cache(dir: &std::path::Path) {
+    let mut files: Vec<(std::time::SystemTime, u64, std::path::PathBuf)> = Vec::new();
+    let mut collect = |d: &std::path::Path, f: &dyn Fn(&str) -> bool| {
+        if let Ok(rd) = std::fs::read_dir(d) {
+            for e in rd.flatten() {
+                let name = e.file_name().to_string_lossy().into_owned();
+                if let (true, Ok(m)) = (f(&name), e.metadata()) {
+                    if m.is_file() {
+                        files.push((m.modified().or_else(|_| m.accessed()).unwrap_or(std::time::UNIX_EPOCH), m.len(), e.path()));
+                    }
+                }
+            }
+        }
+    };
+    collect(dir, &|n| n.starts_with("proxy-"));
+    collect(&dir.join("strips"), &|_| true);
+    let mut total: u64 = files.iter().map(|f| f.1).sum();
+    if total <= CACHE_LIMIT {
+        return;
+    }
+    files.sort_by_key(|f| f.0);
+    for (_, len, p) in files {
+        if total <= CACHE_LIMIT {
+            break;
+        }
+        if std::fs::remove_file(&p).is_ok() {
+            total -= len;
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -591,6 +626,7 @@ pub fn run() {
                 winstate::install(&win, config_dir.join("window.json"));
             }
             let desktop = app.path().desktop_dir().ok();
+            trim_cache(&cache_dir);
             app.manage(AppState::new(config_dir, cache_dir, desktop));
             queue::spawn_worker(app.handle().clone());
             Ok(())

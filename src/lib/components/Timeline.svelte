@@ -272,6 +272,12 @@
     </div>
     <div class="group zoom">
       <button class="btn icon" disabled={!app.media || !zoomed} aria-label="Zoom out (Ctrl+wheel)" onclick={() => setZoom(zoom / 2)}><Icon name="zoomOut" size={15} /></button>
+      <button class="btn icon" disabled={!app.selSeg} aria-label="Zoom to the selected range" onclick={() => {
+        const g = app.selSeg;
+        if (!g || g.end <= g.start) return;
+        const pad = (g.end - g.start) * 0.08;
+        setZoom(dur / (g.end - g.start + 2 * pad), g.start - pad, 0);
+      }}><Icon name="fitSel" size={15} /></button>
       <button class="btn zl mono" disabled={!app.media || !zoomed} aria-label="Show the whole file" onclick={() => setZoom(1)}>{zoomed ? `${zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}x` : "Fit"}</button>
       <button class="btn icon" disabled={!app.media || zoom >= maxZoom} aria-label="Zoom in (Ctrl+wheel)" onclick={() => setZoom(zoom * 2)}><Icon name="zoomIn" size={15} /></button>
     </div>

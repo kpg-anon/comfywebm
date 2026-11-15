@@ -595,7 +595,7 @@ class AppState {
     save("edits", Object.fromEntries(keep));
   }
 
-  async open(path: string): Promise<boolean> {
+  async open(path: string, restoreEdit = true): Promise<boolean> {
     // the newest open wins: a slow probe of an earlier file must not replace it
     const seq = ++this.openSeq;
     this.busy = "Reading file...";
@@ -637,7 +637,7 @@ class AppState {
       this.title = "";
       this.remember(path);
       const mem = load<Record<string, EditMemory>>("edits")?.[AppState.editMemoryKey(info)];
-      if (mem && (mem.segments.length || mem.crop)) {
+      if (restoreEdit && mem && (mem.segments.length || mem.crop)) {
         // the empty state is the first undo step, so Ctrl+Z drops the restored edit
         this.committed = this.snap();
         this.segments = mem.segments.filter((g) => g.end > g.start && g.start < info.duration + 0.5);
@@ -1337,6 +1337,21 @@ class AppState {
     } catch (e) {
       this.error = ipc.errText(e);
     }
+  }
+
+  /** Open a job's source in the editor with the job's ranges, crop and flips. */
+  async editJob(j: Job) {
+    if (!(await this.open(j.spec.input, false))) return;
+    const s = j.spec;
+    this.segments = s.segments.map((g) => ({ ...g }));
+    this.order = null;
+    this.sel = this.segments.length ? 0 : -1;
+    this.crop = s.crop ? { ...s.crop } : null;
+    this.rotate = s.rotate;
+    this.mirror = s.mirror;
+    this.vflip = !!s.vflip;
+    this.loop = this.segments.length > 0;
+    this.setView("editor");
   }
 
   /** Move a job up (-1) or down (+1) in the list. */

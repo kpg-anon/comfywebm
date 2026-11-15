@@ -20,6 +20,22 @@
   import Timeline from "$lib/components/Timeline.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
   import { load as loadPref, save as savePref } from "$lib/persist";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+
+  // Window title: the running job's percentage, then the open file, so the
+  // taskbar and Alt+Tab show both.
+  const winTitle = $derived.by(() => {
+    const parts: string[] = [];
+    const r = app.runningJob;
+    if (r) parts.push(`${Math.round((r.progress?.fraction ?? 0) * 100)}%`);
+    if (app.media) parts.push(app.media.fileName);
+    parts.push("comfywebm");
+    return parts.join(" · ");
+  });
+  $effect(() => {
+    const t = winTitle;
+    getCurrentWindow().setTitle(t).catch(() => {});
+  });
 
   // Sidebar width: dragged on the splitter, double-click resets; remembered.
   const SIDE_DEFAULT = 330;

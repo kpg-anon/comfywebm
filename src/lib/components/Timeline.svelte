@@ -37,7 +37,9 @@
     ipc.timelineWave(path, t).then((p) => live && (waveUrl = convertFileSrc(p))).catch(() => {});
     return () => (live = false);
   });
-  let drag: { kind: "seek" } | { kind: "start" | "end"; i: number } | null = null;
+  let drag: { kind: "seek" } | { kind: "start" | "end"; i: number; snaps: number[] } | null = null;
+  /** Snap distance in pixels for range edges; Alt while dragging turns snapping off. */
+  const SNAP_PX = 7;
   let trackW = $state(0);
   /** Time under the pointer while it is over the track. */
   let hoverT = $state<number | null>(null);
@@ -144,16 +146,29 @@
       app.seek(timeAt(e));
     } else {
       app.sel = i;
-      drag = { kind, i };
+      // targets: the playhead where the drag began, the other ranges' edges, the file's ends
+      const snaps = [0, dur, app.current];
+      app.segments.forEach((g, k) => k !== i && snaps.push(g.start, g.end));
+      drag = { kind, i, snaps };
     }
   }
 
   function moveEv(e: PointerEvent) {
     if (app.media) hoverT = timeAt(e);
     if (!drag) return;
-    const t = timeAt(e);
+    let t = timeAt(e);
     if (drag.kind === "seek") app.seek(t);
     else {
+      if (!e.altKey && trackW > 0) {
+        const reach = (SNAP_PX / trackW) * viewLen;
+        let best = reach;
+        for (const s of drag.snaps) {
+          if (Math.abs(s - t) < best) {
+            best = Math.abs(s - t);
+            t = s;
+          }
+        }
+      }
       app.setEdge(drag.i, drag.kind, t);
       const s = app.segments[drag.i];
       if (s) app.seek(drag.kind === "start" ? s.start : s.end);

@@ -36,6 +36,21 @@
     return () => void un.then((u) => u());
   });
 
+  /** What to try for the yt-dlp errors people hit most. */
+  const hint = $derived.by(() => {
+    const e = (error ?? "").toLowerCase();
+    if (!e) return null;
+    if (/sign in|login|log in|cookies|age-restricted|confirm your age|private video|members-only/.test(e))
+      return app.settings.ytdlpCookies
+        ? "The site wants a signed-in account. Check that you are signed in to the site in the browser named in Settings (cookies from browser)."
+        : "The site wants a signed-in account. In Settings, set \"cookies from browser\" to the browser you are signed in with.";
+    if (/requested format is not available|no video formats/.test(e)) return "Choose another quality, or Download only for the best available.";
+    if (/http error 429|too many requests/.test(e)) return "The site is limiting requests. Wait a while, or add --sleep-requests 1 to the yt-dlp arguments in Settings.";
+    if (/unsupported url/.test(e)) return "yt-dlp does not support this site or link. Updating yt-dlp (yt-dlp -U) adds sites and fixes.";
+    if (/http error 403|unable to extract|nsig|signature/.test(e)) return "yt-dlp may be out of date for this site. Update it (yt-dlp -U) and try again.";
+    return null;
+  });
+
   async function lookUp() {
     const u = url.trim();
     if (!u || looking || downloading) return;
@@ -187,6 +202,7 @@
     {/if}
 
     {#if error}<div class="err small msg">{error}</div>{/if}
+    {#if hint}<div class="muted small">{hint}</div>{/if}
 
     <div class="actions">
       {#if downloading}

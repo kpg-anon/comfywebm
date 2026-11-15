@@ -71,6 +71,7 @@ Work on the `exp` branch.
 - Shift+S (or Shift+click Frame) saves the frame as the encode sees it:
   filters, adjustments, crop, rotation, flips and the output size.
 - Hovering the timeline shows the thumbnail at the pointer.
+- The player plays at the Speed setting (pitch kept, as in the encode).
 - Find cuts: scene cuts of the video (ffmpeg scene score over 0.3) shown as
   ticks on the timeline; range edges snap to them, and `[` / `]` jump to the
   previous / next cut. Cached per file.

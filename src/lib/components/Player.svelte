@@ -46,6 +46,15 @@
   // Color adjustments on the picture: an SVG filter close to ffmpeg's eq,
   // hue and curves (not exact: eq works on YUV, this on RGB). Sample shows
   // the real result.
+  // the speed setting plays in the preview too (pitch kept, as atempo does)
+  // (defaultPlaybackRate too: loading a new source resets the rate to it)
+  $effect(() => {
+    const r = Math.min(16, Math.max(0.0625, Number(app.speed) || 1));
+    if (video) {
+      video.defaultPlaybackRate = r;
+      video.playbackRate = r;
+    }
+  });
   const adj = $derived(app.adjust);
   const showAdj = $derived(app.adjustPreview && !isNeutral(adj));
   const table = $derived(adj.curve.length ? sample(adj.curve, 33).map((v) => v.toFixed(4)).join(" ") : "");

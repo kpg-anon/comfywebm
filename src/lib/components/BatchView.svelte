@@ -149,6 +149,12 @@
     <div class="foot">
       <span class="muted small">Files go to {app.outputPath ?? "the folder of each file"}.</span>
       <span class="grow"></span>
+      <button
+        class="btn"
+        disabled={batch.included.length < 2 || app.ffmpegMissing || app.container === "audio" || app.streamCopy}
+        title="One file from all included files in list order (each with its trim), at the first file's picture size and frame rate. Other sizes are fitted with black bars."
+        onclick={() => batch.join(false)}>Join into one file</button
+      >
       <button class="btn" disabled={!batch.included.length || app.ffmpegMissing} onclick={() => batch.enqueue(false)}>Add {batch.included.length} to queue</button>
       <button class="btn primary" disabled={!batch.included.length || app.ffmpegMissing} onclick={() => batch.enqueue(true)}>Encode {batch.included.length} files</button>
     </div>

@@ -154,6 +154,44 @@ class Batch {
     }
   }
 
+  /**
+   * One job that joins the included files in list order: each file's trim
+   * (or the whole file), fitted to the first file's picture size and frame
+   * rate. The first file's crop and the global settings apply.
+   */
+  async join(start: boolean) {
+    const items = this.included;
+    if (items.length < 2) return;
+    const first = items[0];
+    const spec = $state.snapshot(app.specForItem(first.info as MediaInfo, first)) as EncodeSpec;
+    const segments: Segment[] = [];
+    const sources: (string | null)[] = [];
+    for (const it of items) {
+      const own = it.segments.length ? it.segments : [{ start: 0, end: (it.info as MediaInfo).duration }];
+      for (const g of own) {
+        segments.push({ start: g.start, end: g.end });
+        sources.push(it === first ? null : it.path);
+      }
+    }
+    spec.segments = segments;
+    spec.segmentSources = sources;
+    spec.outputName = null;
+    try {
+      // check first, so a problem shows here and not when the job starts
+      await ipc.plan(spec);
+      const j = await ipc.queueAdd(spec, start);
+      if (!app.jobs.some((x) => x.id === j.id)) app.jobs.push(j);
+      app.toast({
+        kind: "info",
+        title: `${items.length} files joined into one job`,
+        text: `In list order, at ${first.name}'s picture size and frame rate.${start ? " Encoding started." : ""}`,
+        path: null,
+      });
+    } catch (e) {
+      app.error = `Could not join: ${ipc.errText(e)}`;
+    }
+  }
+
   // ---------- trim and crop in the editor ----------
 
   async editInEditor(id: number) {

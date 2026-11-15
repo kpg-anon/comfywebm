@@ -236,6 +236,7 @@ pub fn run_job(
     info: &MediaInfo,
     final_path: &Path,
     zscale: bool,
+    sources: Option<&std::collections::HashMap<String, MediaInfo>>,
     cancel: &Cancel,
     mut on_progress: impl FnMut(&Progress),
 ) -> Result<Outcome, RunError> {
@@ -262,7 +263,7 @@ pub fn run_job(
     let mut best_size = (0, 0);
     let mut history: Vec<(f64, u64)> = Vec::new();
     loop {
-        let opts = Opts { video_kbps: kbps_override, zscale, ..Opts::new(&part_s, &passlog_s) };
+        let opts = Opts { video_kbps: kbps_override, zscale, sources, ..Opts::new(&part_s, &passlog_s) };
         let planned = plan::build(spec, info, &opts)?;
         let total_passes = planned.passes.len() as u32;
         // (pass number, args, start and length of this pass in the attempt's fraction)
@@ -349,8 +350,21 @@ pub fn sample(
     zscale: bool,
     cancel: &Cancel,
 ) -> Result<(), RunError> {
-    let full = plan::build(spec, info, &Opts { display: true, zscale, ..Opts::new("", "") })?;
-    let mut s = spec.clone();
+    // a joined spec: the sample uses the first file's ranges only
+    let mut own = spec.clone();
+    if own.segment_sources.iter().any(|p| p.as_deref().is_some_and(|p| p != spec.input)) {
+        let keep: Vec<Segment> = own
+            .segments
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| own.segment_sources.get(*i).and_then(|p| p.as_deref()).is_none_or(|p| p == spec.input))
+            .map(|(_, g)| *g)
+            .collect();
+        own.segments = keep;
+        own.segment_sources.clear();
+    }
+    let full = plan::build(&own, info, &Opts { display: true, zscale, ..Opts::new("", "") })?;
+    let mut s = own.clone();
     let mut start = at.max(0.0);
     if info.duration > 0.0 {
         start = start.min((info.duration - SAMPLE_SECS).max(0.0));
@@ -381,6 +395,7 @@ pub fn export_frame_processed(ffmpeg: &Path, spec: &EncodeSpec, info: &MediaInfo
     s.fade_out = 0.0;
     s.playback = crate::spec::Playback::Forward;
     s.stream_copy = false;
+    s.segment_sources.clear();
     // a video codec, so no GIF palette step; the encoder itself is not used
     s.container = crate::spec::Container::Webm;
     s.codec = crate::spec::Codec::Vp9;

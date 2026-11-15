@@ -238,12 +238,13 @@ async fn plan(app: AppHandle, spec: EncodeSpec) -> Result<PlanInfo, String> {
         let (_, st) = state.tools();
         let zscale = st.filters.zscale;
         // first build: output height for the name template
-        let blank = plan::Opts { display: true, zscale, ..plan::Opts::new("", "") };
+        let sources = state.sources(&spec)?;
+        let blank = plan::Opts { display: true, zscale, sources: Some(&sources), ..plan::Opts::new("", "") };
         let height = plan::build(&spec, &info, &blank)?.out_height;
         let out = naming::output_path(&spec, &info, height, state.output_dir().as_deref(), &settings.name_template);
         let out = out.to_string_lossy().into_owned();
         let passlog = std::env::temp_dir().join("comfywebm-pass").to_string_lossy().into_owned();
-        let opts = plan::Opts { display: true, zscale, ..plan::Opts::new(&out, &passlog) };
+        let opts = plan::Opts { display: true, zscale, sources: Some(&sources), ..plan::Opts::new(&out, &passlog) };
         let mut info = plan::build(&spec, &info, &opts)?.info();
         if st.ffmpeg.is_some() {
             let e = &st.encoders;

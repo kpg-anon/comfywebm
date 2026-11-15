@@ -21,7 +21,10 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   than the rest, variable frame rate, interlaced or HDR, no audio track. Most
   checks offer a fix to apply with one click (cap at 30 fps, trim, leave out the
   sound, crop in the editor). Each file can have its own trim and crop (set in
-  the editor, then "Save to batch"), frame rate cap and sound switch.
+  the editor, then "Save to batch"), frame rate cap and sound switch. "Join
+  into one file" joins the included files in list order into one output at
+  the first file's picture size and frame rate (other sizes get black bars;
+  a file without sound gets silence).
 - **Download only**: the Open URL dialog can also just save the original file
   and keep it, without a look-up first. It goes to your Downloads folder (or the
   folder set in Settings) in its own container (MP4, WebM, else MKV).

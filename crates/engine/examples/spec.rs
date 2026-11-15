@@ -48,7 +48,7 @@ fn real_main() -> Result<(), String> {
         });
     }
     let out = Path::new(&output);
-    match run::run_job(&ffmpeg, &spec, &info, out, st.filters.zscale, &cancel, |_| {}) {
+    match run::run_job(&ffmpeg, &spec, &info, out, st.filters.zscale, None, &cancel, |_| {}) {
         Ok(o) => {
             println!("output: {}", o.output.display());
             println!("result: {}", serde_json::to_string(&o.result).unwrap());

@@ -26,11 +26,13 @@ pub struct Opts<'a> {
     pub single_pass: bool,
     /// write the first output frame as a PNG instead of encoding (processed frame export)
     pub frame: bool,
+    /// probe results of the other files named in `EncodeSpec.segment_sources`
+    pub sources: Option<&'a std::collections::HashMap<String, MediaInfo>>,
 }
 
 impl<'a> Opts<'a> {
     pub fn new(output: &'a str, passlog: &'a str) -> Self {
-        Opts { output, passlog, video_kbps: None, threads: cpu_threads(), display: false, zscale: true, single_pass: false, frame: false }
+        Opts { output, passlog, video_kbps: None, threads: cpu_threads(), display: false, zscale: true, single_pass: false, frame: false, sources: None }
     }
 }
 
@@ -637,7 +639,28 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     }
 
     // --- cut ---
-    let segs = resolve_segments(&spec.segments, info.duration)?;
+    // the file of each range: None = `input`, Some = another file (joined)
+    let seg_src: Vec<Option<&MediaInfo>> = if spec.segments.is_empty() {
+        vec![None]
+    } else {
+        (0..spec.segments.len())
+            .map(|i| match spec.segment_sources.get(i).and_then(|s| s.as_deref()).filter(|p| *p != spec.input) {
+                None => Ok(None),
+                Some(p) => opts.sources.and_then(|m| m.get(p)).map(Some).ok_or(format!("{p} was not read. Open it again.")),
+            })
+            .collect::<Result<_, String>>()?
+    };
+    let mixed = seg_src.iter().any(|s| s.is_some());
+    let segs = if mixed {
+        let mut out = Vec::new();
+        for (i, g) in spec.segments.iter().enumerate() {
+            let d = seg_src[i].map_or(info.duration, |m| m.duration);
+            out.extend(resolve_segments(std::slice::from_ref(g), d).map_err(|e| e.replace("Range 1", &format!("Range {}", i + 1)))?);
+        }
+        out
+    } else {
+        resolve_segments(&spec.segments, info.duration)?
+    };
     let clip: f64 = segs.iter().map(|(s, e)| e - s).sum();
     let speed = spec.speed;
     let boomerang = spec.playback == Playback::Boomerang;
@@ -789,7 +812,42 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         subs_delay: if spec.subs_delay.is_finite() { spec.subs_delay } else { 0.0 },
         subs_font_size: spec.subs_font_size,
     };
-    let seg_chains: Vec<String> = segs.iter().map(|(s, _)| segment_chain(&sf, *s).join(",")).collect();
+    // Joined files: each keeps its own source filters (no crop or subtitles,
+    // which belong to `input`), then every range is fitted into the main
+    // file's frame (after crop and rotation) at its frame rate.
+    let fit = format!(
+        "scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={},format=yuv420p",
+        fmt_num(if v.fps > 0.0 { v.fps } else { 30.0 }),
+        w = g.rot_w,
+        h = g.rot_h
+    );
+    let seg_chains: Vec<String> = segs
+        .iter()
+        .enumerate()
+        .map(|(i, (s, _))| {
+            let mut c = match seg_src[i] {
+                None => segment_chain(&sf, *s),
+                Some(m) => segment_chain(
+                    &SegmentFilters {
+                        deinterlace: spec.deinterlace && m.video.interlaced,
+                        tonemap: spec.tonemap && m.video.hdr && opts.zscale,
+                        anamorphic: m.video.anamorphic,
+                        crop: None,
+                        subtitles: None,
+                        ..sf
+                    },
+                    *s,
+                ),
+            };
+            if mixed {
+                c.push(fit.clone());
+            }
+            c.join(",")
+        })
+        .collect();
+    if mixed && spec.subs.is_some() {
+        warnings.push("Subtitles are burned in only on the ranges from the first file.".into());
+    }
     let vpost = video_post(&PostFilters {
         scale: ((g.out_w, g.out_h) != (g.rot_w, g.rot_h)).then_some((g.out_w, g.out_h)),
         caption: spec.caption.as_ref().and_then(|c| caption_filter(c, g.out_h)),
@@ -954,11 +1012,12 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             push(&mut a, &["-nostdin", "-loglevel", "error", "-progress", "pipe:1", "-nostats"]);
         }
         push(&mut a, &["-y"]);
-        for (s, e) in &segs {
+        for (i, (s, e)) in segs.iter().enumerate() {
             if *s > 0.0 {
                 push(&mut a, &["-ss", &fmt_num(*s)]);
             }
-            push(&mut a, &["-t", &fmt_num(e - s), "-i", &spec.input]);
+            let path = seg_src[i].map_or(spec.input.as_str(), |m| m.path.as_str());
+            push(&mut a, &["-t", &fmt_num(e - s), "-i", path]);
         }
         if let Some((path, _, _)) = &overlay {
             push(&mut a, &["-i", path]);
@@ -984,9 +1043,23 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             let mut graph = String::new();
             for (i, chain) in seg_chains.iter().enumerate() {
                 let chain = if chain.is_empty() { "null" } else { chain.as_str() };
-                graph.push_str(&format!("[{i}:{}]{chain}[v{i}];", v.stream_index));
+                let vi = seg_src[i].map_or(v.stream_index, |m| m.video.stream_index);
+                graph.push_str(&format!("[{i}:{vi}]{chain}[v{i}];"));
                 if let (true, Some(t)) = (with_audio, track) {
-                    graph.push_str(&format!("[{i}:a:{t}]asetpts=PTS-STARTPTS[a{i}];"));
+                    // joined files: one sample format and layout for concat; a
+                    // file without sound gives silence of the range's length
+                    let norm = if mixed { ",aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo" } else { "" };
+                    match seg_src[i] {
+                        Some(m) if m.audio.is_empty() => graph.push_str(&format!(
+                            "anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration={},aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}];",
+                            fmt_num(segs[i].1 - segs[i].0)
+                        )),
+                        Some(m) => {
+                            let ft = if (t as usize) < m.audio.len() { t } else { 0 };
+                            graph.push_str(&format!("[{i}:a:{ft}]asetpts=PTS-STARTPTS{norm}[a{i}];"));
+                        }
+                        None => graph.push_str(&format!("[{i}:a:{t}]asetpts=PTS-STARTPTS{norm}[a{i}];")),
+                    }
                 }
             }
             for i in 0..segs.len() {
@@ -1374,6 +1447,7 @@ mod tests {
             output_name: None,
             stream_copy: false,
             caption: None,
+            segment_sources: vec![],
             overlay: None,
             subs_delay: 0.0,
             subs_font_size: None,

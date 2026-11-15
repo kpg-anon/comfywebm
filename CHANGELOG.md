@@ -11,6 +11,9 @@ Work on the `exp` branch.
 
 ### Added
 
+- Batch: "Join into one file" makes one job from the included files in list
+  order, each with its trim, at the first file's picture size and frame
+  rate; other sizes get black bars, files without sound get silence.
 - Audio only: Format Audio with Opus (.opus), MP3 (.mp3) or AAC (.m4a). The
   ranges, speed, reverse, fades, volume and normalization apply. In size mode
   the bitrate comes from the limit (8-320 kbps) and is corrected by the same

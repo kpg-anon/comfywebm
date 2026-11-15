@@ -168,6 +168,17 @@ impl AppState {
         Ok(info)
     }
 
+    /// Probe results of the other files a spec joins (`segment_sources`).
+    pub fn sources(&self, spec: &comfywebm_engine::EncodeSpec) -> Result<HashMap<String, MediaInfo>, String> {
+        let mut m = HashMap::new();
+        for p in spec.segment_sources.iter().flatten() {
+            if p != &spec.input && !m.contains_key(p) {
+                m.insert(p.clone(), self.media(p)?);
+            }
+        }
+        Ok(m)
+    }
+
     /// Cached probe result, probing when there is none or the file changed.
     pub fn media(&self, path: &str) -> Result<MediaInfo, String> {
         if let Some((st, i)) = self.probes.lock().unwrap().get(path) {

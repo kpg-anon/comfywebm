@@ -390,7 +390,8 @@ fn run_one(app: &AppHandle, queue: &Queue, job: Job, cancel: &Cancel) {
         // read now, so a change to the output folder applies to jobs not yet started
         let settings = state.settings();
         // out height for the {height} token; the paths here are not used
-        let opts = plan::Opts { display: true, zscale: state.zscale(), ..plan::Opts::new("", "") };
+        let sources = state.sources(&job.spec)?;
+        let opts = plan::Opts { display: true, zscale: state.zscale(), sources: Some(&sources), ..plan::Opts::new("", "") };
         let planned = plan::build(&job.spec, &info, &opts)?;
         // the folder fixed when the job was queued, else the current setting
         let dir = match &job.spec.output_dir {
@@ -417,7 +418,8 @@ fn run_one(app: &AppHandle, queue: &Queue, job: Job, cancel: &Cancel) {
     emit(app, queue.update(id, |j| j.output = Some(out_s)));
 
     let mut last_emit = Instant::now() - PROGRESS_INTERVAL;
-    let res = run::run_job(&ffmpeg, &job.spec, &info, &out, state.zscale(), cancel, |p| {
+    let sources = state.sources(&job.spec).unwrap_or_default();
+    let res = run::run_job(&ffmpeg, &job.spec, &info, &out, state.zscale(), Some(&sources), cancel, |p| {
         let job = queue.update(id, |j| j.progress = Some(p.clone()));
         if last_emit.elapsed() >= PROGRESS_INTERVAL {
             last_emit = Instant::now();

@@ -361,6 +361,10 @@ pub struct EncodeSpec {
     /// text drawn on the picture
     #[serde(default)]
     pub caption: Option<Caption>,
+    /// the file each range comes from, by index; missing or None = `input`.
+    /// Ranges from other files are fitted to `input`'s frame size and rate.
+    #[serde(default)]
+    pub segment_sources: Vec<Option<String>>,
     /// an image (logo, watermark) over the picture
     #[serde(default)]
     pub overlay: Option<Overlay>,

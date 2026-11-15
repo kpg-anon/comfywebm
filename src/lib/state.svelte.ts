@@ -1446,7 +1446,8 @@ class AppState {
   async editJob(j: Job) {
     if (!(await this.open(j.spec.input, false))) return;
     const s = j.spec;
-    this.segments = s.segments.map((g) => ({ ...g }));
+    // a joined job: only the ranges of its first file belong on this timeline
+    this.segments = s.segments.filter((_, i) => !s.segmentSources?.[i] || s.segmentSources[i] === s.input).map((g) => ({ ...g }));
     this.order = null;
     this.sel = this.segments.length ? 0 : -1;
     this.crop = s.crop ? { ...s.crop } : null;

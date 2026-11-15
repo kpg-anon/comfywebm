@@ -99,6 +99,20 @@ fn real_main() -> Result<(), String> {
     let info = probe::probe(&ffprobe, &input)?;
     println!("probe: {}", serde_json::to_string(&info).unwrap());
 
+    // CWM_JOIN=<file>: append that whole file as one more range (joined)
+    let join = std::env::var("CWM_JOIN").ok();
+    let mut sources = std::collections::HashMap::new();
+    let mut segment_sources = Vec::new();
+    if let Some(j) = &join {
+        let ji = probe::probe(&ffprobe, j)?;
+        if segments.is_empty() {
+            segments.push(Segment { start: 0.0, end: info.duration });
+        }
+        segment_sources = vec![None; segments.len()];
+        segments.push(Segment { start: 0.0, end: ji.duration });
+        segment_sources.push(Some(j.clone()));
+        sources.insert(j.clone(), ji);
+    }
     let spec = EncodeSpec {
         input,
         segments,
@@ -130,6 +144,7 @@ fn real_main() -> Result<(), String> {
         output_name: None,
         stream_copy: false,
         caption,
+        segment_sources,
         overlay: std::env::var("CWM_LOGO").ok().map(|path| comfywebm_engine::Overlay { path, corner: "br".into(), size: 20.0, opacity: 0.8 }),
         subs_delay: std::env::var("CWM_SUBS_DELAY").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0),
         subs_font_size: std::env::var("CWM_SUBS_SIZE").ok().and_then(|s| s.parse().ok()),
@@ -138,11 +153,11 @@ fn real_main() -> Result<(), String> {
         output_dir: None,
     };
     let zscale = st.filters.zscale;
-    let shown = plan::build(&spec, &info, &plan::Opts { display: true, zscale, ..plan::Opts::new(&output, "passlog") })?.info();
+    let shown = plan::build(&spec, &info, &plan::Opts { display: true, zscale, sources: Some(&sources), ..plan::Opts::new(&output, "passlog") })?.info();
     println!("plan: {}", serde_json::to_string_pretty(&shown).unwrap());
 
     let cancel = run::Cancel::new();
-    let outcome = run::run_job(&ffmpeg, &spec, &info, Path::new(&output), zscale, &cancel, |p| {
+    let outcome = run::run_job(&ffmpeg, &spec, &info, Path::new(&output), zscale, Some(&sources), &cancel, |p| {
         print!(
             "\rattempt {} pass {}/{} {:5.1}% speed {:?} eta {:?}      ",
             p.attempt,

@@ -102,6 +102,8 @@ export type EncodeSpec = {
   streamCopy?: boolean;
   /** text on the picture (white, black outline); size = % of the output height */
   caption?: { text: string; top: boolean; size: number } | null;
+  /** the file of each range by index (null = input); other files are fitted to input's size */
+  segmentSources?: (string | null)[];
   /** an image in a corner; size = % of the output width */
   overlay?: { path: string; corner: "tl" | "tr" | "bl" | "br"; size: number; opacity: number } | null;
   /** seconds the subtitles are shown later (negative: earlier) */

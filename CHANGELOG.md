@@ -110,6 +110,9 @@ Work on the `exp` branch.
 - ffprobe on a file on a stalled network share, or a hanging tool check,
   blocked forever; they now stop after 60 s and 20 s.
 - After the last job ended, the queue still reported itself as started.
+- Quiet text in the Nord Frost and Catppuccin Mocha themes was just under
+  the 4.5:1 contrast for small text (4.46 and 4.44 on panels); now 4.63 and
+  4.68.
 - Adding a large or network folder to the batch no longer freezes the
   window while it is listed.
 - Preview copies and timeline pictures above 4 GiB are deleted at start,

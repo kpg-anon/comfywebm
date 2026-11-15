@@ -24,6 +24,8 @@ Work on the `exp` branch.
   seconds next to the sample.
 - A queued job keeps the output folder that was set when it was added.
 - Settings: Interface size (80-150%), since browser zoom is turned off.
+- Settings are split into Look, Tools and Files tabs; with ffmpeg missing
+  the dialog opens on Tools.
 - Queue: Copy error on a failed job.
 - Dialogs keep Tab inside themselves (wrapping at the ends) and give focus
   back to the control that had it when they close.

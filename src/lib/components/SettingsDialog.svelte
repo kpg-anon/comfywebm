@@ -75,6 +75,8 @@
   let downloadDir = $state(app.settings.downloadDir ?? "");
   let keepDir = $state(app.settings.keepDir ?? "");
   let nameTemplate = $state(app.settings.nameTemplate);
+  // a missing tool opens the Tools tab, where its path is set
+  let section = $state<"look" | "tools" | "files">(app.ffmpegMissing ? "tools" : "look");
   let cache = $state<ipc.CacheInfo | null>(null);
   let cacheBusy = $state(false);
   let rescanning = $state(false);
@@ -160,6 +162,13 @@
   >
     <h2 id="settings-title">Settings</h2>
 
+    <div class="stabs" role="tablist">
+      {#each [["look", "Look"], ["tools", "Tools"], ["files", "Files"]] as [k, label] (k)}
+        <button class="stab" class:on={section === k} role="tab" aria-selected={section === k} onclick={() => (section = k as typeof section)}>{label}</button>
+      {/each}
+    </div>
+
+    {#if section === "look"}
     <div class="col">
       <span>Theme</span>
       <div class="themes" role="radiogroup" aria-label="Theme">
@@ -245,6 +254,15 @@
       <span class="hint">The speed and frame rate controls check that the output plays evenly at this rate. Most screens are 60 Hz.</span>
     </div>
 
+    <div class="col">
+      <span>Timeline</span>
+      <div class="line cacheline">
+        <label><input type="checkbox" checked={app.showFilm} onchange={(e) => app.setTimelinePics((e.currentTarget as HTMLInputElement).checked, app.showWave)} /> Thumbnails</label>
+        <label><input type="checkbox" checked={app.showWave} onchange={(e) => app.setTimelinePics(app.showFilm, (e.currentTarget as HTMLInputElement).checked)} /> Audio waveform</label>
+      </div>
+      <span class="hint">Drawn behind the ranges. Made once per file in the background and kept in the cache. Applies at once.</span>
+    </div>
+    {:else if section === "tools"}
     <label class="col">
       <span>ffmpeg location</span>
       <div class="line">
@@ -305,7 +323,7 @@
       <span>Extra yt-dlp arguments</span>
       <input class="field mono" type="text" spellcheck="false" placeholder="for example --sleep-requests 1" bind:value={ytdlpArgs} />
     </label>
-
+    {:else}
     <label class="col">
       <span>Download folder (for editing)</span>
       <div class="line">
@@ -345,17 +363,8 @@
     <label class="col">
       <span>File name template</span>
       <input class="field mono" type="text" spellcheck="false" bind:value={nameTemplate} />
-      <span class="hint">Tokens: <code>{"{name}"}</code> <code>{"{start}"}</code> <code>{"{end}"}</code> <code>{"{codec}"}</code> <code>{"{height}"}</code> <code>{"{date}"}</code>. The extension (.webm or .mp4) is added. Existing files are never overwritten.</span>
+      <span class="hint">Tokens: <code>{"{name}"}</code> <code>{"{start}"}</code> <code>{"{end}"}</code> <code>{"{codec}"}</code> <code>{"{height}"}</code> <code>{"{date}"}</code>. The extension (.webm, .mp4, .gif, .webp, .opus, .mp3 or .m4a) is added. Existing files are never overwritten.</span>
     </label>
-
-    <div class="col">
-      <span>Timeline</span>
-      <div class="line cacheline">
-        <label><input type="checkbox" checked={app.showFilm} onchange={(e) => app.setTimelinePics((e.currentTarget as HTMLInputElement).checked, app.showWave)} /> Thumbnails</label>
-        <label><input type="checkbox" checked={app.showWave} onchange={(e) => app.setTimelinePics(app.showFilm, (e.currentTarget as HTMLInputElement).checked)} /> Audio waveform</label>
-      </div>
-      <span class="hint">Drawn behind the ranges. Made once per file in the background and kept in the cache. Applies at once.</span>
-    </div>
 
     <div class="col">
       <span>Cache</span>
@@ -369,6 +378,7 @@
       </div>
       <span class="hint">Preview copies of files the player cannot show, samples and timeline pictures{cache ? ` (${cache.dir})` : ""}. Downloads saved with "Download only" are never in the cache.</span>
     </div>
+    {/if}
 
     {#if msg}<div class="err">{msg}</div>{/if}
 
@@ -380,6 +390,27 @@
 </div>
 
 <style>
+  .stabs {
+    display: flex;
+    gap: 2px;
+    border-bottom: 1px solid var(--border-muted);
+    margin-bottom: 4px;
+  }
+  .stab {
+    padding: 6px 12px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .stab.on {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
   .col {
     display: flex;
     flex-direction: column;

@@ -60,6 +60,7 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["Ctrl + O", "open a file"],
       ["Ctrl + U", "open a web link"],
       ["Ctrl + Enter", "encode"],
+      ["Ctrl + Shift + Enter", "add to the queue without starting"],
       ["P", "sample: encode 3 s at the playhead"],
       ["S", "save the current frame as PNG (source picture with the crop)"],
       ["Shift + S", "save the current frame as the encode sees it: filters, adjustments, rotation and output size"],
@@ -118,7 +119,7 @@ export function installKeys(actions: KeyActions): () => void {
       else if ((k === "z" && e.shiftKey) || k === "y") app.redo();
       else if (k === "o") actions.openFile();
       else if (k === "u") actions.openUrl();
-      else if (e.key === "Enter") void app.enqueue(true);
+      else if (e.key === "Enter") void app.enqueue(!e.shiftKey);
       else handled = false;
     } else if (app.view !== "editor" && k !== "q" && k !== "b") {
       // the editor is hidden: its keys do nothing

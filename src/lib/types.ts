@@ -204,3 +204,6 @@ export type DownloadProgress = {
   eta: string | null;
   stage: "download" | "merge";
 };
+
+/** `queue-state` event and `queue_state`: whether the queue takes the next pending job. */
+export type QueueState = { started: boolean };

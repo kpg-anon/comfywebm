@@ -11,6 +11,7 @@ import type {
   PlanInfo,
   Preset,
   ProxyProgress,
+  QueueState,
   Segment,
   Settings,
   ToolsStatus,
@@ -28,6 +29,14 @@ export const queueAddMany = (specs: EncodeSpec[], start: boolean) => invoke<Job[
 export const queueStart = () => invoke<void>("queue_start");
 export const queueCancel = (id: number) => invoke<void>("queue_cancel", { id });
 export const queueRemove = (id: number) => invoke<void>("queue_remove", { id });
+/** Stop after the running job. */
+export const queuePause = () => invoke<void>("queue_pause");
+export const queueState = () => invoke<QueueState>("queue_state");
+/** A finished job goes back to pending at the end of the list. */
+export const queueRetry = (id: number) => invoke<Job>("queue_retry", { id });
+/** Moves a job to list position `to`; returns the new list. */
+export const queueMove = (id: number, to: number) => invoke<Job[]>("queue_move", { id, to });
+export const sampleCancel = () => invoke<void>("sample_cancel");
 export const settingsGet = () => invoke<Settings>("settings_get");
 export const settingsSet = (settings: Settings) => invoke<void>("settings_set", { settings });
 
@@ -54,6 +63,8 @@ export const themeImport = () => invoke<string | null>("theme_import");
 
 export const onJobUpdate = (cb: (job: Job) => void): Promise<UnlistenFn> =>
   listen<Job>("job-update", (e) => cb(e.payload));
+export const onQueueState = (cb: (s: QueueState) => void): Promise<UnlistenFn> =>
+  listen<QueueState>("queue-state", (e) => cb(e.payload));
 export const onProxyProgress = (cb: (p: ProxyProgress) => void): Promise<UnlistenFn> =>
   listen<ProxyProgress>("proxy-progress", (e) => cb(e.payload));
 export const onDownloadProgress = (cb: (p: DownloadProgress) => void): Promise<UnlistenFn> =>

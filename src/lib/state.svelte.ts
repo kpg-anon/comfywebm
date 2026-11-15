@@ -1147,6 +1147,7 @@ class AppState {
   }
 
   closeSample() {
+    if (this.sample?.busy) ipc.sampleCancel().catch(() => {});
     this.sampleSeq++;
     this.sample = null;
   }
@@ -1249,6 +1250,38 @@ class AppState {
           : [await ipc.queueAdd(snap, start)];
       // a job-update for these jobs may have arrived first and is newer
       for (const j of got) if (!this.jobs.some((x) => x.id === j.id)) this.jobs.push(j);
+    } catch (e) {
+      this.error = ipc.errText(e);
+    }
+  }
+
+  /** The queue takes the next pending job when the running one ends. */
+  queueStarted = $state(false);
+
+  async pauseQueue() {
+    try {
+      await ipc.queuePause();
+    } catch (e) {
+      this.error = ipc.errText(e);
+    }
+  }
+
+  /** Put a finished, failed or canceled job back in the queue (at the end). */
+  async retryJob(id: number) {
+    try {
+      const j = await ipc.queueRetry(id);
+      this.jobs = [...this.jobs.filter((x) => x.id !== id), j];
+    } catch (e) {
+      this.error = ipc.errText(e);
+    }
+  }
+
+  /** Move a job up (-1) or down (+1) in the list. */
+  async moveJob(id: number, delta: number) {
+    const i = this.jobs.findIndex((x) => x.id === id);
+    if (i < 0) return;
+    try {
+      this.jobs = await ipc.queueMove(id, Math.max(0, i + delta));
     } catch (e) {
       this.error = ipc.errText(e);
     }

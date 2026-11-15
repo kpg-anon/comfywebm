@@ -3,10 +3,17 @@
 //! The queue is "started" by `queue_start` or `queue_add(start: true)`. While
 //! started, the worker takes pending jobs in order, including ones added while
 //! it runs. When no pending job is left it stops until started again.
+//! "Pause" stops it after the running job.
+//!
+//! The list is saved to `queue.json` in the app config dir on every change
+//! other than progress. On load a job that was running is marked failed
+//! ("Interrupted") and pending jobs wait for Start; nothing resumes by itself.
 
 use crate::state::AppState;
 use comfywebm_engine::run::{self, Cancel, RunError};
 use comfywebm_engine::{naming, plan, EncodeSpec, Job, JobStatus, Progress};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 use tauri::window::{ProgressBarState, ProgressBarStatus};
@@ -18,20 +25,149 @@ struct Inner {
     next_id: u64,
     started: bool,
     current: Option<(u64, Arc<Cancel>)>,
+    /// the app is exiting: the list on disk is final
+    closing: bool,
 }
 
 #[derive(Default)]
 pub struct Queue {
     inner: Mutex<Inner>,
     cv: Condvar,
+    /// queue.json; None = not saved
+    path: Option<PathBuf>,
+    /// one writer at a time, so an older list never lands after a newer one
+    save_lock: Mutex<()>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Saved {
+    version: u32,
+    jobs: Vec<Job>,
+}
+
+pub const INTERRUPTED: &str = "Interrupted: comfywebm closed while this job was encoding. Retry starts it again.";
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueState {
+    /// the worker takes the next pending job when the running one ends
+    pub started: bool,
 }
 
 /// Progress events are sent at most this often.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
 
 impl Queue {
+    /// Reads `path` (a missing or unreadable file gives an empty queue).
+    pub fn load(path: PathBuf) -> Self {
+        let mut jobs: Vec<Job> = std::fs::read(&path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Saved>(&b).ok())
+            .filter(|s| s.version == 1)
+            .map(|s| s.jobs)
+            .unwrap_or_default();
+        for j in &mut jobs {
+            if j.status == JobStatus::Running {
+                j.status = JobStatus::Failed;
+                j.error = Some(INTERRUPTED.into());
+                j.progress = None;
+                // the partial files of that run are ours: `<out>.part` and `<out>.best.part`
+                if let Some(out) = &j.output {
+                    let _ = std::fs::remove_file(format!("{out}.part"));
+                    let _ = std::fs::remove_file(format!("{out}.best.part"));
+                }
+                j.output = None;
+            }
+        }
+        let next_id = jobs.iter().map(|j| j.id).max().unwrap_or(0);
+        Queue {
+            inner: Mutex::new(Inner { jobs, next_id, ..Default::default() }),
+            cv: Condvar::new(),
+            path: Some(path),
+            save_lock: Mutex::new(()),
+        }
+    }
+
+    /// Writes the list to queue.json.
+    fn save(&self) {
+        let Some(path) = &self.path else { return };
+        let _w = self.save_lock.lock().unwrap();
+        let jobs = {
+            let g = self.inner.lock().unwrap();
+            if g.closing {
+                return;
+            }
+            g.jobs.clone()
+        };
+        let Ok(json) = serde_json::to_vec(&Saved { version: 1, jobs }) else { return };
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let tmp = path.with_extension("json.tmp");
+        if std::fs::write(&tmp, json).is_ok() {
+            let _ = std::fs::rename(&tmp, path);
+        }
+    }
+
     pub fn list(&self) -> Vec<Job> {
         self.inner.lock().unwrap().jobs.clone()
+    }
+
+    pub fn state(&self) -> QueueState {
+        QueueState { started: self.inner.lock().unwrap().started }
+    }
+
+    /// Stops after the running job.
+    pub fn pause(&self) {
+        self.inner.lock().unwrap().started = false;
+    }
+
+    /// Puts a finished job back in the list as pending, at the end.
+    pub fn retry(&self, id: u64) -> Result<Job, String> {
+        let job = {
+            let mut g = self.inner.lock().unwrap();
+            let pos = g.jobs.iter().position(|j| j.id == id).ok_or(format!("No job with id {id}."))?;
+            if matches!(g.jobs[pos].status, JobStatus::Pending | JobStatus::Running) {
+                return Err("The job has not finished.".into());
+            }
+            let mut j = g.jobs.remove(pos);
+            j.status = JobStatus::Pending;
+            j.output = None;
+            j.progress = None;
+            j.result = None;
+            j.error = None;
+            g.jobs.push(j.clone());
+            self.cv.notify_all();
+            j
+        };
+        self.save();
+        Ok(job)
+    }
+
+    /// Moves job `id` to position `to` in the list (clamped).
+    pub fn move_to(&self, id: u64, to: usize) -> Result<Vec<Job>, String> {
+        let list = {
+            let mut g = self.inner.lock().unwrap();
+            let pos = g.jobs.iter().position(|j| j.id == id).ok_or(format!("No job with id {id}."))?;
+            let j = g.jobs.remove(pos);
+            let to = to.min(g.jobs.len());
+            g.jobs.insert(to, j);
+            g.jobs.clone()
+        };
+        self.save();
+        Ok(list)
+    }
+
+    /// App exit: save the list as it is (a running job loads as interrupted),
+    /// then kill the running ffmpeg so no child outlives the app.
+    pub fn shutdown(&self) {
+        self.save();
+        let mut g = self.inner.lock().unwrap();
+        g.closing = true;
+        g.started = false;
+        if let Some((_, c)) = &g.current {
+            c.cancel();
+        }
     }
 
     pub fn add(&self, spec: EncodeSpec, start: bool) -> Job {
@@ -60,6 +196,8 @@ impl Queue {
             g.started = true;
         }
         self.cv.notify_all();
+        drop(g);
+        self.save();
         added
     }
 
@@ -80,6 +218,9 @@ impl Queue {
         match g.jobs[pos].status {
             JobStatus::Pending => {
                 g.jobs.remove(pos);
+                drop(g);
+                self.save();
+                return Ok(());
             }
             JobStatus::Running => {
                 if let Some((cid, c)) = &g.current {
@@ -101,6 +242,8 @@ impl Queue {
             return Err("The job has not finished. Cancel it first.".into());
         }
         g.jobs.remove(pos);
+        drop(g);
+        self.save();
         Ok(())
     }
 
@@ -157,17 +300,26 @@ pub fn spawn_worker(app: AppHandle) {
             let queue = app.state::<AppState>().queue.clone();
             loop {
                 let (job, cancel) = queue.next();
+                queue.save();
                 emit(&app, Some(job.clone()));
+                emit_state(&app, &queue);
                 taskbar(&app, Some(0.0));
                 run_one(&app, &queue, job, &cancel);
                 queue.finish_current();
-                if !queue.has_pending() {
+                queue.save();
+                if !queue.has_pending() || !queue.state().started {
                     taskbar(&app, None);
                     attention(&app);
                 }
+                emit_state(&app, &queue);
             }
         })
         .expect("spawn queue thread");
+}
+
+/// `queue-state` event: whether the queue takes the next pending job.
+pub fn emit_state(app: &AppHandle, queue: &Queue) {
+    let _ = app.emit("queue-state", queue.state());
 }
 
 /// Taskbar progress of the main window: Some(fraction) while a job runs, None to clear.

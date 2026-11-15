@@ -20,6 +20,14 @@ use tauri::{AppHandle, Emitter, Manager, State};
 #[derive(Default)]
 struct Downloads(Mutex<HashMap<String, Arc<Cancel>>>);
 
+/// The running sample encode (a new one replaces it) and the sample files
+/// this process wrote, newest last.
+#[derive(Default)]
+struct Samples {
+    running: Mutex<Option<Arc<Cancel>>>,
+    files: Mutex<Vec<std::path::PathBuf>>,
+}
+
 /// Runs blocking work (ffprobe, ffmpeg, yt-dlp) off the main thread and the async workers.
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())?
@@ -131,18 +139,47 @@ fn queue_list(state: State<AppState>) -> Vec<Job> {
 }
 
 #[tauri::command]
-fn queue_add(state: State<AppState>, spec: EncodeSpec, start: bool) -> Job {
-    state.queue.add(spec, start)
+fn queue_add(app: AppHandle, state: State<AppState>, spec: EncodeSpec, start: bool) -> Job {
+    let j = state.queue.add(spec, start);
+    queue::emit_state(&app, &state.queue);
+    j
 }
 
 #[tauri::command]
-fn queue_add_many(state: State<AppState>, specs: Vec<EncodeSpec>, start: bool) -> Vec<Job> {
-    state.queue.add_many(specs, start)
+fn queue_add_many(app: AppHandle, state: State<AppState>, specs: Vec<EncodeSpec>, start: bool) -> Vec<Job> {
+    let j = state.queue.add_many(specs, start);
+    queue::emit_state(&app, &state.queue);
+    j
 }
 
 #[tauri::command]
-fn queue_start(state: State<AppState>) {
-    state.queue.start()
+fn queue_start(app: AppHandle, state: State<AppState>) {
+    state.queue.start();
+    queue::emit_state(&app, &state.queue);
+}
+
+/// Stop after the running job.
+#[tauri::command]
+fn queue_pause(app: AppHandle, state: State<AppState>) {
+    state.queue.pause();
+    queue::emit_state(&app, &state.queue);
+}
+
+#[tauri::command]
+fn queue_state(state: State<AppState>) -> queue::QueueState {
+    state.queue.state()
+}
+
+/// A finished, failed or canceled job goes back to pending at the end of the list.
+#[tauri::command]
+fn queue_retry(state: State<AppState>, id: u64) -> Result<Job, String> {
+    state.queue.retry(id)
+}
+
+/// Moves a job to position `to`; returns the new list.
+#[tauri::command]
+fn queue_move(state: State<AppState>, id: u64, to: usize) -> Result<Vec<Job>, String> {
+    state.queue.move_to(id, to)
 }
 
 #[tauri::command]
@@ -240,7 +277,7 @@ async fn export_frame(app: AppHandle, path: String, time: f64, crop: Option<Crop
         let ffmpeg = state.ffmpeg()?;
         let info = state.media(&path)?;
         let out = naming::frame_path(&path, time, state.output_dir().as_deref());
-        run::export_frame(&ffmpeg, &info, time, crop, &out, state.zscale())?;
+        let out = run::export_frame(&ffmpeg, &info, time, crop, &out, state.zscale())?;
         Ok(out.to_string_lossy().into_owned())
     })
     .await
@@ -251,22 +288,43 @@ async fn preview_sample(app: AppHandle, spec: EncodeSpec, at: f64) -> Result<Str
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     blocking(move || {
         let state = app.state::<AppState>();
+        let samples = app.state::<Samples>();
         let ffmpeg = state.ffmpeg()?;
         let info = state.media(&spec.input)?;
         let dir = state.cache_dir.join("samples");
         std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
-        // only the newest sample is kept
-        if let Ok(rd) = std::fs::read_dir(&dir) {
-            for e in rd.flatten() {
-                let _ = std::fs::remove_file(e.path());
-            }
+        // a newer sample replaces one still encoding
+        let cancel = Arc::new(Cancel::new());
+        if let Some(old) = samples.running.lock().unwrap().replace(cancel.clone()) {
+            old.cancel();
         }
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
         let out = dir.join(format!("sample-{}-{n}.{}", std::process::id(), spec.container.ext()));
-        run::sample(&ffmpeg, &spec, &info, at, &out, state.zscale(), &Cancel::new()).map_err(run_err)?;
+        let res = run::sample(&ffmpeg, &spec, &info, at, &out, state.zscale(), &cancel);
+        {
+            let mut r = samples.running.lock().unwrap();
+            if r.as_ref().is_some_and(|c| Arc::ptr_eq(c, &cancel)) {
+                *r = None;
+            }
+        }
+        res.map_err(run_err)?;
+        // keep this process's two newest samples (one may still be playing); others are deleted
+        let mut files = samples.files.lock().unwrap();
+        files.push(out.clone());
+        while files.len() > 2 {
+            let _ = std::fs::remove_file(files.remove(0));
+        }
         Ok(out.to_string_lossy().into_owned())
     })
     .await
+}
+
+/// Stops the sample encode, if one runs.
+#[tauri::command]
+fn sample_cancel(samples: State<Samples>) {
+    if let Some(c) = samples.running.lock().unwrap().take() {
+        c.cancel();
+    }
 }
 
 #[tauri::command]
@@ -398,6 +456,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(Downloads::default())
+        .manage(Samples::default())
         .setup(|app| {
             let config_dir = app.path().app_config_dir()?;
             let cache_dir = app.path().app_cache_dir()?;
@@ -419,6 +478,11 @@ pub fn run() {
             queue_add,
             queue_add_many,
             queue_start,
+            queue_pause,
+            queue_state,
+            queue_retry,
+            queue_move,
+            sample_cancel,
             queue_cancel,
             queue_remove,
             settings_get,
@@ -439,6 +503,24 @@ pub fn run() {
             theme_export,
             theme_import,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running comfywebm");
+        .build(tauri::generate_context!())
+        .expect("error while building comfywebm")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                // no ffmpeg or yt-dlp may outlive the app
+                if let Some(state) = app.try_state::<AppState>() {
+                    state.queue.shutdown();
+                }
+                for c in app.state::<Downloads>().0.lock().unwrap().values() {
+                    c.cancel();
+                }
+                let samples = app.state::<Samples>();
+                if let Some(c) = samples.running.lock().unwrap().take() {
+                    c.cancel();
+                }
+                for f in samples.files.lock().unwrap().drain(..) {
+                    let _ = std::fs::remove_file(f);
+                }
+            }
+        });
 }

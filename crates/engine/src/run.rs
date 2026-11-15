@@ -312,9 +312,8 @@ pub fn run_job(
     }
 
     let size = best.expect("at least one attempt");
-    let output = if final_path.exists() { naming::unique(final_path) } else { final_path.to_path_buf() };
-    std::fs::rename(&best_path, &output)
-        .map_err(|e| format!("Cannot rename {} to {}: {e}", best_path.display(), output.display()))?;
+    // never replaces a file that appeared at the final name meanwhile
+    let output = naming::publish(&best_path, final_path)?;
     cleanup.files.clear();
     drop(cleanup);
     Ok(Outcome {
@@ -362,7 +361,8 @@ pub fn sample(
 
 /// One PNG at `time` from the source file, at source resolution, with the
 /// crop applied (and tone mapping for HDR sources when zscale exists).
-pub fn export_frame(ffmpeg: &Path, info: &MediaInfo, time: f64, crop: Option<Crop>, out: &Path, zscale: bool) -> Result<(), String> {
+/// Returns the path written: `out`, or `out (n)` when that name was taken meanwhile.
+pub fn export_frame(ffmpeg: &Path, info: &MediaInfo, time: f64, crop: Option<Crop>, out: &Path, zscale: bool) -> Result<PathBuf, String> {
     let v = &info.video;
     let g = plan::geometry(v.width, v.height, crop, 0, None, None);
     let chain = plan::segment_chain(
@@ -390,12 +390,13 @@ pub fn export_frame(ffmpeg: &Path, info: &MediaInfo, time: f64, crop: Option<Cro
         args.extend(["-vf".into(), chain]);
     }
     args.extend(["-frames:v", "1", "-update", "1", "-c:v", "png", "-f", "image2"].iter().map(|s| s.to_string()));
-    args.push(out.to_string_lossy().into_owned());
+    let part = naming::part_path(out);
+    args.push(part.to_string_lossy().into_owned());
     let res = command(ffmpeg).args(&args).stdout(Stdio::null()).output().map_err(|e| format!("Cannot run ffmpeg: {e}"))?;
-    if !res.status.success() || !out.is_file() {
-        let _ = std::fs::remove_file(out);
+    if !res.status.success() || !part.is_file() {
+        let _ = std::fs::remove_file(&part);
         let err = String::from_utf8_lossy(&res.stderr).trim().to_string();
         return Err(if err.is_empty() { "ffmpeg wrote no frame. The time may be past the end.".into() } else { err });
     }
-    Ok(())
+    naming::publish(&part, out)
 }

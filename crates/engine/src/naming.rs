@@ -101,6 +101,37 @@ pub fn unique(path: &Path) -> PathBuf {
         .expect("unbounded range")
 }
 
+/// Moves `src` to `want`, or to the first free `want (n)` name, without ever
+/// replacing an existing file. The name is reserved by creating it with
+/// `create_new` (atomic on every OS, also between two app instances), then
+/// `src` is renamed over the empty placeholder.
+pub fn publish(src: &Path, want: &Path) -> Result<PathBuf, String> {
+    let dir = want.parent().unwrap_or(Path::new(""));
+    let stem = want.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let ext = want.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    for n in 0..10_000u32 {
+        let cand = if n == 0 { want.to_path_buf() } else { dir.join(format!("{stem} ({n}){ext}")) };
+        if n > 0 && part_path(&cand).exists() {
+            continue;
+        }
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&cand) {
+            Ok(f) => {
+                drop(f);
+                return match std::fs::rename(src, &cand) {
+                    Ok(()) => Ok(cand),
+                    Err(e) => {
+                        let _ = std::fs::remove_file(&cand);
+                        Err(format!("Cannot rename {} to {}: {e}", src.display(), cand.display()))
+                    }
+                };
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("Cannot create {}: {e}", cand.display())),
+        }
+    }
+    Err(format!("No free file name for {}", want.display()))
+}
+
 /// `output_dir`, or the folder of `input` when it is not set.
 pub fn output_dir(input: &str, output_dir: Option<&str>) -> PathBuf {
     output_dir

@@ -23,6 +23,15 @@
     canceled: "Canceled",
   };
 
+  /** Short line of what the job makes: codec, limit or quality, and the cut. */
+  function describe(j: Job): string {
+    const s = j.spec;
+    const rate = s.rate.mode === "size" ? `${(s.rate.maxBytes / 1048576).toFixed(s.rate.maxBytes % 1048576 ? 1 : 0)} MiB` : `CRF ${s.rate.crf}`;
+    const len = s.segments.reduce((a, g) => a + (g.end - g.start), 0);
+    const cut = s.segments.length ? `${s.segments.length > 1 ? `${s.segments.length} ranges, ` : ""}${fmtEta(len / (s.speed || 1))}` : "whole file";
+    return `${s.codec.toUpperCase()} Â· ${rate} Â· ${cut}`;
+  }
+
   async function run(f: () => Promise<unknown>) {
     try {
       await f();
@@ -47,17 +56,22 @@
     </span>
     <span class="grow"></span>
     <button class="btn small" disabled={!finished} onclick={() => app.clearFinished()}><Icon name="trash" size={11} />Clear finished</button>
-    <button class="btn small primary" disabled={!pending} onclick={() => app.startQueue()}><Icon name="start" size={11} />Start</button>
+    {#if app.queueStarted && pending}
+      <button class="btn small" title="Finish the running job, then stop" onclick={() => app.pauseQueue()}><Icon name="pause" size={11} />Pause after this</button>
+    {:else}
+      <button class="btn small primary" disabled={!pending} onclick={() => app.startQueue()}><Icon name="start" size={11} />Start</button>
+    {/if}
   </div>
 
     <div class="list">
       {#if !app.jobs.length}
         <div class="muted empty">Nothing queued. "Add to queue" collects jobs here and "Start" runs them one at a time; "Encode" adds a job and starts it.</div>
       {/if}
-      {#each app.jobs as j (j.id)}
+      {#each app.jobs as j, i (j.id)}
         <div class="job {j.status}">
           <div class="top">
             <span class="name" title={j.output ?? j.spec.input}>{jobName(j)}</span>
+            <span class="muted desc mono">{describe(j)}</span>
             <span class="status">{STATUS[j.status]}</span>
           </div>
 
@@ -72,7 +86,11 @@
                 {#if j.progress.etaSecs !== null}<span>{fmtEta(j.progress.etaSecs)} left</span>{/if}
               {/if}
               <span class="grow"></span>
-              <button class="btn small danger" onclick={() => app.cancelJob(j.id)}><Icon name="stop" size={11} />Cancel</button>
+              {#if j.status === "pending"}
+                <button class="btn small icon" aria-label="Move up" disabled={i === 0} onclick={() => app.moveJob(j.id, -1)}><Icon name="up" size={11} /></button>
+                <button class="btn small icon" aria-label="Move down" disabled={i === app.jobs.length - 1} onclick={() => app.moveJob(j.id, 1)}><Icon name="chevron" size={11} /></button>
+              {/if}
+              <button class="btn small danger" onclick={() => app.cancelJob(j.id)}><Icon name="stop" size={11} />{j.status === "pending" ? "Remove" : "Cancel"}</button>
             </div>
           {:else}
             <div class="meta mono">
@@ -91,6 +109,7 @@
                 <button class="btn small" onclick={() => run(() => revealItemInDir(j.output!))}><Icon name="reveal" size={11} />Reveal</button>
                 <button class="btn small" onclick={() => copyPath(j)}><Icon name={copiedId === j.id ? "check" : "copy"} size={11} />{copiedId === j.id ? "Copied" : "Copy path"}</button>
               {/if}
+              <button class="btn small" title="Put this job back in the queue with the same settings" onclick={() => app.retryJob(j.id)}><Icon name="retry" size={11} />{j.status === "done" ? "Encode again" : "Retry"}</button>
               <button class="btn small icon danger" aria-label="Remove from list" onclick={() => app.removeJob(j.id)}><Icon name="x" size={11} /></button>
             </div>
             {#if j.status === "failed" && j.error && errorOpen[j.id]}
@@ -157,6 +176,10 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 12px;
+  }
+  .desc {
+    font-size: 11px;
+    white-space: nowrap;
   }
   .status {
     font-size: 11px;

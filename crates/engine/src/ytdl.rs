@@ -146,7 +146,8 @@ fn human_eta(secs: f64) -> String {
 /// `merge` is yt-dlp's `--merge-output-format` value: "mkv" for a file that is
 /// opened for editing (any codec pair fits), "mp4/webm/mkv" for a kept
 /// original (the first container that holds the downloaded streams).
-pub fn download_args(url: &str, ffmpeg: &Path, dir: &Path, max_height: Option<u32>, section: Option<Segment>, merge: &str, extra: &[String]) -> Vec<String> {
+#[allow(clippy::too_many_arguments)]
+pub fn download_args(url: &str, ffmpeg: &Path, dir: &Path, temp: &Path, max_height: Option<u32>, section: Option<Segment>, merge: &str, extra: &[String]) -> Vec<String> {
     let format = match max_height.filter(|h| *h > 0) {
         Some(h) => format!("bv*[height<={h}]+ba/b[height<={h}]"),
         None => "bv*+ba/b".into(),
@@ -179,6 +180,9 @@ pub fn download_args(url: &str, ffmpeg: &Path, dir: &Path, max_height: Option<u3
         ffmpeg.to_string_lossy().into_owned(),
         "-P".into(),
         dir.to_string_lossy().into_owned(),
+        // fragments, .part files and merge inputs go in this download's own folder
+        "-P".into(),
+        format!("temp:{}", temp.to_string_lossy()),
         "-o".into(),
         name,
         "--print".into(),
@@ -221,12 +225,29 @@ pub fn download(
 ) -> Result<PathBuf, RunError> {
     check_url(url)?;
     std::fs::create_dir_all(dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+    // Every partial file of this download lives in its own temp folder, which
+    // is deleted afterwards, so a failed or canceled download never touches
+    // files of another download or files that were already there.
+    let temp = {
+        static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
+        std::env::temp_dir().join(format!("comfywebm-dl-{}-{nanos}-{n}", std::process::id()))
+    };
+    std::fs::create_dir_all(&temp).map_err(|e| format!("Cannot create {}: {e}", temp.display()))?;
+    struct RmDir(PathBuf);
+    impl Drop for RmDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _temp_guard = RmDir(temp.clone());
     let before: HashSet<PathBuf> = std::fs::read_dir(dir).map(|d| d.flatten().map(|e| e.path()).collect()).unwrap_or_default();
     if cancel.is_canceled() {
         return Err(RunError::Canceled);
     }
     let mut child = command(ytdlp)
-        .args(download_args(url, ffmpeg, dir, max_height, section, merge, extra))
+        .args(download_args(url, ffmpeg, dir, &temp, max_height, section, merge, extra))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -270,17 +291,14 @@ pub fn download(
     let file = printed.iter().rev().map(PathBuf::from).find(|p| p.is_file());
     let ok = !cancel.is_canceled() && matches!(status, Some(Ok(s)) if s.success()) && file.is_some();
     if !ok {
-        // files this download created: new since the start, and named with the
-        // video id when it is known (another download may share the folder)
-        if let Ok(rd) = std::fs::read_dir(dir) {
+        // Partial files are in `temp` (removed by the guard). A final file can
+        // still be in `dir` when only a later step failed: remove it only when
+        // it is new and carries this video's id.
+        if let (Some(id), Ok(rd)) = (&id, std::fs::read_dir(dir)) {
             for e in rd.flatten() {
                 let p = e.path();
                 let name = e.file_name().to_string_lossy().into_owned();
-                let ours = match &id {
-                    Some(id) => name.contains(&format!("[{id}]")),
-                    None => name.ends_with(".part") || name.ends_with(".ytdl") || name.contains(".part-Frag") || name.contains(".temp."),
-                };
-                if ours && !before.contains(&p) {
+                if name.contains(&format!("[{id}]")) && !before.contains(&p) {
                     let _ = std::fs::remove_file(&p);
                 }
             }

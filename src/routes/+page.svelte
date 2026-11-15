@@ -83,6 +83,8 @@
       p.then((u) => (disposed ? u() : unlisten.push(u))).catch((e) => (app.error = ipc.errText(e)));
 
     keep(ipc.onJobUpdate((j) => app.upsertJob(j)));
+    keep(ipc.onQueueState((s) => (app.queueStarted = s.started)));
+    ipc.queueState().then((s) => (app.queueStarted = s.started)).catch(() => {});
     keep(
       ipc.onProxyProgress((p) => {
         if (app.proxyFraction !== null) app.proxyFraction = Math.min(1, Math.max(0, p.fraction));

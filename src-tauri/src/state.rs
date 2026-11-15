@@ -8,14 +8,25 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+/// Size and modification time; a file replaced in place gets a new stamp.
+type FileStamp = Option<(u64, Option<std::time::SystemTime>)>;
+
+fn stamp(path: &str) -> FileStamp {
+    std::fs::metadata(path).ok().map(|m| (m.len(), m.modified().ok()))
+}
+
+/// Most probe results kept; older ones are dropped when it is reached.
+const PROBE_CACHE: usize = 256;
+
 pub struct AppState {
     pub settings: Mutex<Settings>,
     pub settings_path: PathBuf,
     pub cache_dir: PathBuf,
     /// filled on first use and cleared when the ffmpeg path setting changes
     tools: Mutex<Option<(Tools, ToolsStatus)>>,
-    /// probe results by path, so `plan` and the queue do not run ffprobe again
-    probes: Mutex<HashMap<String, MediaInfo>>,
+    /// probe results by path with the file's size and mtime when probed, so
+    /// `plan` and the queue do not run ffprobe again; a changed file is probed again
+    probes: Mutex<HashMap<String, (FileStamp, MediaInfo)>>,
     pub queue: Arc<Queue>,
     /// config.toml and the preset files
     pub config: Config,
@@ -30,6 +41,7 @@ impl AppState {
             .ok()
             .and_then(|b| serde_json::from_slice::<Settings>(&b).ok())
             .unwrap_or_default();
+        let queue_path = config_dir.join("queue.json");
         let config = Config::new(config_dir);
         let moved = config.ensure(&settings.presets);
         let state = AppState {
@@ -38,7 +50,7 @@ impl AppState {
             cache_dir,
             tools: Mutex::new(None),
             probes: Mutex::new(HashMap::new()),
-            queue: Arc::new(Queue::default()),
+            queue: Arc::new(Queue::load(queue_path)),
             config,
             desktop_dir,
         };
@@ -141,15 +153,23 @@ impl AppState {
     /// Probes `path` with ffprobe and caches the result.
     pub fn probe(&self, path: &str) -> Result<MediaInfo, String> {
         let ffprobe = self.tools().0.ffprobe.ok_or("ffprobe was not found. Set the ffmpeg location in Settings.")?;
+        let st = stamp(path);
         let info = probe::probe(&ffprobe, path)?;
-        self.probes.lock().unwrap().insert(path.to_string(), info.clone());
+        let mut cache = self.probes.lock().unwrap();
+        if cache.len() >= PROBE_CACHE {
+            cache.clear();
+        }
+        cache.insert(path.to_string(), (st, info.clone()));
         Ok(info)
     }
 
-    /// Cached probe result, probing when there is none.
+    /// Cached probe result, probing when there is none or the file changed.
     pub fn media(&self, path: &str) -> Result<MediaInfo, String> {
-        if let Some(i) = self.probes.lock().unwrap().get(path) {
-            return Ok(i.clone());
+        if let Some((st, i)) = self.probes.lock().unwrap().get(path) {
+            // URLs and other non-files have no stamp; they stay cached
+            if st.is_none() || *st == stamp(path) {
+                return Ok(i.clone());
+            }
         }
         self.probe(path)
     }

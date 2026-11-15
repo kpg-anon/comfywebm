@@ -81,6 +81,9 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
 - **Caption**: text drawn on the picture, top or bottom, white with a black
   outline (drawtext with a bold system font), sized as a share of the output
   height. Shown on the player while editing.
+- **Logo**: an image in a corner of the picture (a watermark), sized as a
+  share of the output width, with opacity; remembered between runs and used
+  for batch files too.
 - **Adjustments**: brightness, contrast, saturation, gamma, hue, and a master
   curve with draggable points (ffmpeg `eq`, `hue` and `curves`). They show on
   the picture while editing; the preview is close to but not exactly the

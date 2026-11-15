@@ -830,9 +830,21 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         };
     let reuse_pass1 = matches!(codec, Codec::Vp9 | Codec::Vp8 | Codec::H264);
     // GIF: one palette per clip from the frames' differences, then dithered
-    let vpost = if gif {
+    let palette = "split[gs0][gs1];[gs0]palettegen=stats_mode=diff[gpal];[gs1][gpal]paletteuse=dither=sierra2_4a:diff_mode=rectangle";
+    // logo: an extra input after the ranges, scaled to a share of the output
+    // width, placed in a corner; drawn after everything else (before the GIF palette)
+    let overlay = spec.overlay.as_ref().filter(|o| !o.path.trim().is_empty()).map(|o| {
+        let w = ((g.out_w as f64 * o.size.clamp(2.0, 100.0) / 100.0 / 2.0).round() as u32 * 2).max(2);
+        let m = (g.out_w.min(g.out_h) as f64 * 0.03).round();
+        let x = if o.corner.ends_with('l') { format!("{m}") } else { format!("W-w-{m}") };
+        let y = if o.corner.starts_with('t') { format!("{m}") } else { format!("H-h-{m}") };
+        let a = o.opacity.clamp(0.0, 1.0);
+        let fade = if a < 1.0 { format!(",colorchannelmixer=aa={}", fmt_num((a * 100.0).round() / 100.0)) } else { String::new() };
+        (o.path.clone(), format!("scale={w}:-2,format=rgba{fade}"), format!("overlay=x={x}:y={y}:format=auto"))
+    });
+    let vpost = if gif && overlay.is_none() {
         let base = if vpost.is_empty() { String::new() } else { format!("{vpost},") };
-        format!("{base}split[gs0][gs1];[gs0]palettegen=stats_mode=diff[gpal];[gs1][gpal]paletteuse=dither=sierra2_4a:diff_mode=rectangle")
+        format!("{base}{palette}")
     } else {
         vpost
     };
@@ -931,7 +943,8 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         a
     };
 
-    let multi = segs.len() > 1;
+    // a logo is a second input, so it needs the filter_complex form
+    let multi = segs.len() > 1 || overlay.is_some();
     let track = audio.map(|a| a.track);
     let build_pass = |pass: u32| -> Vec<String> {
         let with_audio = pass != 1 && audio.is_some();
@@ -946,6 +959,9 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
                 push(&mut a, &["-ss", &fmt_num(*s)]);
             }
             push(&mut a, &["-t", &fmt_num(e - s), "-i", &spec.input]);
+        }
+        if let Some((path, _, _)) = &overlay {
+            push(&mut a, &["-i", path]);
         }
         if !multi {
             push(&mut a, &["-map", &format!("0:{}", v.stream_index)]);
@@ -985,7 +1001,17 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             } else {
                 graph.push_str(&format!("concat=n={n}:v=1:a=0[vj];"));
             }
-            graph.push_str(&format!("[vj]{}[vout]", if vpost.is_empty() { "null" } else { &vpost }));
+            match &overlay {
+                Some((_, logo, place)) => {
+                    let n = segs.len();
+                    let tail = if gif { format!(",{palette}") } else { String::new() };
+                    graph.push_str(&format!(
+                        "[vj]{}[vpre];[{n}:v]{logo}[lg];[vpre][lg]{place}{tail}[vout]",
+                        if vpost.is_empty() { "null" } else { &vpost }
+                    ));
+                }
+                None => graph.push_str(&format!("[vj]{}[vout]", if vpost.is_empty() { "null" } else { &vpost })),
+            }
             if with_audio {
                 let af = apost.as_deref().filter(|s| !s.is_empty()).unwrap_or("anull");
                 graph.push_str(&format!(";[aj]{af}[aout]"));
@@ -1348,6 +1374,7 @@ mod tests {
             output_name: None,
             stream_copy: false,
             caption: None,
+            overlay: None,
             subs_delay: 0.0,
             subs_font_size: None,
             output_dir: None,

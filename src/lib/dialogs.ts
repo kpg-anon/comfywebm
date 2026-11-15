@@ -16,6 +16,9 @@ export const pickSubtitle = () =>
 
 export const pickFolder = (title: string) => pick({ title, directory: true });
 
+export const pickImage = () =>
+  pick({ title: "Choose an image", filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "bmp"] }, { name: "All files", extensions: ["*"] }] });
+
 export const pickAnyFile = (title: string) => pick({ title });
 
 export const pickVideos = async (): Promise<string[]> => {

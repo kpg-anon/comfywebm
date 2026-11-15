@@ -6,7 +6,7 @@
   // of its settings are changed, so nothing set there goes unnoticed.
   import { app, isNeutral } from "$lib/state.svelte";
   import { batch } from "$lib/batch.svelte";
-  import { pickFolder, pickSubtitle } from "$lib/dialogs";
+  import { pickFolder, pickImage, pickSubtitle } from "$lib/dialogs";
   import { CODECS_BY_CONTAINER, CODEC_LABEL } from "$lib/presets";
   import { fmtBytes, fmtTime } from "$lib/time";
   import type { Rotate } from "$lib/types";
@@ -121,6 +121,7 @@
       app.subsKind !== "off" && "subtitles",
       app.title.trim() && "title",
       app.captionText.trim() && "caption",
+      app.logoPath && "logo",
       app.extraArgs.trim() && "extra args",
       app.effort !== "balanced" && `${app.effort} effort`,
       app.rateMode === "crf" && app.maxBitrateK && "bitrate cap",
@@ -427,6 +428,29 @@
           <span title="Text height as a share of the output picture's height.">Size</span>
           <Select label="Caption size" bind:value={app.captionSize} options={[4, 5, 7, 9, 12, 15].map((v) => ({ value: v, label: `${v}%` }))} />
         </div>
+      </Group>
+
+      <Group id="logo" title="Logo" note={app.logoPath ? baseName(app.logoPath) : "none"}>
+        <div class="row">
+          <span class="path small" class:muted={!app.logoPath} title={app.logoPath ?? ""}>{app.logoPath ? baseName(app.logoPath) : "No image"}</span>
+          <button class="btn small" onclick={async () => { const f = await pickImage(); if (f) app.logoPath = f; }}>Choose</button>
+          {#if app.logoPath}<button class="btn small" onclick={() => (app.logoPath = null)}>Remove</button>{/if}
+        </div>
+        {#if app.logoPath}
+          <div class="row">
+            <span>Corner</span>
+            <Seg label="Logo corner" value={app.logoCorner} onchange={(v) => (app.logoCorner = v)} options={[{ value: "tl", label: "↖" }, { value: "tr", label: "↗" }, { value: "bl", label: "↙" }, { value: "br", label: "↘" }]} />
+          </div>
+          <div class="row">
+            <span title="Width of the image as a share of the output picture's width.">Size</span>
+            <Select label="Logo size" bind:value={app.logoSize} options={[5, 8, 10, 15, 20, 25, 33, 50].map((v) => ({ value: v, label: `${v}%` }))} />
+          </div>
+          <div class="row">
+            <span>Opacity</span>
+            <input type="range" min="0.1" max="1" step="0.05" bind:value={app.logoOpacity} aria-label="Logo opacity" />
+            <span class="mono small">{Math.round(app.logoOpacity * 100)}%</span>
+          </div>
+        {/if}
       </Group>
 
       <Group id="meta" title="Metadata and arguments">

@@ -130,6 +130,7 @@ fn real_main() -> Result<(), String> {
         output_name: None,
         stream_copy: false,
         caption,
+        overlay: std::env::var("CWM_LOGO").ok().map(|path| comfywebm_engine::Overlay { path, corner: "br".into(), size: 20.0, opacity: 0.8 }),
         subs_delay: std::env::var("CWM_SUBS_DELAY").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0),
         subs_font_size: std::env::var("CWM_SUBS_SIZE").ok().and_then(|s| s.parse().ok()),
         stabilize: std::env::var("CWM_STAB").is_ok(),

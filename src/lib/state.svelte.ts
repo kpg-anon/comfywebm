@@ -68,6 +68,7 @@ const REMEMBERED = [
   "maxWidth", "maxHeight", "fps", "speed", "playback", "denoise", "stabilize", "smoothSlowmo", "fadeIn", "fadeOut", "effort",
   "twoPass", "audioOn", "audioBitrateK", "volumeDb", "normalize", "separate", "aspect",
   "resMode", "resStep", "resPct", "exactEdge", "exactVal", "stepBy", "adjustPreview",
+  "logoPath", "logoCorner", "logoSize", "logoOpacity",
 ] as const;
 
 export const NEUTRAL_ADJUST: Adjust = { brightness: 0, contrast: 1, saturation: 1, gamma: 1, hue: 0, curve: [] };
@@ -250,6 +251,11 @@ class AppState {
   captionText = $state("");
   captionTop = $state(false);
   captionSize = $state(7);
+  /** Logo or watermark image; remembered, and used for batch items too. */
+  logoPath = $state<string | null>(null);
+  logoCorner = $state<"tl" | "tr" | "bl" | "br">("br");
+  logoSize = $state(15);
+  logoOpacity = $state(1);
   extraArgs = $state("");
   outputName = $state("");
 
@@ -419,6 +425,7 @@ class AppState {
       audio: audioOk ? { track, bitrateK: this.audioBitrateK, volumeDb: this.volumeDb || 0, normalize: this.normalize } : null,
       subs,
       title: own ? this.title.trim() || null : null,
+      overlay: this.logoPath && this.container !== "audio" ? { path: this.logoPath, corner: this.logoCorner, size: this.logoSize, opacity: this.logoOpacity } : null,
       subsDelay: Number(this.subsDelay) || 0,
       subsFontSize: this.subsFontSize,
       caption: own && this.captionText.trim() && this.container !== "audio" ? { text: this.captionText, top: this.captionTop, size: this.captionSize } : null,

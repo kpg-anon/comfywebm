@@ -195,6 +195,34 @@ impl Container {
     }
 }
 
+/// An image placed in a corner of the output picture.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Overlay {
+    pub path: String,
+    /// "tl", "tr", "bl" or "br"
+    #[serde(default = "corner_br")]
+    pub corner: String,
+    /// width in percent of the output picture width
+    #[serde(default = "overlay_size")]
+    pub size: f64,
+    /// 0..1
+    #[serde(default = "one_f")]
+    pub opacity: f64,
+}
+
+fn corner_br() -> String {
+    "br".into()
+}
+
+fn overlay_size() -> f64 {
+    15.0
+}
+
+fn one_f() -> f64 {
+    1.0
+}
+
 /// A line (or lines) of text on the picture: white, black outline, bold sans.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -333,6 +361,9 @@ pub struct EncodeSpec {
     /// text drawn on the picture
     #[serde(default)]
     pub caption: Option<Caption>,
+    /// an image (logo, watermark) over the picture
+    #[serde(default)]
+    pub overlay: Option<Overlay>,
     /// seconds the burned-in subtitles are shown later (negative: earlier)
     #[serde(default)]
     pub subs_delay: f64,

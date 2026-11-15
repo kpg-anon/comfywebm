@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { convertFileSrc } from "@tauri-apps/api/core";
   import { app, isNeutral } from "$lib/state.svelte";
   import { sample } from "$lib/curve";
   import CropOverlay from "./CropOverlay.svelte";
@@ -115,6 +116,23 @@
       ></video>
       <CropOverlay rect={{ x: 0, y: 0, w: box.w, h: box.h }} />
     </div>
+    {#if app.logoPath && !app.cropMode && app.container !== "audio"}
+      {@const c = app.crop && !turned ? app.crop : null}
+      {@const r = c && app.srcW ? { x: box.x + (c.x / app.srcW) * box.w, y: box.y + (c.y / app.srcH) * box.h, w: (c.w / app.srcW) * box.w, h: (c.h / app.srcH) * box.h } : { x: box.x, y: box.y, w: box.w, h: box.h }}
+      {@const m = Math.min(r.w, r.h) * 0.03}
+      <img
+        class="logo"
+        src={convertFileSrc(app.logoPath)}
+        alt=""
+        draggable="false"
+        style:width="{(r.w * app.logoSize) / 100}px"
+        style:opacity={app.logoOpacity}
+        style:left={app.logoCorner.endsWith("l") ? `${r.x + m}px` : null}
+        style:right={app.logoCorner.endsWith("r") ? `${sw - (r.x + r.w) + m}px` : null}
+        style:top={app.logoCorner.startsWith("t") ? `${r.y + m}px` : null}
+        style:bottom={app.logoCorner.startsWith("b") ? `${sh - (r.y + r.h) + m}px` : null}
+      />
+    {/if}
     {#if app.captionText.trim() && !app.cropMode && app.container !== "audio"}
       {@const c = app.crop && !turned ? app.crop : null}
       {@const r = c && app.srcW ? { x: box.x + (c.x / app.srcW) * box.w, y: box.y + (c.y / app.srcH) * box.h, w: (c.w / app.srcW) * box.w, h: (c.h / app.srcH) * box.h } : { x: box.x, y: box.y, w: box.w, h: box.h }}
@@ -161,6 +179,10 @@
 </div>
 
 <style>
+  .logo {
+    position: absolute;
+    pointer-events: none;
+  }
   .caption {
     position: absolute;
     display: flex;

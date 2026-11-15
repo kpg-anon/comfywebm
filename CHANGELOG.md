@@ -24,6 +24,9 @@ Work on the `exp` branch.
   slow motion (at speeds below 1x, minterpolate makes in-between frames up to
   the source rate or the cap instead of repeating frames; slow to encode).
 - Subtitles: delay (seconds, either way) and font size.
+- Logo: an image (PNG with transparency, JPEG, WebP) in a corner of the
+  picture, sized as a share of the output width, with opacity. Remembered,
+  and used for batch files too. Shown on the player.
 - Caption: text on the picture (Advanced > Caption), top or bottom,
   white with a black outline, sized as a share of the output height, with
   several lines allowed. The player shows where it goes.

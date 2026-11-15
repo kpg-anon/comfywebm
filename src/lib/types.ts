@@ -102,6 +102,8 @@ export type EncodeSpec = {
   streamCopy?: boolean;
   /** text on the picture (white, black outline); size = % of the output height */
   caption?: { text: string; top: boolean; size: number } | null;
+  /** an image in a corner; size = % of the output width */
+  overlay?: { path: string; corner: "tl" | "tr" | "bl" | "br"; size: number; opacity: number } | null;
   /** seconds the subtitles are shown later (negative: earlier) */
   subsDelay?: number;
   /** subtitle font size (18 = SRT default); null = the file's own */

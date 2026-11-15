@@ -782,7 +782,8 @@ class AppState {
       this.proxyRemuxed = p.remuxed;
       this.videoSrc = convertFileSrc(p.path);
     } catch (e) {
-      if (this.media?.path === m.path) this.error = `Could not make a preview copy: ${ipc.errText(e)}`;
+      const msg = ipc.errText(e);
+      if (this.media?.path === m.path && msg !== "Canceled") this.error = `Could not make a preview copy: ${msg}`;
     } finally {
       if (this.media?.path === m.path) this.proxyFraction = null;
     }

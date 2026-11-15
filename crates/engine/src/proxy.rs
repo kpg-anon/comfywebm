@@ -54,7 +54,7 @@ pub fn can_remux(info: &MediaInfo) -> bool {
 
 /// A playable MP4 with the source's own streams, copied (no encode): full
 /// resolution, made in about the time it takes to read the file.
-pub fn make_remux(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path, mut on_progress: impl FnMut(f64)) -> Result<PathBuf, String> {
+pub fn make_remux(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path, cancel: &Cancel, mut on_progress: impl FnMut(f64)) -> Result<PathBuf, String> {
     let out = cache_dir.join(format!("proxy-{}-copy.mp4", source_key(&info.path)?));
     if out.is_file() {
         return Ok(out);
@@ -71,7 +71,7 @@ pub fn make_remux(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path, mut on_prog
     .map(|s| s.to_string())
     .chain(std::iter::once(part.to_string_lossy().into_owned()))
     .collect();
-    if let Err(e) = run_ffmpeg(ffmpeg, &args, info.duration, &Cancel::new(), |p| on_progress(p.fraction)) {
+    if let Err(e) = run_ffmpeg(ffmpeg, &args, info.duration, cancel, |p| on_progress(p.fraction)) {
         let _ = std::fs::remove_file(&part);
         return Err(match e {
             RunError::Canceled => "Canceled".into(),
@@ -93,6 +93,7 @@ pub fn make_proxy(
     path: &str,
     cache_dir: &Path,
     duration: f64,
+    cancel: &Cancel,
     mut on_progress: impl FnMut(f64),
 ) -> Result<PathBuf, String> {
     let out = proxy_path(cache_dir, path)?;
@@ -114,7 +115,7 @@ pub fn make_proxy(
     .map(|s| s.to_string())
     .chain(std::iter::once(part.to_string_lossy().into_owned()))
     .collect();
-    let res = run_ffmpeg(ffmpeg, &args, duration, &Cancel::new(), |p| on_progress(p.fraction));
+    let res = run_ffmpeg(ffmpeg, &args, duration, cancel, |p| on_progress(p.fraction));
     if let Err(e) = res {
         let _ = std::fs::remove_file(&part);
         return Err(match e {

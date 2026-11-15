@@ -39,6 +39,14 @@ fn strip_job<T>(app: &AppHandle, kind: &'static str, f: impl FnOnce(&Cancel) -> 
     res.map_err(run_err)
 }
 
+/// Stops the preview copy being made, if any.
+#[tauri::command]
+fn proxy_cancel(strips: State<Strips>) {
+    if let Some(c) = strips.0.lock().unwrap().remove("proxy") {
+        c.cancel();
+    }
+}
+
 /// Filmstrip JPEG for the timeline (cached).
 #[tauri::command]
 async fn timeline_thumbs(app: AppHandle, path: String) -> Result<String, String> {
@@ -230,13 +238,19 @@ async fn make_proxy(app: AppHandle, path: String, remux: Option<bool>) -> Result
                 let _ = app.emit("proxy-progress", ProxyProgress { path: path.clone(), fraction });
             }
         };
-        if let Some(i) = info.as_ref().filter(|i| remux.unwrap_or(true) && proxy::can_remux(i)) {
-            if let Ok(out) = proxy::make_remux(&ffmpeg, i, &state.cache_dir, &mut progress) {
-                return Ok(ProxyResult { path: out.to_string_lossy().into_owned(), remuxed: true });
+        // one preview copy at a time: a new one (another file) stops the old
+        strip_job(&app, "proxy", |cancel| {
+            if let Some(i) = info.as_ref().filter(|i| remux.unwrap_or(true) && proxy::can_remux(i)) {
+                if let Ok(out) = proxy::make_remux(&ffmpeg, i, &state.cache_dir, cancel, &mut progress) {
+                    return Ok(ProxyResult { path: out.to_string_lossy().into_owned(), remuxed: true });
+                }
+                if cancel.is_canceled() {
+                    return Err(RunError::Canceled);
+                }
             }
-        }
-        let out = proxy::make_proxy(&ffmpeg, &path, &state.cache_dir, duration, &mut progress)?;
-        Ok(ProxyResult { path: out.to_string_lossy().into_owned(), remuxed: false })
+            let out = proxy::make_proxy(&ffmpeg, &path, &state.cache_dir, duration, cancel, &mut progress)?;
+            Ok(ProxyResult { path: out.to_string_lossy().into_owned(), remuxed: false })
+        })
     })
     .await
 }
@@ -723,6 +737,7 @@ pub fn run() {
             timeline_thumbs,
             timeline_wave,
             scene_cuts,
+            proxy_cancel,
             cache_info,
             cache_clear,
             queue_cancel,

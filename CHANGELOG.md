@@ -77,6 +77,8 @@ Work on the `exp` branch.
 - Queue: Output folder button.
 - Hints in the Open URL dialog for common yt-dlp errors (sign-in needed,
   format not available, rate limits, outdated yt-dlp).
+- The preview copy can be canceled, and opening another file stops one that
+  is still being made.
 - Preview copies: when the webview cannot open the file but can decode its
   streams (for example an MKV from "Download and edit" with H.264 or VP9),
   the streams are copied into an MP4 at full resolution in seconds instead

@@ -46,6 +46,7 @@ export const detectCrop = (path: string) => invoke<Crop | null>("detect_crop", {
 export const exportFrameProcessed = (spec: EncodeSpec, time: number) => invoke<string>("export_frame_processed", { spec, time });
 /** Filmstrip JPEG / waveform PNG for the timeline; paths in the cache dir. */
 export const timelineThumbs = (path: string) => invoke<string>("timeline_thumbs", { path });
+export const proxyCancel = () => invoke<void>("proxy_cancel");
 export const sceneCuts = (path: string) => invoke<number[]>("scene_cuts", { path });
 export const timelineWave = (path: string, track: number) => invoke<string>("timeline_wave", { path, track });
 export type CacheInfo = { dir: string; bytes: number; files: number; downloadBytes: number };

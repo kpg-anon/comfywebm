@@ -1,5 +1,6 @@
 <script lang="ts">
   import { convertFileSrc } from "@tauri-apps/api/core";
+  import * as ipc from "$lib/ipc";
   import { app, isNeutral } from "$lib/state.svelte";
   import { sample } from "$lib/curve";
   import CropOverlay from "./CropOverlay.svelte";
@@ -171,6 +172,7 @@
       <div>This file cannot be played directly. Making a preview copy...</div>
       <div class="bar"><div style:width="{Math.round(app.proxyFraction * 100)}%"></div></div>
       <div class="mono muted">{Math.round(app.proxyFraction * 100)}%</div>
+      <button class="btn small" onclick={() => ipc.proxyCancel().catch(() => {})}>Cancel</button>
     </div>
   {/if}
   {#if app.usingProxy}

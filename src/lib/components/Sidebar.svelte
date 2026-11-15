@@ -118,6 +118,7 @@
       app.audioOn && app.normalize && "normalize",
       app.subsKind !== "off" && "subtitles",
       app.title.trim() && "title",
+      app.captionText.trim() && "caption",
       app.extraArgs.trim() && "extra args",
       app.effort !== "balanced" && `${app.effort} effort`,
       app.rateMode === "crf" && app.maxBitrateK && "bitrate cap",
@@ -390,6 +391,21 @@
             <button class="btn small" onclick={chooseSubs}>Choose</button>
           </div>
         {/if}
+      </Group>
+
+      <Group id="caption" title="Caption" note={app.captionText.trim() ? (app.captionTop ? "top" : "bottom") : "none"}>
+        <label class="col">
+          <span title="Text drawn on the picture, centered, white with a black outline. Several lines are allowed. The player shows where it goes; Sample shows the real result.">Text</span>
+          <textarea class="field" rows="2" spellcheck="true" placeholder="none" bind:value={app.captionText}></textarea>
+        </label>
+        <div class="row">
+          <span>Position</span>
+          <Seg label="Caption position" value={app.captionTop ? "top" : "bottom"} onchange={(v) => (app.captionTop = v === "top")} options={[{ value: "top", label: "Top" }, { value: "bottom", label: "Bottom" }]} />
+        </div>
+        <div class="row">
+          <span title="Text height as a share of the output picture's height.">Size</span>
+          <Select label="Caption size" bind:value={app.captionSize} options={[4, 5, 7, 9, 12, 15].map((v) => ({ value: v, label: `${v}%` }))} />
+        </div>
       </Group>
 
       <Group id="meta" title="Metadata and arguments">

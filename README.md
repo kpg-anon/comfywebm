@@ -77,6 +77,9 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
 - **Filters**: deinterlace, denoise, HDR to SDR tone mapping, rotate, flip
   horizontal and vertical, reverse, boomerang (forward then reverse), fade in
   and out.
+- **Caption**: text drawn on the picture, top or bottom, white with a black
+  outline (drawtext with a bold system font), sized as a share of the output
+  height. Shown on the player while editing.
 - **Adjustments**: brightness, contrast, saturation, gamma, hue, and a master
   curve with draggable points (ffmpeg `eq`, `hue` and `curves`). They show on
   the picture while editing; the preview is close to but not exactly the

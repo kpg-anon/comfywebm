@@ -2,7 +2,7 @@
 //!
 //! cargo run -p comfywebm-engine --example encode -- <input> <output>
 //!     [--range S-E]... [--crop x,y,w,h] [--max-bytes N] [--audio-k K]
-//!     [--container webm|mp4|gif|webp] [--codec vp9|vp8|av1|h264|hevc|gif|webp] [--effort fast|balanced|best]
+//!     [--container webm|mp4|gif|webp] [--codec vp9|vp8|av1|h264|hevc|gif|webp] [--effort fast|balanced|best] [--caption TEXT]
 //! cargo run -p comfywebm-engine --example encode -- --url-info <url>
 
 use comfywebm_engine::{
@@ -24,12 +24,14 @@ fn real_main() -> Result<(), String> {
     let (mut segments, mut crop, mut max_bytes, mut audio_k) = (Vec::new(), None, 4_194_304.0, None);
     let (mut container, mut codec, mut effort) = (Container::Webm, Codec::Vp9, Effort::Fast);
     let mut url = None;
+    let mut caption = None;
     let num = |v: Option<String>, name: &str| -> Result<f64, String> {
         v.and_then(|s| s.parse().ok()).ok_or(format!("{name} needs a number"))
     };
     while let Some(a) = args.next() {
         match a.as_str() {
             "--url-info" => url = args.next(),
+            "--caption" => caption = args.next().map(|text| comfywebm_engine::Caption { text, top: false, size: 7.0 }),
             "--range" => {
                 let r = args.next().unwrap_or_default();
                 let (s, e) = r.split_once('-').ok_or("--range needs S-E")?;
@@ -127,6 +129,7 @@ fn real_main() -> Result<(), String> {
         extra_args: vec![],
         output_name: None,
         stream_copy: false,
+        caption,
         output_dir: None,
     };
     let zscale = st.filters.zscale;

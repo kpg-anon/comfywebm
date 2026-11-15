@@ -2,7 +2,7 @@
 //! and warnings. Nothing here touches the file system or spawns processes.
 
 use crate::spec::{
-    Adjust,
+    Adjust, Caption,
     Codec, Container, Crop, Effort, EncodeSpec, MediaInfo, PlanInfo, Playback, Quality, Rate, Segment, SubsSel,
     VideoInfo,
 };
@@ -259,6 +259,60 @@ pub fn escape_filter_value(path: &str) -> String {
     lvl2
 }
 
+/// Escapes text for a filter option value inside a filter graph (the same
+/// two levels as `escape_filter_value`, without the path slash change).
+pub fn escape_filter_text(text: &str) -> String {
+    let mut lvl1 = String::new();
+    for ch in text.chars() {
+        if matches!(ch, '\\' | '\'' | ':') {
+            lvl1.push('\\');
+        }
+        lvl1.push(ch);
+    }
+    let mut lvl2 = String::new();
+    for ch in lvl1.chars() {
+        if matches!(ch, '\\' | '\'' | '[' | ']' | ',' | ';') {
+            lvl2.push('\\');
+        }
+        lvl2.push(ch);
+    }
+    lvl2
+}
+
+/// A bold sans font file that exists on this system, for drawtext.
+fn caption_font() -> Option<String> {
+    [
+        "C:/Windows/Fonts/arialbd.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans-Bold.ttf",
+    ]
+    .iter()
+    .find(|p| std::path::Path::new(p).is_file())
+    .map(|p| escape_filter_value(p))
+}
+
+/// The drawtext filter for a caption on a picture `out_h` pixels high.
+pub fn caption_filter(c: &Caption, out_h: u32) -> Option<String> {
+    let text = c.text.trim_end();
+    if text.trim().is_empty() {
+        return None;
+    }
+    let size = ((out_h as f64) * c.size.clamp(2.0, 30.0) / 100.0).round().max(8.0);
+    let border = (size / 14.0).round().max(1.0);
+    let margin = (out_h as f64 * 0.04).round();
+    let y = if c.top { format!("{margin}") } else { format!("h-text_h-{margin}") };
+    let font = caption_font().map(|f| format!("fontfile={f}:")).unwrap_or_default();
+    // centered lines (text_align needs ffmpeg 6.1 or newer, so only when there are several)
+    let align = if text.contains('\n') { "text_align=C:" } else { "" };
+    Some(format!(
+        "drawtext={font}{align}text={}:expansion=none:fontsize={size}:fontcolor=white:borderw={border}:bordercolor=black:line_spacing={}:x=(w-text_w)/2:y={y}",
+        escape_filter_text(text),
+        (size * 0.15).round()
+    ))
+}
+
 /// Quotes a value inside `-x265-params` (parsed with `:` between pairs).
 fn quote_param(path: &str) -> String {
     let p = if cfg!(windows) { path.replace('\\', "/") } else { path.to_string() };
@@ -423,6 +477,8 @@ pub fn segment_chain(sf: &SegmentFilters, start: f64) -> Vec<String> {
 /// tail of a chain.
 pub struct PostFilters {
     pub scale: Option<(u32, u32)>,
+    /// a complete drawtext filter, drawn after the scale
+    pub caption: Option<String>,
     pub speed: f64,
     pub fps: Option<f64>,
     pub playback: Playback,
@@ -437,6 +493,9 @@ pub fn video_post(p: &PostFilters) -> String {
     let mut lin: Vec<String> = Vec::new();
     if let Some((w, h)) = p.scale {
         lin.push(format!("scale={w}:{h}:flags=lanczos"));
+    }
+    if let Some(c) = &p.caption {
+        lin.push(c.clone());
     }
     if (p.speed - 1.0).abs() > 1e-9 {
         lin.push(format!("setpts=PTS/{}", fmt_num(p.speed)));
@@ -705,6 +764,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     let seg_chains: Vec<String> = segs.iter().map(|(s, _)| segment_chain(&sf, *s).join(",")).collect();
     let vpost = video_post(&PostFilters {
         scale: ((g.out_w, g.out_h) != (g.rot_w, g.rot_h)).then_some((g.out_w, g.out_h)),
+        caption: spec.caption.as_ref().and_then(|c| caption_filter(c, g.out_h)),
         speed,
         // After setpts the filter graph still reports the source rate, and
         // ffmpeg then writes the file at that rate: 1.5x of 30 fps kept 2 of
@@ -1256,6 +1316,7 @@ mod tests {
             extra_args: vec![],
             output_name: None,
             stream_copy: false,
+            caption: None,
             output_dir: None,
         }
     }
@@ -1326,6 +1387,7 @@ mod tests {
             "setpts=PTS-STARTPTS,bwdif=mode=send_frame,crop=640:720:0:0,vflip,setpts=PTS+5.5/TB,subtitles=filename=subs\\\\:a.srt,setpts=PTS-STARTPTS"
         );
         let post = video_post(&PostFilters {
+            caption: None,
             scale: Some((320, 360)),
             speed: 2.0,
             fps: Some(24.0),

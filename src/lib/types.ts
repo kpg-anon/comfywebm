@@ -98,6 +98,8 @@ export type EncodeSpec = {
   outputName: string | null;
   /** cut only: copy the streams, no encode (one range, filters ignored) */
   streamCopy?: boolean;
+  /** text on the picture (white, black outline); size = % of the output height */
+  caption?: { text: string; top: boolean; size: number } | null;
   /** set by the backend when queued: the output folder ("" = beside the source) */
   outputDir?: string | null;
 };

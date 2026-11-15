@@ -242,6 +242,10 @@ class AppState {
   subsTrack = $state(0);
   subsFile = $state<string | null>(null);
   title = $state("");
+  /** Caption on the picture; cleared when another file opens. */
+  captionText = $state("");
+  captionTop = $state(false);
+  captionSize = $state(7);
   extraArgs = $state("");
   outputName = $state("");
 
@@ -400,6 +404,7 @@ class AppState {
       audio: audioOk ? { track, bitrateK: this.audioBitrateK, volumeDb: this.volumeDb || 0, normalize: this.normalize } : null,
       subs,
       title: own ? this.title.trim() || null : null,
+      caption: own && this.captionText.trim() && this.container !== "audio" ? { text: this.captionText, top: this.captionTop, size: this.captionSize } : null,
       extraArgs: splitArgs(this.extraArgs),
       outputName: own ? this.outputName.trim() || null : null,
       streamCopy: this.streamCopy,
@@ -677,6 +682,7 @@ class AppState {
       this.subsFile = null;
       this.outputName = "";
       this.title = "";
+      this.captionText = "";
       this.remember(path);
       const mem = load<Record<string, EditMemory>>("edits")?.[AppState.editMemoryKey(info)];
       if (restoreEdit && mem && (mem.segments.length || mem.crop)) {

@@ -115,6 +115,13 @@
       ></video>
       <CropOverlay rect={{ x: 0, y: 0, w: box.w, h: box.h }} />
     </div>
+    {#if app.captionText.trim() && !app.cropMode && app.container !== "audio"}
+      {@const c = app.crop && !turned ? app.crop : null}
+      {@const r = c && app.srcW ? { x: box.x + (c.x / app.srcW) * box.w, y: box.y + (c.y / app.srcH) * box.h, w: (c.w / app.srcW) * box.w, h: (c.h / app.srcH) * box.h } : { x: box.x, y: box.y, w: box.w, h: box.h }}
+      <div class="caption" class:top={app.captionTop} style:left="{r.x}px" style:top="{r.y}px" style:width="{r.w}px" style:height="{r.h}px">
+        <span style:font-size="{(r.h * app.captionSize) / 100}px" style:-webkit-text-stroke="{Math.max(1, (r.h * app.captionSize) / 100 / 14)}px black">{app.captionText}</span>
+      </div>
+    {/if}
   {/if}
 
   <svg class="fx" aria-hidden="true">
@@ -154,6 +161,29 @@
 </div>
 
 <style>
+  .caption {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    padding: 4% 0;
+    box-sizing: border-box;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .caption.top {
+    justify-content: flex-start;
+  }
+  .caption span {
+    color: #fff;
+    font-family: Arial, "DejaVu Sans", Helvetica, sans-serif;
+    font-weight: 700;
+    line-height: 1.15;
+    text-align: center;
+    white-space: pre;
+    paint-order: stroke fill;
+  }
   .stage {
     position: relative;
     flex: 1;

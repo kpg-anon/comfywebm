@@ -195,6 +195,23 @@ impl Container {
     }
 }
 
+/// A line (or lines) of text on the picture: white, black outline, bold sans.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Caption {
+    pub text: String,
+    /// true = top edge, false = bottom edge
+    #[serde(default)]
+    pub top: bool,
+    /// text height in percent of the output picture height
+    #[serde(default = "caption_size")]
+    pub size: f64,
+}
+
+fn caption_size() -> f64 {
+    7.0
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Playback {
@@ -306,6 +323,9 @@ pub struct EncodeSpec {
     /// cut only: copy the streams without encoding (one range, no filters)
     #[serde(default)]
     pub stream_copy: bool,
+    /// text drawn on the picture
+    #[serde(default)]
+    pub caption: Option<Caption>,
     /// output folder fixed when the job was queued ("" = beside the source);
     /// None = the folder from Settings when the job starts
     #[serde(default)]

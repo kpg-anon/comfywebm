@@ -120,10 +120,23 @@ async fn cache_info(app: AppHandle) -> Result<CacheInfo, String> {
     blocking(move || {
         let state = app.state::<AppState>();
         let dir = &state.cache_dir;
-        let (all, files) = dir_size(dir, 0);
-        let dl = dir.join("downloads");
-        let (dl_bytes, dl_files) = dir_size(&dl, 0);
-        Ok(CacheInfo { dir: dir.to_string_lossy().into_owned(), bytes: all - dl_bytes, files: files - dl_files, download_bytes: dl_bytes })
+        // only what the app makes: the folder also holds WebView2's own data (EBWebView)
+        let (mut bytes, mut files) = (0, 0);
+        for sub in ["samples", "strips"] {
+            let (b, n) = dir_size(&dir.join(sub), 0);
+            bytes += b;
+            files += n;
+        }
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            for e in rd.flatten() {
+                if e.file_name().to_string_lossy().starts_with("proxy-") {
+                    bytes += e.metadata().map(|m| m.len()).unwrap_or(0);
+                    files += 1;
+                }
+            }
+        }
+        let (download_bytes, _) = dir_size(&dir.join("downloads"), 0);
+        Ok(CacheInfo { dir: dir.to_string_lossy().into_owned(), bytes, files, download_bytes })
     })
     .await
 }

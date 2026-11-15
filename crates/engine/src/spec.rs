@@ -291,6 +291,10 @@ pub struct EncodeSpec {
     /// cut only: copy the streams without encoding (one range, no filters)
     #[serde(default)]
     pub stream_copy: bool,
+    /// output folder fixed when the job was queued ("" = beside the source);
+    /// None = the folder from Settings when the job starts
+    #[serde(default)]
+    pub output_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

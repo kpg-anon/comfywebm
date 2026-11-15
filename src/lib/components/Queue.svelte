@@ -73,7 +73,7 @@
       {#each app.jobs as j, i (j.id)}
         <div class="job {j.status}">
           <div class="top">
-            <span class="name" title={j.output ?? j.spec.input}>{jobName(j)}</span>
+            <span class="name" title={j.output ?? `${j.spec.input}\nto ${j.spec.outputDir === "" ? "the source's folder" : (j.spec.outputDir ?? "the output folder")}`}>{jobName(j)}</span>
             <span class="muted desc mono">{describe(j)}</span>
             <span class="status">{STATUS[j.status]}</span>
           </div>

@@ -123,6 +123,7 @@ fn real_main() -> Result<(), String> {
         extra_args: vec![],
         output_name: None,
         stream_copy: false,
+        output_dir: None,
     };
     let zscale = st.filters.zscale;
     let shown = plan::build(&spec, &info, &plan::Opts { display: true, zscale, ..plan::Opts::new(&output, "passlog") })?.info();

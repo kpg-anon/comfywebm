@@ -98,6 +98,8 @@ export type EncodeSpec = {
   outputName: string | null;
   /** cut only: copy the streams, no encode (one range, filters ignored) */
   streamCopy?: boolean;
+  /** set by the backend when queued: the output folder ("" = beside the source) */
+  outputDir?: string | null;
 };
 
 export type PlanInfo = {

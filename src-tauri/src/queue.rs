@@ -388,13 +388,12 @@ fn run_one(app: &AppHandle, queue: &Queue, job: Job, cancel: &Cancel) {
         // out height for the {height} token; the paths here are not used
         let opts = plan::Opts { display: true, zscale: state.zscale(), ..plan::Opts::new("", "") };
         let planned = plan::build(&job.spec, &info, &opts)?;
-        let out = naming::output_path(
-            &job.spec,
-            &info,
-            planned.out_height,
-            state.output_dir().as_deref(),
-            &settings.name_template,
-        );
+        // the folder fixed when the job was queued, else the current setting
+        let dir = match &job.spec.output_dir {
+            Some(d) => Some(d.clone()),
+            None => state.output_dir(),
+        };
+        let out = naming::output_path(&job.spec, &info, planned.out_height, dir.as_deref(), &settings.name_template);
         Ok((ffmpeg, info, out, planned))
     })();
     let (ffmpeg, info, out, planned) = match prepared {

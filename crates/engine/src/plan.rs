@@ -1138,6 +1138,7 @@ mod tests {
             extra_args: vec![],
             output_name: None,
             stream_copy: false,
+            output_dir: None,
         }
     }
 

@@ -283,15 +283,25 @@ fn queue_list(state: State<AppState>) -> Vec<Job> {
     state.queue.list()
 }
 
+/// Fixes the output folder of a job being queued, so changing the setting
+/// later does not move it ("" = beside the source).
+fn pin_output_dir(state: &AppState, mut spec: EncodeSpec) -> EncodeSpec {
+    if spec.output_dir.is_none() {
+        spec.output_dir = Some(state.output_dir().unwrap_or_default());
+    }
+    spec
+}
+
 #[tauri::command]
 fn queue_add(app: AppHandle, state: State<AppState>, spec: EncodeSpec, start: bool) -> Job {
-    let j = state.queue.add(spec, start);
+    let j = state.queue.add(pin_output_dir(&state, spec), start);
     queue::emit_state(&app, &state.queue);
     j
 }
 
 #[tauri::command]
 fn queue_add_many(app: AppHandle, state: State<AppState>, specs: Vec<EncodeSpec>, start: bool) -> Vec<Job> {
+    let specs = specs.into_iter().map(|s| pin_output_dir(&state, s)).collect();
     let j = state.queue.add_many(specs, start);
     queue::emit_state(&app, &state.queue);
     j

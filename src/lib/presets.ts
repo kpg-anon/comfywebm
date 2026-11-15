@@ -1,5 +1,6 @@
-// Built-in presets (PLAN.md Amendment 2, "Built-in presets"). User presets live
-// in Settings.presets.
+// The platform presets as a fallback list, used until config_get answers (and
+// in a plain browser). The real list is the TOML files in the config folder,
+// written from the same values by crates/engine/src/config.rs.
 import type { Codec, Container, Preset } from "./types";
 
 const fourchan = (name: string, maxBytes: number, audio: boolean, maxDuration: number): Preset => ({
@@ -83,12 +84,6 @@ export const BUILTIN_PRESETS: Preset[] = [
     maxDuration: null,
   },
 ];
-
-export const DEFAULT_PRESET = BUILTIN_PRESETS[0].name;
-
-export function isBuiltin(name: string): boolean {
-  return BUILTIN_PRESETS.some((p) => p.name === name);
-}
 
 /** Codecs each container can hold, in menu order. */
 export const CODECS_BY_CONTAINER: Record<Container, Codec[]> = {

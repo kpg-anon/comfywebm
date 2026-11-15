@@ -92,6 +92,8 @@ fn real_main() -> Result<(), String> {
         crop,
         rotate: 0,
         mirror: false,
+        vflip: false,
+        adjust: None,
         max_width: None,
         max_height: None,
         auto_scale: false,

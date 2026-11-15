@@ -7,7 +7,6 @@
   import { evenOn, fmtFps, fmtSpeed, motion, nearestSmooth, smooth, smoothSpeeds } from "$lib/motion";
   import Select from "./Select.svelte";
 
-  const FPS_CAPS = [120, 60, 50, 48, 30, 25, 24, 20, 15, 12, 10];
   const LO = 0.25;
   const HI = 4;
 
@@ -21,16 +20,16 @@
 
   const fpsOptions = $derived([
     { value: null, label: `Source${app.media ? ` (${fmtFps(src)})` : ""}` },
-    ...FPS_CAPS.map((f) => {
+    ...app.fpsCaps.map((f) => {
       const mm = motion(src, app.speed || 1, f, hz);
       const hint = !app.media ? "" : !mm.capped ? "no change" : smooth(mm) ? "smooth" : mm.uneven ? "stutters" : `judders at ${hz} Hz`;
       return { value: f as number | null, label: `At most ${f} fps`, hint };
     }),
   ]);
 
-  // caps that make the current speed smooth (for the suggestion line)
+  // the highest caps that make the current speed smooth (for the suggestion line)
   const goodCaps = $derived(
-    FPS_CAPS.filter((f) => {
+    [...app.fpsCaps].reverse().filter((f) => {
       const mm = motion(src, app.speed || 1, f, hz);
       return mm.capped && smooth(mm);
     }).slice(0, 2),
@@ -56,12 +55,12 @@
 
 <div class="motion">
   <div class="row">
-    <span class="lbl">Frame rate</span>
+    <span class="lbl" title="The most frames per second the output may have. Fewer frames leave more bitrate for each frame. Source keeps the source rate (times the speed).">Frame rate</span>
     <Select label="Frame rate cap" value={cap} onchange={(v) => (app.fps = v)} options={fpsOptions} />
   </div>
 
   <div class="row">
-    <span class="lbl">Speed</span>
+    <span class="lbl" title="Playback speed of the output, 0.25x to 4x; sound is sped up or slowed down with it. The slider snaps to speeds that play evenly on your display (the chips below). Double-click the slider for 1x.">Speed</span>
     <input
       type="range"
       min={toSlider(LO)}
@@ -76,7 +75,7 @@
   </div>
 
   {#if app.media}
-    <div class="chips" aria-label="Speeds that play evenly">
+    <div class="chips" aria-label="Speeds that play evenly" title="Speeds whose output frame rate divides evenly into your display's refresh rate (Settings), so motion stays smooth">
       {#each list as s (s)}
         <button class="chip" class:on={Math.abs(s - app.speed) < 1e-6} title={`${fmtFps(outFpsOf(s))}`} onclick={() => (app.speed = s)}>{fmtSpeed(s)}</button>
       {/each}

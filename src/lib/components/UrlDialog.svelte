@@ -72,7 +72,7 @@
       const path = await ipc.urlDownload(u, mine ? height : null, section, keep);
       downloading = null;
       close();
-      if (keep) app.notice = { text: `Downloaded: ${path}`, path };
+      if (keep) app.toast({ kind: "done", title: "Download finished", text: path, path });
       else if (await app.open(path)) app.title = title;
     } catch (e) {
       // a cancel also ends here; the backend's message says so

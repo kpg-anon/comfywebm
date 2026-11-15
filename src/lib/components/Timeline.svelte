@@ -207,11 +207,11 @@
 
   <div class="row">
     <div class="group">
-      <button class="btn icon" disabled={!app.media} onclick={() => app.stepFrame(-1)} aria-label="Previous frame (,)"><Icon name="prevFrame" /></button>
+      <button class="btn icon" disabled={!app.media} onclick={() => app.stepFrame(-1)} aria-label="Previous frame (<)"><Icon name="prevFrame" /></button>
       <button class="btn icon" disabled={!app.media} onclick={() => app.togglePlay()} aria-label="Play or pause (Space)">
         <Icon name={app.paused ? "play" : "pause"} />
       </button>
-      <button class="btn icon" disabled={!app.media} onclick={() => app.stepFrame(1)} aria-label="Next frame (.)"><Icon name="nextFrame" /></button>
+      <button class="btn icon" disabled={!app.media} onclick={() => app.stepFrame(1)} aria-label="Next frame (>)"><Icon name="nextFrame" /></button>
     </div>
 
     <div class="times">

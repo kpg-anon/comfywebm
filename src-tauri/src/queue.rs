@@ -206,7 +206,7 @@ fn run_one(app: &AppHandle, queue: &Queue, job: Job, cancel: &Cancel) {
             &job.spec,
             &info,
             planned.out_height,
-            settings.output_dir.as_deref(),
+            state.output_dir().as_deref(),
             &settings.name_template,
         );
         Ok((ffmpeg, info, out))

@@ -1,5 +1,6 @@
 //! App state: settings file, located tools, probe cache.
 
+use comfywebm_engine::config::Config;
 use crate::queue::Queue;
 use comfywebm_engine::tools::{self, Tools};
 use comfywebm_engine::{probe, MediaInfo, Settings, ToolsStatus};
@@ -16,23 +17,61 @@ pub struct AppState {
     /// probe results by path, so `plan` and the queue do not run ffprobe again
     probes: Mutex<HashMap<String, MediaInfo>>,
     pub queue: Arc<Queue>,
+    /// config.toml and the preset files
+    pub config: Config,
+    /// the user's Desktop, the default output folder
+    pub desktop_dir: Option<PathBuf>,
 }
 
 impl AppState {
-    pub fn new(config_dir: PathBuf, cache_dir: PathBuf) -> Self {
+    pub fn new(config_dir: PathBuf, cache_dir: PathBuf, desktop_dir: Option<PathBuf>) -> Self {
         let settings_path = config_dir.join("settings.json");
         let settings = std::fs::read(&settings_path)
             .ok()
             .and_then(|b| serde_json::from_slice::<Settings>(&b).ok())
             .unwrap_or_default();
-        AppState {
-            settings: Mutex::new(settings),
+        let config = Config::new(config_dir);
+        let moved = config.ensure(&settings.presets);
+        let state = AppState {
+            settings: Mutex::new(settings.clone()),
             settings_path,
             cache_dir,
             tools: Mutex::new(None),
             probes: Mutex::new(HashMap::new()),
             queue: Arc::new(Queue::default()),
+            config,
+            desktop_dir,
+        };
+        if moved {
+            // the presets now live in presets/saved/*.toml
+            let _ = state.save_settings(Settings { presets: Vec::new(), ..settings });
         }
+        state
+    }
+
+    /// The output folder for new jobs; None = beside the source file.
+    pub fn output_dir(&self) -> Option<String> {
+        let s = self.settings();
+        let custom = s.output_dir.map(|d| d.trim().to_string()).filter(|d| !d.is_empty());
+        let mode = s.output_mode.unwrap_or_else(|| if custom.is_some() { "folder".into() } else { "desktop".into() });
+        let desktop = || self.desktop_dir.as_ref().map(|d| d.to_string_lossy().into_owned());
+        match mode.as_str() {
+            "beside" => None,
+            "folder" => custom.or_else(desktop),
+            _ => desktop(),
+        }
+    }
+
+    /// Arguments added to every yt-dlp call: cookies from a browser, then Settings.ytdlpArgs.
+    pub fn ytdlp_extra(&self) -> Vec<String> {
+        let s = self.settings();
+        let mut a = Vec::new();
+        if let Some(b) = s.ytdlp_cookies.map(|b| b.trim().to_string()).filter(|b| !b.is_empty()) {
+            a.push("--cookies-from-browser".to_string());
+            a.push(b);
+        }
+        a.extend(s.ytdlp_args);
+        a
     }
 
     pub fn settings(&self) -> Settings {

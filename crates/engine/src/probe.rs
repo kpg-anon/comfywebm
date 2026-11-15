@@ -109,7 +109,18 @@ pub fn parse(json: &Value) -> Result<MediaInfo, String> {
                 };
                 let color_trc = color("color_transfer");
                 let hdr = matches!(color_trc.as_deref(), Some("smpte2084" | "arib-std-b67"));
+                let tags: Vec<String> = [color("color_space"), color("color_primaries"), color_trc.clone()]
+                    .into_iter()
+                    .map(|c| c.unwrap_or_else(|| "?".into()))
+                    .collect();
+                let r_rate = ratio(s.get("r_frame_rate").and_then(Value::as_str));
+                let vfr = matches!(r_rate, Some(r) if fps > 0.0 && (r - fps).abs() / fps > 0.01);
                 video = Some(VideoInfo {
+                    pix_fmt: s.get("pix_fmt").and_then(Value::as_str).map(str::to_string),
+                    profile: s.get("profile").and_then(Value::as_str).map(str::to_string),
+                    color: (tags.iter().any(|t| t != "?")).then(|| tags.join(" / ")),
+                    frames: s.get("nb_frames").and_then(num).map(|n| n as u64),
+                    vfr,
                     hdr,
                     color_space: color("color_space"),
                     color_primaries: color("color_primaries"),
@@ -130,6 +141,8 @@ pub fn parse(json: &Value) -> Result<MediaInfo, String> {
                 channels: s.get("channels").and_then(num).unwrap_or(0.0) as u32,
                 lang: tag(s, "language"),
                 title: tag(s, "title"),
+                sample_rate: s.get("sample_rate").and_then(num).map(|n| n as u32),
+                bitrate_k: s.get("bit_rate").and_then(num).map(|b| (b / 1000.0).round() as u32),
             }),
             "subtitle" => {
                 let text_based = TEXT_SUB_CODECS.contains(&codec.as_str());
@@ -145,6 +158,15 @@ pub fn parse(json: &Value) -> Result<MediaInfo, String> {
         }
     }
     info.video = video.ok_or("The file has no video stream.")?;
+    let fmt = json.get("format");
+    info.format = fmt
+        .and_then(|f| f.get("format_long_name").or_else(|| f.get("format_name")))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    info.bitrate_k = fmt.and_then(|f| f.get("bit_rate")).and_then(num).map(|b| (b / 1000.0).round() as u32);
+    info.created = fmt.and_then(|f| tag(f, "creation_time"));
+    info.encoder = fmt.and_then(|f| tag(f, "encoder"));
     info.duration = json
         .pointer("/format/duration")
         .and_then(num)

@@ -1,23 +1,25 @@
 <script lang="ts">
   // Output size: Auto (size mode picks the largest size with a clean
-  // picture), Source, a long-edge step, a percentage, or one exact edge with
-  // the other following the aspect ratio. In size mode every step shows the
-  // picture quality it would get at the bitrate the limit allows.
+  // picture), Source, a step (an output height, or width), a percentage, or
+  // one exact edge with the other following the aspect ratio. In size mode
+  // every step shows the picture quality it would get at the bitrate the limit
+  // allows. The step and percentage lists come from config.toml.
   import { app } from "$lib/state.svelte";
-  import { PERCENTS, STEPS, exactBox, fit, percentBox, quality, stepBox, withLimit, type Box, type Quality, type ResMode } from "$lib/resolution";
+  import { exactBox, fit, percentBox, quality, stepBox, withLimit, type Box, type Quality, type ResMode } from "$lib/resolution";
   import Seg from "./Seg.svelte";
 
   const w = $derived(app.baseW);
   const h = $derived(app.baseH);
-  const long = $derived(Math.max(w, h));
   const limit = $derived<Box>({ w: app.maxWidth || null, h: app.maxHeight || null });
-  const limitLong = $derived(Math.max(limit.w ?? Infinity, limit.h ?? Infinity));
   // the bitrate does not depend on the picture size in size mode, so one plan gives every step's quality
   const kbps = $derived(app.rateMode === "size" ? (app.plan?.videoKbps ?? null) : null);
 
   const steps = $derived.by(() => {
-    const top = Math.min(long || 1920, limitLong);
-    const list = STEPS.filter((s) => s < top);
+    // steps at or above the source edge (or the limit) would all give the same size
+    const src = app.stepBy === "height" ? h : w;
+    const lim = app.stepBy === "height" ? limit.h : limit.w;
+    const top = Math.min(src || Infinity, lim ?? Infinity);
+    const list = app.stepList.filter((s) => s < top);
     if (app.resMode === "step" && !list.includes(app.resStep) && app.resStep < top) list.push(app.resStep);
     return list.sort((a, b) => a - b);
   });
@@ -31,13 +33,13 @@
     return d && kbps ? quality(kbps, d.w, d.h, app.outFps, app.codec) : null;
   }
 
-  const modes = $derived<{ value: ResMode; label: string; disabled?: boolean }[]>([
+  const modes: { value: ResMode; label: string }[] = [
     { value: "auto", label: "Auto" },
     { value: "source", label: "Source" },
     { value: "step", label: "Steps" },
     { value: "percent", label: "%" },
     { value: "exact", label: "Exact" },
-  ]);
+  ];
 
   // the exact fields: the edge being typed holds the value, the other follows the aspect ratio
   const exactOther = $derived(w && h ? Math.max(2, Math.round(app.exactEdge === "w" ? (app.exactVal * h) / w : (app.exactVal * w) / h)) : null);
@@ -59,11 +61,12 @@
 
   const QTEXT: Record<Quality, string> = { good: "clean picture", fair: "acceptable picture", poor: "blurry or blocky picture" };
   const out = $derived(app.plan ? `${app.plan.outWidth}x${app.plan.outHeight}` : null);
+  const hasLimit = $derived(!!(app.maxWidth || app.maxHeight));
 </script>
 
 <div class="res">
   <div class="row">
-    <span class="lbl">Resolution</span>
+    <span class="lbl" title="The size of the output picture. The aspect ratio is always kept, and the picture is never made larger than the source.">Resolution</span>
     <Seg label="Resolution mode" value={app.resMode} onchange={(v) => (app.resMode = v)} options={modes} />
   </div>
 
@@ -72,32 +75,47 @@
       {#if app.rateMode === "size"}
         Picks the largest size whose bitrate still gives a clean picture.
       {:else}
-        Quality mode keeps the source size (within the picture limit).
+        Quality mode keeps the source size.
       {/if}
     </div>
   {:else if app.resMode === "step"}
-    <div class="chips" role="radiogroup" aria-label="Long edge">
+    <div class="row sub">
+      <span class="note">Step by</span>
+      <Seg
+        label="Steps are heights or widths"
+        value={app.stepBy}
+        onchange={(v) => {
+          app.stepBy = v;
+          app.resStep = v === "height" ? 720 : 1280;
+        }}
+        options={[
+          { value: "height", label: "Height" },
+          { value: "width", label: "Width" },
+        ]}
+      />
+    </div>
+    <div class="chips" role="radiogroup" aria-label="Output {app.stepBy}">
       {#each steps as s (s)}
-        {@const qq = q(stepBox(w, h, s))}
-        {@const d = dims(stepBox(w, h, s))}
+        {@const qq = q(stepBox(app.stepBy, s))}
+        {@const d = dims(stepBox(app.stepBy, s))}
         <button
           class="chip"
           class:on={app.resStep === s}
           role="radio"
           aria-checked={app.resStep === s}
-          title={`${d ? `${d.w}x${d.h}` : `${s} px long edge`}${qq ? ` · ${QTEXT[qq]}` : ""}`}
+          title={`${d ? `${d.w}x${d.h}` : `${s} px ${app.stepBy}`}${qq ? ` · ${QTEXT[qq]}` : ""}`}
           onclick={() => (app.resStep = s)}
         >
-          {#if qq}<i class="dot {qq}"></i>{/if}{s}
+          {#if qq}<i class="dot {qq}"></i>{/if}{s}{app.stepBy === "height" ? "p" : ""}
         </button>
       {:else}
-        <span class="note">The picture is already small.</span>
+        <span class="note">The picture is already this small or smaller.</span>
       {/each}
     </div>
-    <div class="note">Long edge in pixels.{#if kbps}{" "}Dots: picture quality at {Math.round(kbps)} kbps.{/if}</div>
+    <div class="note">Output {app.stepBy} in pixels.{#if kbps}{" "}Dots: picture quality at {Math.round(kbps)} kbps.{/if}</div>
   {:else if app.resMode === "percent"}
     <div class="chips" role="radiogroup" aria-label="Percent of the source">
-      {#each PERCENTS as p (p)}
+      {#each app.percentList as p (p)}
         {@const qq = q(percentBox(w, h, p))}
         <button class="chip" class:on={app.resPct === p} role="radio" aria-checked={app.resPct === p} onclick={() => (app.resPct = p)}>
           {#if qq}<i class="dot {qq}"></i>{/if}{p}%
@@ -110,9 +128,9 @@
     </div>
   {:else if app.resMode === "exact"}
     <div class="exact">
-      <input class="field mono" type="number" min="2" step="2" aria-label="Width" class:lead={app.exactEdge === "w"} value={exactW ?? ""} onchange={(e) => setExact("w", e)} />
+      <input class="field mono" type="number" min="2" step="2" aria-label="Width" title="Output width; the height follows the aspect ratio" class:lead={app.exactEdge === "w"} value={exactW ?? ""} onchange={(e) => setExact("w", e)} />
       <span class="muted">x</span>
-      <input class="field mono" type="number" min="2" step="2" aria-label="Height" class:lead={app.exactEdge === "h"} value={exactH ?? ""} onchange={(e) => setExact("h", e)} />
+      <input class="field mono" type="number" min="2" step="2" aria-label="Height" title="Output height; the width follows the aspect ratio" class:lead={app.exactEdge === "h"} value={exactH ?? ""} onchange={(e) => setExact("h", e)} />
       {#if q(exactBox(app.exactEdge, app.exactVal))}
         {@const qq = q(exactBox(app.exactEdge, app.exactVal))}
         <i class="dot {qq}" title={qq ? QTEXT[qq] : ""}></i>
@@ -130,6 +148,12 @@
       <span class="muted">→</span>
       <span class="strong">{out}</span>
       {#if app.plan?.autoScaled}<span class="muted">(auto)</span>{/if}
+    </div>
+  {/if}
+  {#if hasLimit}
+    <div class="note limit" title="The preset says the destination accepts pictures up to this size (4chan: 2048x2048), so no resolution choice goes above it. Remove it if the file is not for that site.">
+      Largest size {app.preset?.name ? `"${app.preset.name}"` : "the preset"} allows: {app.maxWidth ?? "any"}x{app.maxHeight ?? "any"}
+      <button class="link" onclick={() => ((app.maxWidth = null), (app.maxHeight = null))}>Remove</button>
     </div>
   {/if}
 </div>
@@ -150,6 +174,9 @@
     flex: 1;
     max-width: 230px;
   }
+  .row.sub :global(.seg) {
+    max-width: 150px;
+  }
   .lbl {
     color: var(--text-secondary);
     font-size: 12px;
@@ -157,6 +184,22 @@
   .note {
     font-size: 11px;
     color: var(--text-muted);
+  }
+  .limit {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+  }
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent-strong);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .link:hover {
+    text-decoration: underline;
   }
   .chips {
     display: flex;

@@ -6,9 +6,6 @@ import type { Codec } from "./types";
 
 export type ResMode = "auto" | "source" | "step" | "percent" | "exact";
 
-/** Long-edge sizes offered as steps. */
-export const STEPS = [426, 480, 640, 720, 768, 854, 960, 1024, 1280, 1440, 1600, 1920, 2048, 2560, 3840];
-export const PERCENTS = [25, 33, 50, 67, 75, 100];
 
 export type Box = { w: number | null; h: number | null };
 
@@ -24,9 +21,9 @@ export function fit(w: number, h: number, box: Box): { w: number; h: number } {
 
 const minOrNull = (a: number | null, b: number | null) => (a === null ? b : b === null ? a : Math.min(a, b));
 
-/** The box for a long edge of `edge` pixels. */
-export function stepBox(w: number, h: number, edge: number): Box {
-  return w >= h ? { w: edge, h: null } : { w: null, h: edge };
+/** The box for a step: an output height, or an output width. The step lists are in config.toml. */
+export function stepBox(by: "height" | "width", px: number): Box {
+  return by === "height" ? { w: null, h: px } : { w: px, h: null };
 }
 
 export function percentBox(w: number, h: number, pct: number): Box {

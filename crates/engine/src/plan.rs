@@ -2,6 +2,7 @@
 //! and warnings. Nothing here touches the file system or spawns processes.
 
 use crate::spec::{
+    Adjust,
     Codec, Container, Crop, Effort, EncodeSpec, MediaInfo, PlanInfo, Playback, Quality, Rate, Segment, SubsSel,
     VideoInfo,
 };
@@ -299,11 +300,34 @@ pub fn resolve_segments(segments: &[Segment], duration: f64) -> Result<Vec<(f64,
     Ok(out)
 }
 
+/// `eq`, `hue` and `curves` for the color adjustments; empty when all are neutral.
+pub fn adjust_filters(a: &Adjust) -> Vec<String> {
+    let mut f = Vec::new();
+    let near = |v: f64, n: f64| (v - n).abs() < 1e-6;
+    let (b, c, s, g) = (a.brightness.clamp(-1.0, 1.0), a.contrast.clamp(0.0, 3.0), a.saturation.clamp(0.0, 3.0), a.gamma.clamp(0.1, 10.0));
+    if !(near(b, 0.0) && near(c, 1.0) && near(s, 1.0) && near(g, 1.0)) {
+        f.push(format!("eq=brightness={}:contrast={}:saturation={}:gamma={}", fmt_num(b), fmt_num(c), fmt_num(s), fmt_num(g)));
+    }
+    if !near(a.hue, 0.0) {
+        f.push(format!("hue=h={}", fmt_num(a.hue.clamp(-180.0, 180.0))));
+    }
+    let mut pts: Vec<(f64, f64)> =
+        a.curve.iter().filter(|(x, y)| x.is_finite() && y.is_finite()).map(|(x, y)| (x.clamp(0.0, 1.0), y.clamp(0.0, 1.0))).collect();
+    pts.sort_by(|p, q| p.0.total_cmp(&q.0));
+    pts.dedup_by(|p, q| (p.0 - q.0).abs() < 1e-4);
+    let identity = pts.iter().all(|(x, y)| (x - y).abs() < 1e-4);
+    if pts.len() >= 2 && !identity {
+        let list: Vec<String> = pts.iter().map(|(x, y)| format!("{}/{}", fmt_num(*x), fmt_num(*y))).collect();
+        f.push(format!("curves=master='{}'", list.join(" ")));
+    }
+    f
+}
+
 pub const TONEMAP: &str =
     "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p";
 
 /// Per-segment filters, in order: deinterlace, denoise, tonemap, (square
-/// pixels), crop, rotate, mirror, subtitles.
+/// pixels), color adjustments, crop, rotate, mirror, vertical flip, subtitles.
 pub struct SegmentFilters<'a> {
     pub deinterlace: bool,
     pub denoise: bool,
@@ -312,6 +336,8 @@ pub struct SegmentFilters<'a> {
     pub crop: Option<(u32, u32, u32, u32)>,
     pub rotate: u32,
     pub mirror: bool,
+    pub vflip: bool,
+    pub adjust: Option<&'a Adjust>,
     /// (escaped value for `filename=`, optional `si=` index)
     pub subtitles: Option<&'a (String, Option<u32>)>,
 }
@@ -334,6 +360,9 @@ pub fn segment_chain(sf: &SegmentFilters, start: f64) -> Vec<String> {
         // crop coordinates are in display pixels, so resample to square pixels first
         f.push("scale=trunc(iw*sar/2)*2:ih".into());
         f.push("setsar=1".into());
+    }
+    if let Some(a) = sf.adjust {
+        f.extend(adjust_filters(a));
     }
     if let Some((x, y, w, h)) = sf.crop {
         f.push(format!("crop={w}:{h}:{x}:{y}"));
@@ -359,6 +388,9 @@ pub fn segment_chain(sf: &SegmentFilters, start: f64) -> Vec<String> {
         }
         (_, true) => f.push("hflip".into()),
         _ => {}
+    }
+    if sf.vflip {
+        f.push("vflip".into());
     }
     if let Some((file, si)) = sf.subtitles {
         // Input seeking makes each segment start at 0. The subtitles filter
@@ -619,6 +651,8 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         crop: g.crop,
         rotate: spec.rotate,
         mirror: spec.mirror,
+        vflip: spec.vflip,
+        adjust: spec.adjust.as_ref(),
         subtitles: subtitles.as_ref(),
     };
     let seg_chains: Vec<String> = segs.iter().map(|(s, _)| segment_chain(&sf, *s).join(",")).collect();
@@ -891,8 +925,9 @@ mod tests {
                 fps: 30.0,
                 ..Default::default()
             },
-            audio: vec![AudioTrack { track: 0, codec: "aac".into(), channels: 2, lang: None, title: None }],
+            audio: vec![AudioTrack { track: 0, codec: "aac".into(), channels: 2, lang: None, title: None, sample_rate: None, bitrate_k: None }],
             subs: vec![],
+            ..Default::default()
         }
     }
 
@@ -903,6 +938,8 @@ mod tests {
             crop: None,
             rotate: 0,
             mirror: false,
+            vflip: false,
+            adjust: None,
             max_width: None,
             max_height: None,
             auto_scale: false,
@@ -984,6 +1021,8 @@ mod tests {
             crop: Some((0, 0, 640, 720)),
             rotate: 180,
             mirror: true,
+            vflip: false,
+            adjust: None,
             subtitles: Some(&subs),
         };
         assert_eq!(
@@ -1016,7 +1055,7 @@ mod tests {
         // 300000*8/1000/4 = 600; (600-64)*0.985 = 527.96
         assert_eq!(p.video_kbps.unwrap().round(), 528.0);
         let vp9 = "-c:v libvpx-vp9 -row-mt 1 -tile-columns 2 -frame-parallel 0 -deadline good";
-        let head = format!("-hide_banner -y -ss 10 -t 4 -i in.mp4");
+        let head = "-hide_banner -y -ss 10 -t 4 -i in.mp4";
         let tags = "-colorspace bt709 -color_primaries bt709 -color_trc bt709";
         assert_eq!(
             strs(&p.passes[0]).join(" "),
@@ -1122,6 +1161,27 @@ mod tests {
         // VP9 in MP4 is refused
         sp.codec = Codec::Vp9;
         assert!(build(&sp, &media(), &opts()).is_err());
+    }
+
+    #[test]
+    fn adjust_and_vflip() {
+        assert!(adjust_filters(&Adjust::default()).is_empty());
+        // an identity curve is not a filter
+        assert!(adjust_filters(&Adjust { curve: vec![(0.0, 0.0), (1.0, 1.0)], ..Default::default() }).is_empty());
+        let a = Adjust { brightness: 0.05, saturation: 1.2, hue: 10.0, curve: vec![(1.0, 1.0), (0.0, 0.0), (0.5, 0.6)], ..Default::default() };
+        assert_eq!(
+            adjust_filters(&a),
+            vec!["eq=brightness=0.05:contrast=1:saturation=1.2:gamma=1", "hue=h=10", "curves=master='0/0 0.5/0.6 1/1'"]
+        );
+        let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
+        sp.vflip = true;
+        sp.adjust = Some(Adjust { gamma: 1.5, ..Default::default() });
+        let p = build(&sp, &media(), &opts()).unwrap();
+        let args = p.passes.last().unwrap();
+        let vf = &args[args.iter().position(|x| x == "-vf").unwrap() + 1];
+        // adjustments before the crop and flips, the vertical flip after rotate/mirror
+        assert!(vf.contains("eq=brightness=0:contrast=1:saturation=1:gamma=1.5"), "{vf}");
+        assert!(vf.contains("vflip"), "{vf}");
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! comfywebm engine: finds ffmpeg and yt-dlp, probes files, plans and runs encodes.
 //! No Tauri dependencies; the app shell lives in `src-tauri`.
 
+pub mod config;
 pub mod naming;
 pub mod plan;
 pub mod probe;

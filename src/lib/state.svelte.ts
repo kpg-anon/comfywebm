@@ -2,14 +2,16 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import * as ipc from "./ipc";
 import { load, save } from "./persist";
-import { AUDIO_LABEL, BUILTIN_PRESETS, CODECS_BY_CONTAINER, CRF_RANGE, DEFAULT_PRESET, audioCodecFor, isBuiltin } from "./presets";
+import { AUDIO_LABEL, BUILTIN_PRESETS, CODECS_BY_CONTAINER, CRF_RANGE, audioCodecFor } from "./presets";
 import { fitRatio, isFull, move, ratioOf, round, type AspectLock } from "./crop";
 import * as seg from "./segments";
 import { fmtTime } from "./time";
 import { motionWarnings } from "./motion";
 import { exactBox, percentBox, stepBox, withLimit, type Box, type ResMode } from "./resolution";
 import type {
+  Adjust,
   Codec,
+  ConfigInfo,
   Container,
   Crop,
   Effort,
@@ -19,6 +21,7 @@ import type {
   PlanInfo,
   Playback,
   Preset,
+  PresetEntry,
   Rotate,
   Segment,
   Settings,
@@ -34,6 +37,8 @@ export const DEFAULT_SETTINGS: Settings = {
   downloadDir: null,
   keepDir: null,
   outputDir: null,
+  outputMode: null,
+  ytdlpCookies: null,
   nameTemplate: "{name}_{start}-{end}",
   lastPreset: null,
   presets: [],
@@ -62,8 +67,34 @@ const REMEMBERED = [
   "presetName", "container", "codec", "rateMode", "maxBytes", "crf", "maxBitrateK", "autoScale",
   "maxWidth", "maxHeight", "fps", "speed", "playback", "denoise", "fadeIn", "fadeOut", "effort",
   "twoPass", "audioOn", "audioBitrateK", "volumeDb", "normalize", "separate", "aspect",
-  "resMode", "resStep", "resPct", "exactEdge", "exactVal",
+  "resMode", "resStep", "resPct", "exactEdge", "exactVal", "stepBy", "adjustPreview",
 ] as const;
+
+export const NEUTRAL_ADJUST: Adjust = { brightness: 0, contrast: 1, saturation: 1, gamma: 1, hue: 0, curve: [] };
+
+export const isNeutral = (a: Adjust) =>
+  a.brightness === 0 && a.contrast === 1 && a.saturation === 1 && a.gamma === 1 && a.hue === 0 && a.curve.every(([x, y]) => Math.abs(x - y) < 1e-4);
+
+export type View = "editor" | "batch" | "queue";
+
+/** Per-file changes a batch item can make to the global settings. */
+export type ItemOverrides = {
+  segments: Segment[];
+  crop: Crop | null;
+  /** undefined = the global frame rate cap */
+  fps?: number | null;
+  audioOff: boolean;
+};
+
+/** A short message in the top-right stack (Toasts.svelte). */
+export type Toast = {
+  id: number;
+  kind: "done" | "over" | "failed" | "info";
+  title: string;
+  text: string;
+  /** a file the toast offers to play or reveal */
+  path: string | null;
+};
 
 /** Display refresh rates offered for the motion check. */
 export const REFRESH_RATES = [50, 60, 75, 90, 100, 120, 144, 165, 240];
@@ -99,15 +130,20 @@ class AppState {
   activeJobs = $derived(this.jobs.filter((j) => j.status === "running" || j.status === "pending").length);
   runningJob = $derived(this.jobs.find((j) => j.status === "running") ?? null);
   /** Left side: the editor (player and timeline) or the queue. */
-  view = $state<"editor" | "queue">("editor");
+  view = $state<View>("editor");
+  /** The batch item being edited in the editor (trim and crop), or null. */
+  batchEdit = $state<{ id: number; name: string } | null>(null);
   /** Jobs that finished while the queue was not shown; cleared when it is. */
   unseen = $state({ done: 0, failed: 0 });
   urlOpen = $state(false);
   urlInitial = $state("");
   sample = $state<SampleState | null>(null);
   private sampleSeq = 0;
-  /** A short message with an optional file to reveal, e.g. after a frame export. */
-  notice = $state<{ text: string; path: string | null } | null>(null);
+  /** Messages in the top-right stack, newest first. */
+  toasts = $state<Toast[]>([]);
+  private toastSeq = 0;
+  /** config.toml lists and the preset files; null until loaded (the built-in list is used meanwhile). */
+  config = $state<ConfigInfo | null>(null);
 
   // source
   media = $state<MediaInfo | null>(null);
@@ -142,7 +178,7 @@ class AppState {
   aspect = $state<AspectLock>("free");
 
   // spec fields
-  presetName = $state(DEFAULT_PRESET);
+  presetName = $state("");
   container = $state<Container>("webm");
   codec = $state<Codec>("vp9");
   rateMode = $state<"size" | "crf">("size");
@@ -155,14 +191,18 @@ class AppState {
   maxHeight = $state<number | null>(2048);
   // output size: auto (size mode picks), source, a long-edge step, a percentage, or one exact edge
   resMode = $state<ResMode>("auto");
-  resStep = $state(1280);
+  resStep = $state(720);
+  /** Steps are heights (default) or widths. */
+  stepBy = $state<"height" | "width">("height");
   resPct = $state(50);
   exactEdge = $state<"w" | "h">("w");
   exactVal = $state(1280);
   /** Refresh rate of the display the output is meant for; a per-machine preference. */
   refreshHz = $state(load<number>("refreshHz") ?? 60);
   /** Sidebar tab. */
-  tab = $state<"basic" | "advanced">(load<string>("tab") === "advanced" ? "advanced" : "basic");
+  tab = $state<"basic" | "advanced" | "info">(((t) => (t === "advanced" || t === "info" ? t : "basic"))(load<string>("tab")));
+  /** The folder new outputs go to, as the backend resolves it (null = beside the source). */
+  outputPath = $state<string | null>(null);
   fps = $state<number | null>(null);
   speed = $state(1);
   playback = $state<Playback>("forward");
@@ -171,6 +211,10 @@ class AppState {
   tonemap = $state(false);
   rotate = $state<Rotate>(0);
   mirror = $state(false);
+  vflip = $state(false);
+  adjust = $state<Adjust>({ ...NEUTRAL_ADJUST, curve: [] });
+  /** show the color adjustments on the picture (an approximation, see Player.svelte) */
+  adjustPreview = $state(true);
   fadeIn = $state(0);
   fadeOut = $state(0);
   effort = $state<Effort>("balanced");
@@ -229,7 +273,16 @@ class AppState {
     return (src / (this.speed || 1)) * (this.playback === "boomerang" ? 2 : 1);
   });
 
-  presets = $derived<Preset[]>([...BUILTIN_PRESETS, ...this.settings.presets]);
+  presetEntries = $derived<PresetEntry[]>(
+    this.config ? this.config.presets : BUILTIN_PRESETS.map((p) => ({ preset: p, group: "platform" as const, file: "" })),
+  );
+  presets = $derived<Preset[]>(this.presetEntries.map((e) => e.preset));
+  defaultPreset = $derived(this.presets[0]?.name ?? "");
+  /** Lists the UI offers, from config.toml (defaults until it is read). */
+  stepList = $derived(this.config ? (this.stepBy === "width" ? this.config.widths : this.config.heights) : this.stepBy === "width" ? [426, 640, 854, 960, 1280, 1600, 1920, 2560, 3840] : [240, 360, 480, 540, 720, 900, 1080, 1440, 2160]);
+  percentList = $derived(this.config?.percents ?? [25, 33, 50, 67, 75, 100]);
+  fpsCaps = $derived(this.config?.fpsCaps ?? [10, 12, 15, 20, 24, 25, 30, 48, 50, 60, 120]);
+  audioRates = $derived(this.config?.audioBitrates ?? [32, 48, 64, 80, 96, 112, 128, 160, 192, 256]);
   preset = $derived(this.presets.find((p) => p.name === this.presetName) ?? null);
 
   ffmpegMissing = $derived(!!this.tools && (!this.tools.ffmpeg || !this.tools.ffprobe));
@@ -286,7 +339,7 @@ class AppState {
       else if (this.subsKind === "file" && this.subsFile) subs = { kind: "file", path: this.subsFile };
     }
     const track = own ? this.audioTrack : (m.audio[0]?.track ?? 0);
-    const box = this.boxFor(m, own);
+    const box = this.boxFor(m, own ? this.crop : null);
     const audioOk = this.audioOn && m.audio.some((a) => a.track === track);
     return {
       input: m.path,
@@ -294,6 +347,8 @@ class AppState {
       crop: own && this.crop ? { ...this.crop } : null,
       rotate: this.rotate,
       mirror: this.mirror,
+      vflip: this.vflip,
+      adjust: isNeutral(this.adjust) ? null : ($state.snapshot(this.adjust) as Adjust),
       maxWidth: intOrNull(box.w),
       maxHeight: intOrNull(box.h),
       autoScale: this.rateMode === "size" && this.resMode === "auto",
@@ -394,23 +449,23 @@ class AppState {
     this.canRedo = false;
   }
 
-  /** Picture size after crop and rotate for a source (`own`: the open file, with its crop). */
-  private baseSize(m: MediaInfo | null = this.media, own = true): [number, number] {
+  /** Picture size of a source after its crop and the rotation. */
+  baseSize(m: MediaInfo | null = this.media, crop: Crop | null = this.crop): [number, number] {
     if (!m) return [0, 0];
     let w = m.video.width;
     let h = m.video.height;
-    if (own && this.crop) [w, h] = [this.crop.w, this.crop.h];
+    if (crop) [w, h] = [crop.w, crop.h];
     return this.rotate === 90 || this.rotate === 270 ? [h, w] : [w, h];
   }
 
   /** The box the output is fitted in: the size mode's box within the preset's limit. */
-  boxFor(m: MediaInfo, own: boolean): Box {
+  boxFor(m: MediaInfo, crop: Crop | null): Box {
     const limit: Box = { w: intOrNull(this.maxWidth), h: intOrNull(this.maxHeight) };
-    const [w, h] = this.baseSize(m, own);
+    const [w, h] = this.baseSize(m, crop);
     if (!w || !h) return limit;
     switch (this.resMode) {
       case "step":
-        return withLimit(stepBox(w, h, this.resStep), limit);
+        return withLimit(stepBox(this.stepBy, this.resStep), limit);
       case "percent":
         return withLimit(percentBox(w, h, this.resPct), limit);
       case "exact":
@@ -436,7 +491,15 @@ class AppState {
     save("refreshHz", hz);
   }
 
-  setTab(t: "basic" | "advanced") {
+  async refreshOutputDir() {
+    try {
+      this.outputPath = await ipc.outputDir();
+    } catch {
+      this.outputPath = null;
+    }
+  }
+
+  setTab(t: "basic" | "advanced" | "info") {
     this.tab = t;
     save("tab", t);
   }
@@ -444,15 +507,21 @@ class AppState {
   // ---------- startup and remembered options ----------
 
   async init() {
-    const [tools, settings, jobs] = await Promise.allSettled([ipc.toolsStatus(), ipc.settingsGet(), ipc.queueList()]);
+    const [tools, settings, jobs, config] = await Promise.allSettled([ipc.toolsStatus(), ipc.settingsGet(), ipc.queueList(), ipc.configGet()]);
+    if (config.status === "fulfilled") {
+      this.config = config.value;
+      this.stepBy = config.value.stepBy;
+      if (config.value.errors.length) this.toast({ kind: "failed", title: "Some config files were not read", text: config.value.errors.join("\n"), path: null });
+    } else this.error = `Could not read the config: ${ipc.errText(config.reason)}`;
     if (tools.status === "fulfilled") this.tools = tools.value;
     else this.error = ipc.errText(tools.reason);
     if (settings.status === "fulfilled") this.settings = { ...DEFAULT_SETTINGS, ...settings.value };
     else this.error = ipc.errText(settings.reason);
     if (jobs.status === "fulfilled") this.mergeJobs(jobs.value);
     const last = this.settings.lastPreset;
-    this.applyPreset(last && this.presets.some((p) => p.name === last) ? last : DEFAULT_PRESET, false);
+    this.applyPreset(last && this.presets.some((p) => p.name === last) ? last : this.defaultPreset, false);
     this.restoreOptions();
+    void this.refreshOutputDir();
     this.ready = true;
     try {
       const f = await ipc.initialFile();
@@ -479,10 +548,14 @@ class AppState {
       const cur = self[k];
       if (v === null || cur === null || typeof v === typeof cur) self[k] = v;
     }
-    if (!this.presets.some((p) => p.name === this.presetName)) this.presetName = DEFAULT_PRESET;
+    if (!this.presets.some((p) => p.name === this.presetName)) this.presetName = this.defaultPreset;
     if (!CODECS_BY_CONTAINER[this.container]?.includes(this.codec)) this.setContainer(this.container === "mp4" ? "mp4" : "webm");
     const [lo, hi] = this.crfRange;
     this.crf = Math.min(hi, Math.max(lo, Number(this.crf) || this.crfRange[2]));
+    // a remembered step from another list (steps were widths before 1.2) snaps to the nearest
+    const steps = this.stepList;
+    if (steps.length && !steps.includes(this.resStep))
+      this.resStep = steps.reduce((b, x) => (Math.abs(x - this.resStep) < Math.abs(b - this.resStep) ? x : b), steps[0]);
   }
 
   saveOptions() {
@@ -524,6 +597,8 @@ class AppState {
       this.planError = null;
       this.rotate = 0;
       this.mirror = false;
+      this.vflip = false;
+      this.adjust = { ...NEUTRAL_ADJUST, curve: [] };
       this.deinterlace = info.video.interlaced;
       this.tonemap = info.video.hdr && !!this.tools?.filters.zscale;
       this.audioTrack = info.audio[0]?.track ?? 0;
@@ -568,7 +643,7 @@ class AppState {
         const jobs = await ipc.queueAddMany(specs, false);
         for (const j of jobs) if (!this.jobs.some((x) => x.id === j.id)) this.jobs.push(j);
         this.setView("queue");
-        this.notice = { text: `Added ${jobs.length} files to the queue. Press Start to encode them.`, path: null };
+        this.toast({ kind: "info", title: `Added ${jobs.length} files to the queue`, text: "Press Start in the queue to encode them.", path: null });
       } catch (e) {
         failed.push(ipc.errText(e));
       }
@@ -724,7 +799,7 @@ class AppState {
     if (!this.media) return;
     const e = seg.addAt(this.segments, this.current, this.duration, 5, this.minLen);
     if (!e) {
-      this.notice = { text: "The playhead is inside a range or too close to the next one. Move it to a free spot to add a range.", path: null };
+      this.toast({ kind: "info", title: "No room for a range here", text: "The playhead is inside a range or too close to the next one. Move it to a free spot.", path: null });
       return;
     }
     this.applyEdit(e);
@@ -829,7 +904,18 @@ class AppState {
     this.crf = CRF_RANGE[c][2];
   }
 
-  // ---------- presets ----------
+  // ---------- presets (TOML files, Rust config.rs) ----------
+
+  /** Read config.toml and the preset files again (after editing them by hand). */
+  async reloadConfig(quiet = false) {
+    try {
+      this.config = await ipc.configGet();
+      if (this.config.errors.length) this.toast({ kind: "failed", title: "Some config files were not read", text: this.config.errors.join("\n"), path: null });
+      else if (!quiet) this.toast({ kind: "info", title: "Config reloaded", text: `${this.config.presets.length} presets`, path: null });
+    } catch (e) {
+      this.error = `Could not read the config: ${ipc.errText(e)}`;
+    }
+  }
 
   applyPreset(name: string, remember = true) {
     const p = this.presets.find((q) => q.name === name);
@@ -864,12 +950,12 @@ class AppState {
 
   /** The current fields as a preset. maxDuration is kept from the selected preset. */
   currentAsPreset(name: string): Preset {
-    // a step is kept as a square box (it limits the long edge of any picture);
-    // a percentage or an exact edge depends on the source and is not kept
+    // a step becomes the preset's limit on that edge; a percentage or an exact
+    // edge depends on the source and is not kept
     const step = this.resMode === "step";
-    const lim = (v: number | null) => {
+    const lim = (v: number | null, edge: "height" | "width") => {
       const n = intOrNull(v);
-      return step ? (n === null ? this.resStep : Math.min(n, this.resStep)) : n;
+      return step && this.stepBy === edge ? (n === null ? this.resStep : Math.min(n, this.resStep)) : n;
     };
     return {
       name,
@@ -880,8 +966,8 @@ class AppState {
           ? { mode: "size", maxBytes: this.maxBytes }
           : { mode: "crf", crf: this.crf, maxBitrateK: numOrNull(this.maxBitrateK) },
       autoScale: this.resMode === "auto",
-      maxWidth: lim(this.maxWidth),
-      maxHeight: lim(this.maxHeight),
+      maxWidth: lim(this.maxWidth, "width"),
+      maxHeight: lim(this.maxHeight, "height"),
       fps: numOrNull(this.fps),
       audioBitrateK: this.audioOn ? this.audioBitrateK : null,
       effort: this.effort,
@@ -892,57 +978,90 @@ class AppState {
 
   private nameError(n: string, except: string | null = null): string | null {
     if (!n) return "Enter a name.";
-    if (isBuiltin(n)) return "A built-in preset has that name.";
-    if (n !== except && this.settings.presets.some((p) => p.name === n)) return "A saved preset has that name.";
+    if (n !== except && this.presets.some((p) => p.name === n)) return "A preset has that name.";
     return null;
   }
 
-  /** Save the current fields as a new user preset. Returns an error message, or null. */
-  async savePresetAs(name: string): Promise<string | null> {
-    const n = name.trim();
-    const bad = this.nameError(n);
-    if (bad) return bad;
-    const err = await this.saveSettings({ ...this.settings, presets: [...this.settings.presets, this.currentAsPreset(n)], lastPreset: n });
-    if (!err) this.presetName = n;
-    return err;
-  }
-
-  /** Replace the selected user preset with the current fields. */
-  async overwritePreset(name: string): Promise<string | null> {
-    if (isBuiltin(name)) return "Built-in presets cannot be changed.";
-    const keep = this.settings.presets.find((p) => p.name === name);
-    const p = { ...this.currentAsPreset(name), maxDuration: keep?.maxDuration ?? null };
-    return this.saveSettings({ ...this.settings, presets: this.settings.presets.map((q) => (q.name === name ? p : q)) });
-  }
-
-  async renamePreset(from: string, to: string): Promise<string | null> {
-    const n = to.trim();
-    if (isBuiltin(from)) return "Built-in presets cannot be renamed.";
-    const bad = this.nameError(n, from);
-    if (bad) return bad;
-    const list = this.settings.presets.map((q) => (q.name === from ? { ...q, name: n } : q));
-    const err = await this.saveSettings({ ...this.settings, presets: list, lastPreset: n });
-    if (!err) this.presetName = n;
-    return err;
-  }
-
-  async deletePreset(name: string) {
-    if (isBuiltin(name)) return;
-    const list = this.settings.presets.filter((q) => q.name !== name);
-    const err = await this.saveSettings({ ...this.settings, presets: list, lastPreset: DEFAULT_PRESET });
-    if (!err) this.applyPreset(DEFAULT_PRESET, false);
-  }
-
-  async exportPresets(path: string): Promise<string | null> {
+  private async writePreset(p: Preset, file: string | null): Promise<string | null> {
     try {
-      await ipc.presetsExport(path, $state.snapshot(this.settings.presets) as Preset[]);
+      await ipc.presetSave($state.snapshot(p) as Preset, file);
+      await this.reloadConfig(true);
       return null;
     } catch (e) {
       return ipc.errText(e);
     }
   }
 
-  /** Import presets from a file. Same names replace saved ones; a built-in name gets " (imported)". */
+  /** Save the current fields as a new preset file in presets/saved. Returns an error message, or null. */
+  async savePresetAs(name: string): Promise<string | null> {
+    const n = name.trim();
+    const bad = this.nameError(n);
+    if (bad) return bad;
+    const err = await this.writePreset(this.currentAsPreset(n), null);
+    if (!err) {
+      this.presetName = n;
+      void this.saveSettings({ ...this.settings, lastPreset: n });
+    }
+    return err;
+  }
+
+  /** Replace the selected preset's file with the current fields. */
+  async overwritePreset(name: string): Promise<string | null> {
+    const e = this.presetEntries.find((x) => x.preset.name === name);
+    if (!e?.file) return "This preset has no file.";
+    return this.writePreset({ ...this.currentAsPreset(name), maxDuration: e.preset.maxDuration }, e.file);
+  }
+
+  async renamePreset(from: string, to: string): Promise<string | null> {
+    const n = to.trim();
+    const e = this.presetEntries.find((x) => x.preset.name === from);
+    if (!e?.file) return "This preset has no file.";
+    const bad = this.nameError(n, from);
+    if (bad) return bad;
+    const err = await this.writePreset({ ...e.preset, name: n }, e.file);
+    if (!err) {
+      this.presetName = n;
+      void this.saveSettings({ ...this.settings, lastPreset: n });
+    }
+    return err;
+  }
+
+  async deletePreset(name: string): Promise<string | null> {
+    const e = this.presetEntries.find((x) => x.preset.name === name);
+    if (!e?.file) return "This preset has no file.";
+    try {
+      await ipc.presetDelete(e.file);
+    } catch (err) {
+      return ipc.errText(err);
+    }
+    await this.reloadConfig(true);
+    if (this.defaultPreset) this.applyPreset(this.defaultPreset);
+    return null;
+  }
+
+  /** Write the platform presets again (missing or edited ones get their defaults back). */
+  async restorePlatformPresets(): Promise<string | null> {
+    try {
+      await ipc.configRestorePlatform();
+      await this.reloadConfig(true);
+      return null;
+    } catch (e) {
+      return ipc.errText(e);
+    }
+  }
+
+  /** Export the saved presets (presets/saved) as one JSON file. */
+  async exportPresets(path: string): Promise<string | null> {
+    try {
+      const saved = this.presetEntries.filter((e) => e.group === "saved").map((e) => e.preset);
+      await ipc.presetsExport(path, $state.snapshot(saved) as Preset[]);
+      return null;
+    } catch (e) {
+      return ipc.errText(e);
+    }
+  }
+
+  /** Import presets from a JSON file into presets/saved. A name in use gets " (imported)". */
   async importPresets(path: string): Promise<string | null> {
     let got: Preset[];
     try {
@@ -950,17 +1069,17 @@ class AppState {
     } catch (e) {
       return ipc.errText(e);
     }
-    const list = [...this.settings.presets];
     for (const p of got) {
-      const name = isBuiltin(p.name) ? `${p.name} (imported)` : p.name;
-      const q = { ...p, name };
-      const i = list.findIndex((x) => x.name === name);
-      if (i >= 0) list[i] = q;
-      else list.push(q);
+      const name = this.presets.some((q) => q.name === p.name) ? `${p.name} (imported)` : p.name;
+      try {
+        await ipc.presetSave({ ...p, name }, null);
+      } catch (e) {
+        return ipc.errText(e);
+      }
     }
-    const err = await this.saveSettings({ ...this.settings, presets: list });
-    if (!err) this.notice = { text: `Imported ${got.length} preset${got.length === 1 ? "" : "s"}.`, path: null };
-    return err;
+    await this.reloadConfig(true);
+    this.toast({ kind: "info", title: `Imported ${got.length} preset${got.length === 1 ? "" : "s"}`, text: "", path: null });
+    return null;
   }
 
   /** Save settings to the backend. Returns an error message, or null. */
@@ -968,6 +1087,7 @@ class AppState {
     try {
       await ipc.settingsSet($state.snapshot(s) as Settings);
       this.settings = s;
+      void this.refreshOutputDir();
       return null;
     } catch (e) {
       const msg = ipc.errText(e);
@@ -1038,7 +1158,7 @@ class AppState {
     this.video?.pause();
     try {
       const path = await ipc.exportFrame(m.path, this.current, this.crop ? { ...this.crop } : null);
-      this.notice = { text: `Saved frame: ${path}`, path };
+      this.toast({ kind: "done", title: "Frame saved", text: path, path });
     } catch (e) {
       this.error = `Could not save the frame: ${ipc.errText(e)}`;
     }
@@ -1055,6 +1175,7 @@ class AppState {
     const was = i >= 0 ? this.jobs[i].status : null;
     if (i >= 0) this.jobs[i] = j;
     else this.jobs.push(j);
+    if (was === "running" && (j.status === "done" || j.status === "failed")) this.toastJob(j);
     // a job that just ended while the editor is shown: count it for the Queue tab's badge
     if (this.view !== "queue" && (was === "running" || was === "pending")) {
       if (j.status === "done") this.unseen = { ...this.unseen, done: this.unseen.done + 1 };
@@ -1062,7 +1183,51 @@ class AppState {
     }
   }
 
-  setView(v: "editor" | "queue") {
+  toast(t: Omit<Toast, "id">) {
+    this.toasts = [{ ...t, id: ++this.toastSeq }, ...this.toasts].slice(0, 6);
+  }
+
+  dismissToast(id: number) {
+    this.toasts = this.toasts.filter((t) => t.id !== id);
+  }
+
+  private toastJob(j: Job) {
+    const name = (j.output ?? j.spec.input).split(/[\\/]/).pop() ?? "";
+    if (j.status === "failed") {
+      this.toast({ kind: "failed", title: "Encode failed", text: `${name}\n${(j.error ?? "").split("\n").slice(-2).join("\n")}`, path: null });
+      return;
+    }
+    const r = j.result;
+    const mib = r ? `${(r.sizeBytes / 1048576).toFixed(2)} MiB` : "";
+    const extra = r && r.attempts > 1 ? ` · ${r.attempts} attempts` : "";
+    this.toast({
+      kind: r?.overLimit ? "over" : "done",
+      title: r?.overLimit ? "Encoded, but over the size limit" : "Encode finished",
+      text: `${name}\n${mib}${extra}`,
+      path: j.output,
+    });
+  }
+
+  /**
+   * The spec for one batch file: the global settings (as for any file other
+   * than the open one: no crop, subtitles, title or name; deinterlace and tone
+   * map follow the source) plus the item's own trim, crop, frame rate cap and
+   * audio switch.
+   */
+  specForItem(m: MediaInfo, o: ItemOverrides): EncodeSpec {
+    const s = this.specFor(m, o.segments, false);
+    if (o.crop) {
+      s.crop = { ...o.crop };
+      const box = this.boxFor(m, o.crop);
+      s.maxWidth = intOrNull(box.w);
+      s.maxHeight = intOrNull(box.h);
+    }
+    if (o.fps !== undefined) s.fps = numOrNull(o.fps);
+    if (o.audioOff) s.audio = null;
+    return s;
+  }
+
+  setView(v: View) {
     this.view = v;
     if (v === "queue") this.unseen = { done: 0, failed: 0 };
   }

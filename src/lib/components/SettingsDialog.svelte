@@ -1,19 +1,75 @@
 <script lang="ts">
   import { app, splitArgs, REFRESH_RATES } from "$lib/state.svelte";
   import { pickAnyFile, pickFolder } from "$lib/dialogs";
-  import { THEMES, applyTheme, storedTheme } from "$lib/themes";
+  import * as ipc from "$lib/ipc";
+  import {
+    CUSTOM,
+    CUSTOM_KEYS,
+    THEMES,
+    applyTheme,
+    parseCustom,
+    presetColors,
+    saveCustom,
+    storedCustom,
+    storedTheme,
+    type CustomKey,
+    type CustomTheme,
+  } from "$lib/themes";
   import Select from "./Select.svelte";
 
   // appearance applies at once and is kept per machine (not part of Save)
   let theme = $state(storedTheme());
+  let custom = $state<CustomTheme>(storedCustom());
+  let themeMsg = $state<string | null>(null);
   function pickTheme(id: string) {
     theme = id;
     applyTheme(id);
   }
 
+  /** Every change to the custom palette shows at once and is kept. */
+  function setCustom(next: CustomTheme) {
+    custom = next;
+    saveCustom($state.snapshot(next) as CustomTheme);
+    if (theme === CUSTOM) applyTheme(CUSTOM);
+  }
+
+  const setColor = (k: CustomKey, v: string) => setCustom({ ...custom, colors: { ...custom.colors, [k]: v } });
+
+  async function exportTheme() {
+    themeMsg = null;
+    try {
+      const path = await ipc.themeExport(JSON.stringify({ comfywebmTheme: 1, ...$state.snapshot(custom) }, null, 2));
+      if (path) themeMsg = `Saved ${path}`;
+    } catch (e) {
+      themeMsg = ipc.errText(e);
+    }
+  }
+
+  async function importTheme() {
+    themeMsg = null;
+    try {
+      const text = await ipc.themeImport();
+      if (text === null) return;
+      const t = parseCustom(JSON.parse(text));
+      if (!t) {
+        themeMsg = "That file is not a comfywebm theme.";
+        return;
+      }
+      setCustom(t);
+      pickTheme(CUSTOM);
+      themeMsg = `Imported "${t.name}".`;
+    } catch (e) {
+      themeMsg = e instanceof SyntaxError ? "That file is not valid JSON." : ipc.errText(e);
+    }
+  }
+
+  const BROWSERS = ["firefox", "chrome", "chromium", "edge", "brave", "opera", "vivaldi", "whale", "safari"];
+  let ytdlpCookies = $state(app.settings.ytdlpCookies ?? "");
+
   // edit a copy; nothing is saved until Save
   let ffmpegPath = $state(app.settings.ffmpegPath ?? "");
   let outputDir = $state(app.settings.outputDir ?? "");
+  let outputMode = $state<"desktop" | "beside" | "folder">(app.settings.outputMode ?? (app.settings.outputDir ? "folder" : "desktop"));
   let ytdlpPath = $state(app.settings.ytdlpPath ?? "");
   let ytdlpArgs = $state(app.settings.ytdlpArgs.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" "));
   let downloadDir = $state(app.settings.downloadDir ?? "");
@@ -30,10 +86,12 @@
       ...app.settings,
       ffmpegPath: ffmpegPath.trim() || null,
       outputDir: outputDir.trim() || null,
+      outputMode: outputMode === "folder" && !outputDir.trim() ? "desktop" : outputMode,
       ytdlpPath: ytdlpPath.trim() || null,
       ytdlpArgs: splitArgs(ytdlpArgs),
       downloadDir: downloadDir.trim() || null,
       keepDir: keepDir.trim() || null,
+      ytdlpCookies: ytdlpCookies || null,
       nameTemplate: nameTemplate.trim() || "{name}_{start}-{end}",
     });
     saving = false;
@@ -83,8 +141,54 @@
             <span class="twhat">{t.what}</span>
           </button>
         {/each}
+        <button class="theme" class:on={theme === CUSTOM} role="radio" aria-checked={theme === CUSTOM} onclick={() => pickTheme(CUSTOM)}>
+          <span class="sw">{#each ["bg-panel", "accent", "primary", "range"] as const as k (k)}<i style:background={custom.colors[k]}></i>{/each}</span>
+          <span class="tname">Custom: {custom.name}</span>
+          <span class="twhat">Your own colors; import and export as a file</span>
+        </button>
       </div>
     </div>
+
+    {#if theme === CUSTOM}
+      <div class="custom">
+        <div class="line">
+          <input class="field" type="text" aria-label="Theme name" placeholder="Theme name" value={custom.name} onchange={(e) => setCustom({ ...custom, name: (e.currentTarget as HTMLInputElement).value.trim() || "My theme" })} />
+          <Select
+            label="Start from a preset"
+            value={null}
+            placeholder="Start from..."
+            options={THEMES.map((t) => ({ value: t.id as string | null, label: t.name }))}
+            onchange={(id) => id && setCustom({ ...custom, colors: presetColors(id), light: false })}
+          />
+        </div>
+        <div class="colors">
+          {#each CUSTOM_KEYS as [k, label] (k)}
+            <label class="color">
+              <input type="color" value={custom.colors[k]} oninput={(e) => setColor(k, (e.currentTarget as HTMLInputElement).value)} />
+              <span>{label}</span>
+            </label>
+          {/each}
+        </div>
+        <div class="line opts">
+          <label class="color" title="Light themes tell the system to draw scrollbars and the color picker in light colors">
+            <input type="checkbox" checked={custom.light} onchange={(e) => setCustom({ ...custom, light: (e.currentTarget as HTMLInputElement).checked })} /> Light
+          </label>
+          <label class="color">
+            <input type="checkbox" checked={custom.mono} onchange={(e) => setCustom({ ...custom, mono: (e.currentTarget as HTMLInputElement).checked })} /> Monospace text
+          </label>
+          <label class="color radius">
+            Corners
+            <input type="range" min="0" max="16" step="1" value={custom.radius} oninput={(e) => setCustom({ ...custom, radius: Number((e.currentTarget as HTMLInputElement).value) })} />
+            <span class="mono">{custom.radius}px</span>
+          </label>
+        </div>
+        <div class="line">
+          <button class="btn small" onclick={importTheme}>Import...</button>
+          <button class="btn small" onclick={exportTheme}>Export...</button>
+          {#if themeMsg}<span class="hint">{themeMsg}</span>{/if}
+        </div>
+      </div>
+    {/if}
 
     <div class="col">
       <span>Display refresh rate</span>
@@ -141,9 +245,22 @@
       </div>
     </label>
 
+    <div class="col">
+      <span>yt-dlp cookies from browser</span>
+      <div class="line">
+        <Select
+          label="Browser to take cookies from"
+          value={ytdlpCookies}
+          onchange={(v) => (ytdlpCookies = v)}
+          options={[{ value: "", label: "None" }, ...BROWSERS.map((b) => ({ value: b, label: b[0].toUpperCase() + b.slice(1) }))]}
+        />
+      </div>
+      <span class="hint">For videos that need a sign-in (age-restricted, private, members only): yt-dlp reads that browser's cookies for the site. Some Chromium-based browsers lock or encrypt their cookies so yt-dlp cannot read them; Firefox usually works. Adds <code>--cookies-from-browser</code>.</span>
+    </div>
+
     <label class="col">
       <span>Extra yt-dlp arguments</span>
-      <input class="field mono" type="text" spellcheck="false" placeholder="for example --cookies-from-browser firefox" bind:value={ytdlpArgs} />
+      <input class="field mono" type="text" spellcheck="false" placeholder="for example --sleep-requests 1" bind:value={ytdlpArgs} />
     </label>
 
     <label class="col">
@@ -163,13 +280,24 @@
       <span class="hint">Where the Open URL dialog's "Download only" keeps originals. The download folder above holds files opened for editing.</span>
     </label>
 
-    <label class="col">
-      <span>Default output folder</span>
+    <div class="col">
+      <span>Output folder</span>
       <div class="line">
-        <input class="field mono" type="text" spellcheck="false" placeholder="Beside the source file" bind:value={outputDir} />
-        <button class="btn small" onclick={async () => { const d = await pickFolder("Default output folder"); if (d) outputDir = d; }}>Choose</button>
+        <Select
+          label="Output folder"
+          value={outputMode}
+          onchange={(v) => (outputMode = v)}
+          options={[
+            { value: "desktop", label: "Desktop" },
+            { value: "beside", label: "Beside the source file" },
+            { value: "folder", label: "This folder:" },
+          ]}
+        />
+        <input class="field mono" type="text" spellcheck="false" placeholder="a folder" disabled={outputMode !== "folder"} bind:value={outputDir} />
+        <button class="btn small" onclick={async () => { const d = await pickFolder("Output folder"); if (d) { outputDir = d; outputMode = "folder"; } }}>Choose</button>
       </div>
-    </label>
+      <span class="hint">Where encoded files and saved frames go. Also set from the Output group in the sidebar.</span>
+    </div>
 
     <label class="col">
       <span>File name template</span>
@@ -206,6 +334,48 @@
   .line :global(.sel) {
     width: 140px;
     height: var(--ctl-h);
+  }
+  .custom {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    border: var(--bw) solid var(--border-muted);
+    border-radius: var(--radius);
+    background: var(--bg-panel-alt);
+  }
+  .custom .line :global(.sel) {
+    width: 150px;
+  }
+  .colors {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 12px;
+  }
+  .color {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .color input[type="color"] {
+    width: 30px;
+    height: 20px;
+    padding: 0;
+    border: var(--bw) solid var(--border);
+    border-radius: var(--radius-sm);
+    background: none;
+    cursor: pointer;
+  }
+  .opts {
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .radius input {
+    width: 100px;
   }
   .themes {
     display: grid;

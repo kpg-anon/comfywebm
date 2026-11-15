@@ -14,6 +14,14 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   duration and thumbnail before downloading, a quality choice, and an optional
   "only download part" start and end. Dropping or opening several files adds
   one whole-file job each.
+- **Batch**: a tab for encoding many files with the same settings. Add files,
+  a folder (optionally with subfolders) or drop them. Each file is planned with
+  the current settings and checked: a picture too poor for the size limit,
+  longer than the preset allows, scaled down, a different orientation or size
+  than the rest, variable frame rate, interlaced or HDR, no audio track. Most
+  checks offer a fix to apply with one click (cap at 30 fps, trim, leave out the
+  sound, crop in the editor). Each file can have its own trim and crop (set in
+  the editor, then "Save to batch"), frame rate cap and sound switch.
 - **Download only**: the Open URL dialog can also just save the original file
   and keep it, without a look-up first. It goes to your Downloads folder (or the
   folder set in Settings) in its own container (MP4, WebM, else MKV).
@@ -37,11 +45,12 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   between earlier attempts when one was over and one under). At most 4
   attempts; the largest result that fits is kept.
 - **Resolution**: Auto (in size limit mode, the largest size whose bitrate still
-  gives a clean picture), Source, Steps (long edge 426 to 3840 px), a
-  percentage, or one exact edge with the other following the aspect ratio. In
-  size limit mode each choice shows a good / fair / poor dot, and the sidebar
-  shows bits per pixel. A preset's picture limit (4chan's 2048x2048) always
-  applies.
+  gives a clean picture), Source, Steps (output heights such as 720p, or
+  widths), a percentage, or one exact edge with the other following the aspect
+  ratio. In size limit mode each choice shows a good / fair / poor dot, and the
+  sidebar shows bits per pixel. The step and percentage lists are in
+  `config.toml`. A preset's largest picture size (4chan's 2048x2048) is shown
+  under the resolution and can be removed.
 - **Motion**: frame rate cap and speed (0.25x to 4x) are checked against your
   display's refresh rate (Settings, default 60 Hz). Speeds whose output plays
   evenly are listed and the speed slider snaps to them; a setting that judders
@@ -49,8 +58,16 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
 - **Quality mode**: CRF on the codec's own scale, with an optional bitrate cap.
 - **Codecs**: WebM with VP9, VP8 or AV1 (Opus audio, Vorbis with VP8); MP4 with
   H.264, HEVC or AV1 (AAC audio).
-- **Filters**: deinterlace, denoise, HDR to SDR tone mapping, rotate, mirror,
-  reverse, boomerang (forward then reverse), fade in and out.
+- **Filters**: deinterlace, denoise, HDR to SDR tone mapping, rotate, flip
+  horizontal and vertical, reverse, boomerang (forward then reverse), fade in
+  and out.
+- **Adjustments**: brightness, contrast, saturation, gamma, hue, and a master
+  curve with draggable points (ffmpeg `eq`, `hue` and `curves`). They show on
+  the picture while editing; the preview is close to but not exactly the
+  encode, so Sample shows the real result.
+- **File info**: a sidebar tab with what is in the open file: container,
+  bitrates, codec and profile, frame rate and count, pixel format, color tags,
+  audio and subtitle tracks. Copyable as text.
 - **Audio**: off, or one track with bitrate, volume in dB and loudness
   normalization.
 - **Subtitles**: burn in a text subtitle track from the file, or an external
@@ -66,15 +83,22 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   and the running job's percentage; jobs that finish while the editor is shown
   are counted on the badge (red when one failed) until the queue is opened.
   The taskbar shows the progress of the running job.
-- **Presets**: built-in platform presets (below) and your own: save, overwrite,
-  rename, delete, import and export as JSON.
+- **Presets**: platform presets (below) and your own, each a commented `.toml`
+  file in the config folder that can be edited by hand ("Reload config" reads
+  them again). Save, overwrite, rename, delete, restore the platform presets,
+  import and export as JSON.
 - **Sidebar**: a Basic tab with the everyday settings and an Advanced tab with
   the encoder, filters, audio level, subtitles, metadata, extra arguments and
   the ffmpeg command (copyable). The Advanced tab shows how many of its
   settings are changed.
 - **Themes**: Comfy Dark (default), Nord Frost, Gruvbox Retro, Catppuccin
-  Mocha, Phosphor and Paper (light). Each changes shapes, fonts, borders and
-  shadows as well as colors.
+  Mocha and Phosphor. Each changes shapes, fonts, borders and shadows as well as
+  colors. Custom: pick 13 colors, corner radius, font and light or dark, start
+  from any preset, and import or export the palette as a JSON file to share.
+- **Notifications**: finished, over-limit and failed encodes (and saved frames,
+  downloads) show in a stack at the top right, newest on top, each fading after
+  a few seconds; the x closes one at once.
+- **Help**: every setting explains itself on hover.
 - The window behaves like an app: no browser context menu (text fields keep
   cut, copy and paste), no browser keys such as Find, Print, Reload or zoom,
   hover text in the theme, and the window's size and position are kept between
@@ -115,7 +139,7 @@ npx tauri build --debug --no-bundle       # debug executable only, in target/deb
 ```
 
 On Windows, `npx tauri build` writes `target/release/comfywebm.exe` and the
-NSIS installer `target/release/bundle/nsis/comfywebm_1.1.0_x64-setup.exe`.
+NSIS installer `target/release/bundle/nsis/comfywebm_1.2.0_x64-setup.exe`.
 `src-tauri/tauri.windows.conf.json` limits the Windows bundle to NSIS, so no
 WiX download is needed; Linux and macOS use the targets in `tauri.conf.json`.
 
@@ -146,7 +170,7 @@ Keys do nothing while a text field has focus.
 | Space | play / pause |
 | Left / Right | seek 1 s back / forward |
 | Shift + Left / Right | seek 5 s |
-| `,` / `.` | one frame back / forward (the mouse wheel over the player does the same) |
+| `<` / `>` | one frame back / forward (the mouse wheel over the player does the same) |
 | `I` / `O` | set the start / end of the range under or nearest the playhead |
 | Shift + `I` / `O` | jump to the start / end of the selected range |
 | `N` | add a range at the playhead |
@@ -163,6 +187,7 @@ Keys do nothing while a text field has focus.
 | Ctrl + wheel over the timeline | zoom the timeline; the wheel alone pans while zoomed |
 | `?`, F1 | list of keys |
 | `Q` | switch between the editor and the queue |
+| `B` | switch between the editor and the batch |
 | Ctrl + O | open a file |
 | Ctrl + U | open a web link |
 | Ctrl + Enter | encode |
@@ -200,6 +225,13 @@ The longest clip is advisory: the app warns when the output is longer.
 - Settings: `settings.json` in the app config folder (`%APPDATA%\com.comfywebm.app`
   on Windows, `~/.config/com.comfywebm.app` on Linux,
   `~/Library/Application Support/com.comfywebm.app` on macOS).
+- `config.toml` in the same folder: the resolution steps (heights and widths),
+  percentages, frame rate caps and audio bitrates the app offers, and whether
+  steps are heights or widths by default. Written once with comments; edit it
+  and press "Reload config" (the pencil button next to the preset list).
+- `presets/platform/*.toml` and `presets/saved/*.toml`: one preset per file.
+  Presets saved in `settings.json` by 1.1.0 are moved to `presets/saved` on the
+  first start of 1.2.0.
 - Downloads opened for editing, preview copies and samples: the app cache folder
   (`%LOCALAPPDATA%\com.comfywebm.app` on Windows). The download folder can be
   changed in Settings.
@@ -207,9 +239,11 @@ The longest clip is advisory: the app warns when the output is longer.
 - Window size and position: `window.json` in the app config folder.
 - The theme, the display refresh rate, the sidebar tab, recent files and the
   last option values are kept in the webview's local storage, per machine.
-- Output goes beside the source file unless an output folder is set. Output
-  names follow the name template in Settings; the tokens are `{name}`,
-  `{start}`, `{end}`, `{codec}`, `{height}` and `{date}`.
+- Output goes to the Desktop by default; the Output group in the sidebar (or
+  Settings) switches to beside the source file or another folder. A folder set
+  in 1.1.0 or earlier keeps being used. Output names follow the name template in
+  Settings; the tokens are `{name}`, `{start}`, `{end}`, `{codec}`, `{height}`
+  and `{date}`.
 
 ## Credits
 

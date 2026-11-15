@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { app } from "$lib/state.svelte";
+  import { app, isNeutral } from "$lib/state.svelte";
+  import { sample } from "$lib/curve";
   import CropOverlay from "./CropOverlay.svelte";
 
   let video = $state<HTMLVideoElement>();
@@ -35,9 +36,17 @@
     if (turned) [w, h] = [h, w];
     return { x: (sw - w) / 2, y: (sh - h) / 2, w, h };
   });
+  // the flips apply after the rotation, as in the encode (rotate, then hflip, then vflip)
   const transform = $derived(
-    app.cropMode ? "none" : `${app.mirror ? "scaleX(-1) " : ""}rotate(${app.rotate}deg)`,
+    app.cropMode ? "none" : `${app.vflip ? "scaleY(-1) " : ""}${app.mirror ? "scaleX(-1) " : ""}rotate(${app.rotate}deg)`,
   );
+
+  // Color adjustments on the picture: an SVG filter close to ffmpeg's eq,
+  // hue and curves (not exact: eq works on YUV, this on RGB). Sample shows
+  // the real result.
+  const adj = $derived(app.adjust);
+  const showAdj = $derived(app.adjustPreview && !isNeutral(adj));
+  const table = $derived(adj.curve.length ? sample(adj.curve, 33).map((v) => v.toFixed(4)).join(" ") : "");
 
   // follow the playhead every frame while playing (timeupdate fires about 4x a second)
   $effect(() => {
@@ -83,6 +92,7 @@
     <div class="pic" style:left="{box.x}px" style:top="{box.y}px" style:width="{box.w}px" style:height="{box.h}px" style:transform={transform}>
       <!-- svelte-ignore a11y_media_has_caption -->
       <video
+      style:filter={showAdj ? "url(#cwm-adjust)" : null}
       bind:this={video}
       src={app.videoSrc}
       preload="auto"
@@ -107,6 +117,30 @@
     </div>
   {/if}
 
+  <svg class="fx" aria-hidden="true">
+    <filter id="cwm-adjust" color-interpolation-filters="sRGB">
+      <feComponentTransfer>
+        <feFuncR type="linear" slope={adj.contrast} intercept={0.5 - 0.5 * adj.contrast + adj.brightness} />
+        <feFuncG type="linear" slope={adj.contrast} intercept={0.5 - 0.5 * adj.contrast + adj.brightness} />
+        <feFuncB type="linear" slope={adj.contrast} intercept={0.5 - 0.5 * adj.contrast + adj.brightness} />
+      </feComponentTransfer>
+      <feComponentTransfer>
+        <feFuncR type="gamma" amplitude="1" exponent={1 / adj.gamma} offset="0" />
+        <feFuncG type="gamma" amplitude="1" exponent={1 / adj.gamma} offset="0" />
+        <feFuncB type="gamma" amplitude="1" exponent={1 / adj.gamma} offset="0" />
+      </feComponentTransfer>
+      <feColorMatrix type="saturate" values={String(adj.saturation)} />
+      <feColorMatrix type="hueRotate" values={String(adj.hue)} />
+      {#if table}
+        <feComponentTransfer>
+          <feFuncR type="table" tableValues={table} />
+          <feFuncG type="table" tableValues={table} />
+          <feFuncB type="table" tableValues={table} />
+        </feComponentTransfer>
+      {/if}
+    </filter>
+  </svg>
+
   {#if app.proxyFraction !== null}
     <div class="note">
       <div>This file cannot be played directly. Making a preview copy...</div>
@@ -129,6 +163,11 @@
   }
   .pic {
     position: absolute;
+  }
+  .fx {
+    position: absolute;
+    width: 0;
+    height: 0;
   }
   video {
     position: absolute;

@@ -5,6 +5,9 @@
   import { installAppFeel } from "$lib/appfeel";
   import { installTooltips } from "$lib/tooltip";
   import KeysDialog from "$lib/components/KeysDialog.svelte";
+  import Toasts from "$lib/components/Toasts.svelte";
+  import BatchView from "$lib/components/BatchView.svelte";
+  import { batch } from "$lib/batch.svelte";
   import Logo from "$lib/components/Logo.svelte";
   import { app } from "$lib/state.svelte";
   import * as ipc from "$lib/ipc";
@@ -56,10 +59,11 @@
   // the drop target: the player or the empty-state drop zone, or the queue list when the queue is shown
   let preview = $state<HTMLDivElement>();
   let queueView = $state<HTMLDivElement>();
+  let batchView = $state<HTMLDivElement>();
 
   /** Is a drag position (physical pixels, from Tauri) over the drop target of the shown view? */
   function overPreview(p: { x: number; y: number }): boolean {
-    const el = app.view === "queue" ? queueView : preview;
+    const el = app.view === "queue" ? queueView : app.view === "batch" ? batchView : preview;
     if (!el) return false;
     const r = el.getBoundingClientRect();
     const x = p.x / devicePixelRatio;
@@ -73,7 +77,7 @@
       .then((v) => (version = v))
       .catch(() => {});
     // dev builds: the state object for testing over the DevTools protocol
-    if (import.meta.env.DEV) (window as unknown as { __cwm: typeof app }).__cwm = app;
+    if (import.meta.env.DEV) Object.assign(window, { __cwm: app, __cwmBatch: batch });
     let disposed = false;
     const keep = (p: Promise<() => void>) =>
       p.then((u) => (disposed ? u() : unlisten.push(u))).catch((e) => (app.error = ipc.errText(e)));
@@ -93,9 +97,13 @@
         else if (p.type === "drop") {
           app.dragging = false;
           if (p.paths.length && overPreview(p.position)) {
-            // one file opens in the editor; several become queue jobs
-            if (p.paths.length === 1) app.setView("editor");
-            void app.openPaths(p.paths);
+            // the batch view collects files (and folders); elsewhere one file
+            // opens in the editor and several become queue jobs
+            if (app.view === "batch") void batch.addPaths(p.paths);
+            else {
+              if (p.paths.length === 1) app.setView("editor");
+              void app.openPaths(p.paths);
+            }
           }
         }
       }),
@@ -147,6 +155,17 @@
       </button>
       <button
         class="view"
+        class:on={app.view === "batch"}
+        role="tab"
+        aria-selected={app.view === "batch"}
+        title="Encode many files with the same settings, with a check of each file first"
+        onclick={() => app.setView("batch")}
+      >
+        <Icon name="stack" size={13} />Batch
+        {#if batch.items.length}<span class="badge plain">{batch.items.length}</span>{/if}
+      </button>
+      <button
+        class="view"
         class:on={app.view === "queue"}
         role="tab"
         aria-selected={app.view === "queue"}
@@ -190,15 +209,13 @@
       <button class="btn small" onclick={() => (app.settingsOpen = true)}>Settings</button>
     </div>
   {/if}
-  {#if app.notice}
-    <div class="banner note">
-      <Icon name="check" size={14} />
-      <span class="msg">{app.notice.text}</span>
-      {#if app.notice.path}
-        {@const path = app.notice.path}
-        <button class="btn small" onclick={() => reveal(path)}><Icon name="reveal" size={11} />Reveal</button>
-      {/if}
-      <button class="btn small icon" aria-label="Dismiss" onclick={() => (app.notice = null)}><Icon name="x" size={12} /></button>
+  {#if app.batchEdit && app.view === "editor"}
+    {@const be = app.batchEdit}
+    <div class="banner edit">
+      <Icon name="stack" size={14} />
+      <span class="msg">Editing batch file <b>{be.name}</b>: set its ranges and crop, then save them to the batch.</span>
+      <button class="btn small primary" onclick={() => batch.saveFromEditor()}>Save to batch</button>
+      <button class="btn small" onclick={() => batch.cancelEdit()}>Cancel</button>
     </div>
   {/if}
   {#if app.error}
@@ -225,6 +242,14 @@
         <Timeline />
       {/if}
     </div>
+    {#if app.view === "batch"}
+      <div class="left" bind:this={batchView}>
+        <BatchView />
+        {#if app.dragging}
+          <div class="dropping"><div>Drop to add to the batch</div></div>
+        {/if}
+      </div>
+    {/if}
     {#if app.view === "queue"}
       <div class="left" bind:this={queueView}>
         <Queue />
@@ -248,6 +273,7 @@
   {#if app.keysOpen}
     <KeysDialog />
   {/if}
+  <Toasts />
 </div>
 
 <style>
@@ -322,11 +348,6 @@
     background: color-mix(in srgb, var(--red) 10%, var(--bg-panel));
     font-size: 12px;
   }
-  .banner.note {
-    border-bottom-color: color-mix(in srgb, var(--accent) 35%, transparent);
-    background: color-mix(in srgb, var(--accent) 8%, var(--bg-panel));
-    color: var(--text-primary);
-  }
   .banner .msg {
     flex: 1;
     min-width: 0;
@@ -394,6 +415,14 @@
     font-weight: 700;
     line-height: 1;
     text-transform: none;
+  }
+  .badge.plain {
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+  }
+  .banner.edit {
+    border-bottom-color: color-mix(in srgb, var(--accent) 35%, transparent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-panel));
   }
   .badge.busy {
     background: var(--accent);

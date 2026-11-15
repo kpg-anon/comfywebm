@@ -2,6 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  ConfigInfo,
   Crop,
   DownloadProgress,
   EncodeSpec,
@@ -40,6 +41,16 @@ export const exportFrame = (path: string, time: number, crop: Crop | null) =>
 export const previewSample = (spec: EncodeSpec, at: number) => invoke<string>("preview_sample", { spec, at });
 export const presetsExport = (path: string, presets: Preset[]) => invoke<void>("presets_export", { path, presets });
 export const presetsImport = (path: string) => invoke<Preset[]>("presets_import", { path });
+
+export const configGet = () => invoke<ConfigInfo>("config_get");
+export const presetSave = (preset: Preset, file: string | null) => invoke<string>("preset_save", { preset, file });
+export const presetDelete = (file: string) => invoke<void>("preset_delete", { file });
+export const configRestorePlatform = () => invoke<void>("config_restore_platform");
+export const outputDir = () => invoke<string | null>("output_dir");
+export const listMedia = (dir: string, recursive: boolean) => invoke<string[]>("list_media", { dir, recursive });
+/** The file dialogs run in Rust; null = canceled. */
+export const themeExport = (text: string) => invoke<string | null>("theme_export", { text });
+export const themeImport = () => invoke<string | null>("theme_import");
 
 export const onJobUpdate = (cb: (job: Job) => void): Promise<UnlistenFn> =>
   listen<Job>("job-update", (e) => cb(e.payload));

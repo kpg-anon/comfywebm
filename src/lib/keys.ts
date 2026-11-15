@@ -27,7 +27,7 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["Space", "play / pause"],
       ["Left / Right", "seek 1 s"],
       ["Shift + Left / Shift + Right", "seek 5 s"],
-      [", / .", "one frame back / forward (or the mouse wheel over the picture)"],
+      ["< / >", "one frame back / forward (or the mouse wheel over the picture)"],
       ["L", "loop the selected range"],
     ],
   },
@@ -61,6 +61,7 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["P", "sample: encode 3 s at the playhead"],
       ["S", "save the current frame as PNG"],
       ["Q", "switch between the editor and the queue"],
+      ["B", "switch between the editor and the batch"],
       ["? / F1", "this list"],
     ],
   },
@@ -116,7 +117,7 @@ export function installKeys(actions: KeyActions): () => void {
       else if (k === "u") actions.openUrl();
       else if (e.key === "Enter") void app.enqueue(true);
       else handled = false;
-    } else if (app.view === "queue" && k !== "q") {
+    } else if (app.view !== "editor" && k !== "q" && k !== "b") {
       // the editor is hidden: its keys do nothing
       handled = false;
     } else if (e.key.startsWith("Arrow") && app.cropMode && app.crop) {
@@ -135,11 +136,10 @@ export function installKeys(actions: KeyActions): () => void {
         case "ArrowRight":
           app.seek(app.current + (e.shiftKey ? 5 : 1));
           break;
-        case ",":
+        // frame step on < and > (Shift + , and Shift + . on US layouts)
         case "<":
           app.stepFrame(-1);
           break;
-        case ".":
         case ">":
           app.stepFrame(1);
           break;
@@ -170,6 +170,9 @@ export function installKeys(actions: KeyActions): () => void {
           break;
         case "q":
           app.setView(app.view === "queue" ? "editor" : "queue");
+          break;
+        case "b":
+          app.setView(app.view === "batch" ? "editor" : "batch");
           break;
         case "c":
           if (app.media) app.cropMode = !app.cropMode;

@@ -1,8 +1,11 @@
 <script lang="ts">
-  // Preset select plus the manager for user presets: save as new, overwrite,
-  // rename, delete, import and export (JSON file).
+  // Preset select plus the manager. Every preset is a TOML file in the config
+  // folder (presets/platform, presets/saved): save as new, overwrite, rename,
+  // delete, import and export (JSON), open the folder, reload after editing
+  // the files by hand, restore the platform presets.
+  import { openPath } from "@tauri-apps/plugin-opener";
   import { app } from "$lib/state.svelte";
-  import { BUILTIN_PRESETS, isBuiltin } from "$lib/presets";
+  import { errText } from "$lib/ipc";
   import { pickPresetsFile, savePresetsFile } from "$lib/dialogs";
   import Icon from "./Icon.svelte";
   import Select from "./Select.svelte";
@@ -13,11 +16,21 @@
   let msg = $state<{ text: string; bad: boolean } | null>(null);
   let confirmDelete = $state(false);
 
-  const builtin = $derived(isBuiltin(app.presetName));
-  const options = $derived([
-    ...BUILTIN_PRESETS.map((p) => ({ value: p.name, label: p.name, group: "Built-in" })),
-    ...app.settings.presets.map((p) => ({ value: p.name, label: p.name, group: "Saved" })),
-  ]);
+  const entry = $derived(app.presetEntries.find((e) => e.preset.name === app.presetName) ?? null);
+  const noFile = $derived(!entry?.file);
+  const savedCount = $derived(app.presetEntries.filter((e) => e.group === "saved").length);
+  const options = $derived(
+    app.presetEntries.map((e) => ({ value: e.preset.name, label: e.preset.name, group: e.group === "platform" ? "Platform" : "Saved" })),
+  );
+
+  async function openFolder() {
+    if (!app.config) return;
+    try {
+      await openPath(app.config.dir);
+    } catch (e) {
+      msg = { text: errText(e), bad: true };
+    }
+  }
 
   function begin(m: "new" | "rename") {
     mode = m;
@@ -41,12 +54,12 @@
   }
 
   async function exportAll() {
-    if (!app.settings.presets.length) {
+    if (!savedCount) {
       msg = { text: "There are no saved presets to export.", bad: false };
       return;
     }
     const path = await savePresetsFile();
-    if (path) await act(() => app.exportPresets(path), `Exported ${app.settings.presets.length} presets.`);
+    if (path) await act(() => app.exportPresets(path), `Exported ${savedCount} presets.`);
   }
 
   async function importFile() {
@@ -76,17 +89,22 @@
   {#if manage}
     <div class="tools">
       <button class="btn small" onclick={() => begin("new")}><Icon name="save" size={11} />Save as new</button>
-      <button class="btn small" disabled={builtin} onclick={() => act(() => app.overwritePreset(app.presetName), `Saved "${app.presetName}".`)}>Overwrite</button>
-      <button class="btn small" disabled={builtin} onclick={() => begin("rename")}>Rename</button>
+      <button class="btn small" disabled={noFile} title="Write the current settings into this preset's file" onclick={() => act(() => app.overwritePreset(app.presetName), `Saved "${app.presetName}".`)}>Overwrite</button>
+      <button class="btn small" disabled={noFile} onclick={() => begin("rename")}>Rename</button>
       {#if confirmDelete}
-        <button class="btn small danger" onclick={() => { void app.deletePreset(app.presetName); confirmDelete = false; }}>Delete "{app.presetName}"?</button>
+        <button class="btn small danger" onclick={() => { void act(() => app.deletePreset(app.presetName), "Preset deleted."); confirmDelete = false; }}>Delete "{app.presetName}"?</button>
       {:else}
-        <button class="btn small danger" disabled={builtin} onclick={() => (confirmDelete = true)}><Icon name="trash" size={11} />Delete</button>
+        <button class="btn small danger" disabled={noFile} onclick={() => (confirmDelete = true)}><Icon name="trash" size={11} />Delete</button>
       {/if}
-      <button class="btn small" onclick={importFile}><Icon name="download" size={11} />Import</button>
-      <button class="btn small" onclick={exportAll}><Icon name="upload" size={11} />Export</button>
+      <button class="btn small" title="Add presets from a JSON file exported by comfywebm" onclick={importFile}><Icon name="download" size={11} />Import</button>
+      <button class="btn small" title="Save your own presets (presets/saved) as one JSON file to share" onclick={exportAll}><Icon name="upload" size={11} />Export</button>
     </div>
-    {#if builtin}<div class="muted small">Built-in presets cannot be changed. "Save as new" makes an editable copy.</div>{/if}
+    <div class="tools">
+      <button class="btn small" disabled={!app.config} title="The folder with config.toml and the presets folder. Each preset is a .toml file you can edit in a text editor." onclick={openFolder}><Icon name="open" size={11} />Open config folder</button>
+      <button class="btn small" title="Read config.toml and the preset files again after editing them" onclick={() => app.reloadConfig()}>Reload config</button>
+      <button class="btn small" title="Write the platform presets (4chan, Discord, X, Quality) again with their default values. Your saved presets are not touched." onclick={() => act(() => app.restorePlatformPresets(), "Platform presets restored.")}>Restore platform presets</button>
+    </div>
+    {#if entry?.file}<div class="muted small mono">presets/{entry.file}</div>{/if}
   {/if}
 
   {#if mode}

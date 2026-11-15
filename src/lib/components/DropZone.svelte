@@ -54,7 +54,7 @@
       <span><kbd>Space</kbd> play</span>
       <span><kbd>I</kbd> <kbd>O</kbd> in / out</span>
       <span><kbd>N</kbd> new range</span>
-      <span><kbd>,</kbd> <kbd>.</kbd> frame</span>
+      <span><kbd>&lt;</kbd> <kbd>&gt;</kbd> frame</span>
       <span><kbd>C</kbd> crop</span>
       <span><kbd>P</kbd> sample</span>
       <span><kbd>S</kbd> save frame</span>

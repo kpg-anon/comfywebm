@@ -374,6 +374,8 @@ pub fn export_frame(ffmpeg: &Path, info: &MediaInfo, time: f64, crop: Option<Cro
             crop: g.crop,
             rotate: 0,
             mirror: false,
+            vflip: false,
+            adjust: None,
             subtitles: None,
         },
         0.0,

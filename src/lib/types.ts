@@ -9,6 +9,10 @@ export type MediaInfo = {
   fileName: string;
   sizeBytes: number;
   duration: number; // seconds
+  format: string; // container, e.g. "QuickTime / MOV"
+  bitrateK: number | null; // overall
+  created: string | null;
+  encoder: string | null;
   // width/height are display pixels (rotation and sample aspect ratio applied)
   video: {
     codec: string;
@@ -18,9 +22,22 @@ export type MediaInfo = {
     bitrateK: number | null;
     interlaced: boolean;
     hdr: boolean;
+    pixFmt: string | null;
+    profile: string | null;
+    color: string | null; // "space / primaries / transfer"
+    frames: number | null;
+    vfr: boolean;
   };
   // track = n-th stream of that kind, 0-based (ffmpeg 0:a:n / 0:s:n)
-  audio: { track: number; codec: string; channels: number; lang: string | null; title: string | null }[];
+  audio: {
+    track: number;
+    codec: string;
+    channels: number;
+    lang: string | null;
+    title: string | null;
+    sampleRate: number | null;
+    bitrateK: number | null;
+  }[];
   subs: { track: number; codec: string; lang: string | null; title: string | null; textBased: boolean }[];
 };
 
@@ -36,6 +53,16 @@ export type Playback = "forward" | "reverse" | "boomerang";
 
 export type Crop = { x: number; y: number; w: number; h: number };
 
+/** Color adjustments; neutral: 0, 1, 1, 1, 0, []. curve = master curve points [in, out], 0..1. */
+export type Adjust = {
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  gamma: number;
+  hue: number;
+  curve: [number, number][];
+};
+
 export type SubsSpec = { kind: "embedded"; track: number } | { kind: "file"; path: string } | null;
 
 export type AudioSpec = { track: number; bitrateK: number; volumeDb: number; normalize: boolean };
@@ -46,6 +73,8 @@ export type EncodeSpec = {
   crop: Crop | null; // source display pixels, before rotate
   rotate: Rotate; // clockwise
   mirror: boolean; // horizontal flip, after rotate
+  vflip: boolean; // vertical flip, after rotate
+  adjust: Adjust | null;
   maxWidth: number | null;
   maxHeight: number | null;
   autoScale: boolean;
@@ -122,7 +151,9 @@ export type Settings = {
   ytdlpArgs: string[];
   downloadDir: string | null;
   keepDir: string | null; // "Download only" saves here; null = the user's Downloads folder
-  outputDir: string | null;
+  outputDir: string | null; // the folder for outputMode "folder"
+  outputMode: "desktop" | "beside" | "folder" | null; // null: "folder" if outputDir is set, else "desktop"
+  ytdlpCookies: string | null; // yt-dlp --cookies-from-browser value
   nameTemplate: string;
   lastPreset: string | null;
   presets: Preset[];
@@ -147,6 +178,21 @@ export type UrlInfo = {
   isLive: boolean;
   thumbnail: string | null;
   heights: number[]; // distinct video heights offered, descending
+};
+
+export type PresetEntry = { preset: Preset; group: "platform" | "saved"; file: string };
+
+/** config.toml and the preset files (Rust config.rs). */
+export type ConfigInfo = {
+  dir: string;
+  heights: number[];
+  widths: number[];
+  stepBy: "height" | "width";
+  percents: number[];
+  fpsCaps: number[];
+  audioBitrates: number[];
+  presets: PresetEntry[];
+  errors: string[];
 };
 
 export type ProxyProgress = { path: string; fraction: number };

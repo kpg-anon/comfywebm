@@ -5,6 +5,45 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-11-15
+
+### Added
+
+- Batch tab: add files, a folder (optionally with subfolders) or drop them;
+  every file is planned with the current settings and checked (picture too
+  poor for the size limit, too long for the preset, scaled down, orientation or
+  size unlike the rest, variable frame rate, interlaced, HDR, no audio), with
+  one-click fixes and suggestions for the whole batch. Per-file trim and crop
+  (through the editor), frame rate cap and sound switch. `B` switches to it.
+- Adjustments in the Advanced tab: brightness, contrast, saturation, gamma, hue
+  and a master curve editor, previewed on the picture.
+- Vertical flip, next to horizontal flip under Rotate.
+- File info tab in the sidebar.
+- Custom theme: 13 colors, corners, font, light or dark; start from a preset;
+  import and export as JSON. It replaces the Paper theme.
+- yt-dlp "cookies from browser" setting.
+- Stacking notifications at the top right for finished encodes, saved frames
+  and downloads.
+- Hover text that explains each setting.
+- `config.toml` and one `.toml` file per preset in the config folder, editable
+  by hand; Reload config, Open config folder and Restore platform presets in
+  the preset manager.
+
+### Changed
+
+- Resolution steps are output heights by default (240p to 2160p), with widths
+  as the other choice; the lists come from `config.toml`.
+- Frame rate caps are listed from low to high.
+- The output folder defaults to the Desktop, with "beside the source file" and
+  another folder as choices.
+- Frame step keys are `<` and `>`.
+- The preset's picture limit is no longer an editable field in Advanced; it is
+  shown under the resolution with an explanation and can be removed.
+- "Folder" and "File name" in the sidebar are now "Output folder" and "Output
+  filename".
+- Theme import and export open their file dialogs in the Rust side, so no
+  command takes a file path from the page for them.
+
 ## [1.1.0] - 2026-11-15
 
 ### Added

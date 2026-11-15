@@ -10,6 +10,17 @@ pub struct MediaInfo {
     pub size_bytes: u64,
     /// seconds
     pub duration: f64,
+    /// container, from ffprobe format_long_name (or format_name)
+    #[serde(default)]
+    pub format: String,
+    /// overall bitrate
+    #[serde(default)]
+    pub bitrate_k: Option<u32>,
+    /// creation_time and encoder tags, when present
+    #[serde(default)]
+    pub created: Option<String>,
+    #[serde(default)]
+    pub encoder: Option<String>,
     pub video: VideoInfo,
     pub audio: Vec<AudioTrack>,
     pub subs: Vec<SubTrack>,
@@ -25,6 +36,17 @@ pub struct VideoInfo {
     pub fps: f64,
     pub bitrate_k: Option<u32>,
     pub interlaced: bool,
+    /// pixel format, profile, "space/primaries/transfer", frame count, variable frame rate
+    #[serde(default)]
+    pub pix_fmt: Option<String>,
+    #[serde(default)]
+    pub profile: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub frames: Option<u64>,
+    #[serde(default)]
+    pub vfr: bool,
     /// color_transfer is smpte2084 (PQ) or arib-std-b67 (HLG)
     #[serde(default)]
     pub hdr: bool,
@@ -52,6 +74,10 @@ pub struct AudioTrack {
     pub channels: u32,
     pub lang: Option<String>,
     pub title: Option<String>,
+    #[serde(default)]
+    pub sample_rate: Option<u32>,
+    #[serde(default)]
+    pub bitrate_k: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +89,30 @@ pub struct SubTrack {
     pub lang: Option<String>,
     pub title: Option<String>,
     pub text_based: bool,
+}
+
+/// Color adjustments (ffmpeg `eq`, `hue`, `curves`). Neutral values: 0, 1, 1, 1, 0, empty.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Adjust {
+    /// -1..1, added to luma
+    pub brightness: f64,
+    /// 0..3, 1 = unchanged
+    pub contrast: f64,
+    /// 0..3, 1 = unchanged
+    pub saturation: f64,
+    /// 0.1..10, 1 = unchanged
+    pub gamma: f64,
+    /// degrees, -180..180
+    pub hue: f64,
+    /// master curve points (input, output), both 0..1; fewer than 2 = none
+    pub curve: Vec<(f64, f64)>,
+}
+
+impl Default for Adjust {
+    fn default() -> Self {
+        Adjust { brightness: 0.0, contrast: 1.0, saturation: 1.0, gamma: 1.0, hue: 0.0, curve: Vec::new() }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -183,6 +233,12 @@ pub struct EncodeSpec {
     /// horizontal flip, after rotate
     #[serde(default)]
     pub mirror: bool,
+    /// vertical flip, after rotate
+    #[serde(default)]
+    pub vflip: bool,
+    /// color adjustments; None or all neutral = none
+    #[serde(default)]
+    pub adjust: Option<Adjust>,
     pub max_width: Option<u32>,
     pub max_height: Option<u32>,
     #[serde(default)]
@@ -334,10 +390,16 @@ pub struct Settings {
     pub download_dir: Option<String>,
     /// where "Download only" keeps originals; None = the user's Downloads folder
     pub keep_dir: Option<String>,
-    /// None = beside the source file
+    /// the folder used when output_mode is "folder"
     pub output_dir: Option<String>,
+    /// "desktop", "beside" (the source file) or "folder" (output_dir).
+    /// None: "folder" when output_dir is set (settings from 1.1.0), else "desktop".
+    pub output_mode: Option<String>,
+    /// yt-dlp --cookies-from-browser value (firefox, chrome, edge, ...); None = no cookies
+    pub ytdlp_cookies: Option<String>,
     pub name_template: String,
     pub last_preset: Option<String>,
+    /// presets kept in settings.json before 1.2.0; moved to presets/saved/*.toml on start
     pub presets: Vec<Preset>,
 }
 
@@ -350,6 +412,8 @@ impl Default for Settings {
             download_dir: None,
             keep_dir: None,
             output_dir: None,
+            output_mode: None,
+            ytdlp_cookies: None,
             name_template: DEFAULT_NAME_TEMPLATE.to_string(),
             last_preset: None,
             presets: Vec::new(),

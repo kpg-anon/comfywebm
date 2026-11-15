@@ -2,6 +2,7 @@ mod queue;
 mod state;
 mod winstate;
 
+use comfywebm_engine::config;
 use comfywebm_engine::run::{self, Cancel, RunError};
 use comfywebm_engine::{
     naming, plan, proxy, ytdl, Codec, Container, Crop, DownloadProgress, EncodeSpec, Job, MediaInfo, PlanInfo, Preset,
@@ -88,7 +89,7 @@ async fn plan(app: AppHandle, spec: EncodeSpec) -> Result<PlanInfo, String> {
         // first build: output height for the name template
         let blank = plan::Opts { display: true, zscale, ..plan::Opts::new("", "") };
         let height = plan::build(&spec, &info, &blank)?.out_height;
-        let out = naming::output_path(&spec, &info, height, settings.output_dir.as_deref(), &settings.name_template);
+        let out = naming::output_path(&spec, &info, height, state.output_dir().as_deref(), &settings.name_template);
         let out = out.to_string_lossy().into_owned();
         let passlog = std::env::temp_dir().join("comfywebm-pass").to_string_lossy().into_owned();
         let opts = plan::Opts { display: true, zscale, ..plan::Opts::new(&out, &passlog) };
@@ -169,7 +170,7 @@ async fn url_info(app: AppHandle, url: String) -> Result<UrlInfo, String> {
     blocking(move || {
         let state = app.state::<AppState>();
         let ytdlp = state.ytdlp()?;
-        ytdl::url_info(&ytdlp, &url, &state.settings().ytdlp_args)
+        ytdl::url_info(&ytdlp, &url, &state.ytdlp_extra())
     })
     .await
 }
@@ -209,7 +210,7 @@ async fn url_download(app: AppHandle, url: String, max_height: Option<u32>, sect
             max_height,
             section,
             if keep { "mp4/webm/mkv" } else { "mkv" },
-            &state.settings().ytdlp_args,
+            &state.ytdlp_extra(),
             &cancel,
             |p| {
                 // `url` is the exact string the frontend passed; it filters events by it
@@ -238,7 +239,7 @@ async fn export_frame(app: AppHandle, path: String, time: f64, crop: Option<Crop
         let state = app.state::<AppState>();
         let ffmpeg = state.ffmpeg()?;
         let info = state.media(&path)?;
-        let out = naming::frame_path(&path, time, state.settings().output_dir.as_deref());
+        let out = naming::frame_path(&path, time, state.output_dir().as_deref());
         run::export_frame(&ffmpeg, &info, time, crop, &out, state.zscale())?;
         Ok(out.to_string_lossy().into_owned())
     })
@@ -295,6 +296,102 @@ fn presets_import(path: String) -> Result<Vec<Preset>, String> {
     Ok(presets)
 }
 
+/// config.toml lists and every preset file.
+#[tauri::command]
+fn config_get(state: State<AppState>) -> config::ConfigInfo {
+    state.config.load()
+}
+
+/// Writes a preset; `file` replaces that preset file, None makes a new one in saved/.
+#[tauri::command]
+fn preset_save(state: State<AppState>, preset: Preset, file: Option<String>) -> Result<String, String> {
+    state.config.save(&preset, file.as_deref())
+}
+
+#[tauri::command]
+fn preset_delete(state: State<AppState>, file: String) -> Result<(), String> {
+    state.config.delete(&file)
+}
+
+/// Writes the platform presets again (files with other names are kept).
+#[tauri::command]
+fn config_restore_platform(state: State<AppState>) {
+    state.config.write_platform();
+}
+
+/// The output folder new jobs use (Desktop, the custom folder), or null for beside the source.
+#[tauri::command]
+fn output_dir(state: State<AppState>) -> Option<String> {
+    state.output_dir()
+}
+
+const MEDIA_EXT: &[&str] = &[
+    "mp4", "mkv", "webm", "mov", "avi", "m4v", "ts", "m2ts", "mts", "flv", "wmv", "mpg", "mpeg", "ogv", "3gp", "gif",
+];
+
+/// Video files in a folder (and its subfolders when `recursive`), sorted by path.
+#[tauri::command]
+fn list_media(dir: String, recursive: bool) -> Result<Vec<String>, String> {
+    fn walk(dir: &std::path::Path, recursive: bool, depth: u32, out: &mut Vec<String>) -> Result<(), String> {
+        let rd = std::fs::read_dir(dir).map_err(|e| format!("Cannot read {}: {e}", dir.display()))?;
+        for e in rd.flatten() {
+            let p = e.path();
+            let ft = e.file_type().map_err(|e| e.to_string())?;
+            if ft.is_dir() {
+                if recursive && depth < 8 {
+                    walk(&p, recursive, depth + 1, out)?;
+                }
+            } else if p.extension().and_then(|x| x.to_str()).is_some_and(|x| MEDIA_EXT.contains(&x.to_ascii_lowercase().as_str())) {
+                out.push(p.to_string_lossy().into_owned());
+            }
+            if out.len() > 5000 {
+                return Err("More than 5000 files; choose a smaller folder.".into());
+            }
+        }
+        Ok(())
+    }
+    let mut out = Vec::new();
+    walk(std::path::Path::new(&dir), recursive, 0, &mut out)?;
+    out.sort_by_key(|p| p.to_lowercase());
+    Ok(out)
+}
+
+/// Theme export: the save dialog runs here, so the page never names a path.
+/// Returns the path written, or None when the dialog was canceled.
+#[tauri::command]
+async fn theme_export(app: AppHandle, text: String) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    if text.len() > 256 * 1024 {
+        return Err("The theme is too large.".into());
+    }
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("Export theme")
+        .add_filter("comfywebm theme", &["json"])
+        .set_file_name("comfywebm-theme.json")
+        .blocking_save_file();
+    let Some(fp) = picked else { return Ok(None) };
+    let path = fp.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&path, text).map_err(|e| format!("Cannot write {}: {e}", path.display()))?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// Theme import: the open dialog runs here. Returns the file's text (at most
+/// 256 KB), or None when the dialog was canceled.
+#[tauri::command]
+async fn theme_import(app: AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = app.dialog().file().set_title("Import theme").add_filter("comfywebm theme", &["json"]).blocking_pick_file();
+    let Some(fp) = picked else { return Ok(None) };
+    let path = fp.into_path().map_err(|e| e.to_string())?;
+    let len = std::fs::metadata(&path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?.len();
+    if len > 256 * 1024 {
+        return Err(format!("{} is larger than 256 KB; it is not a theme file.", path.display()));
+    }
+    std::fs::read_to_string(&path).map(Some).map_err(|e| format!("Cannot read {}: {e}", path.display()))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -307,7 +404,8 @@ pub fn run() {
             if let Some(win) = app.get_webview_window("main") {
                 winstate::install(&win, config_dir.join("window.json"));
             }
-            app.manage(AppState::new(config_dir, cache_dir));
+            let desktop = app.path().desktop_dir().ok();
+            app.manage(AppState::new(config_dir, cache_dir, desktop));
             queue::spawn_worker(app.handle().clone());
             Ok(())
         })
@@ -332,6 +430,14 @@ pub fn run() {
             preview_sample,
             presets_export,
             presets_import,
+            config_get,
+            preset_save,
+            preset_delete,
+            config_restore_platform,
+            output_dir,
+            list_media,
+            theme_export,
+            theme_import,
         ])
         .run(tauri::generate_context!())
         .expect("error while running comfywebm");

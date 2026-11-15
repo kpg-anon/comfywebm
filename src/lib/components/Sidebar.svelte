@@ -503,6 +503,9 @@
           {#if app.rateMode === "size"}· at most {fmtBytes(app.maxBytes)}{/if}
           {#if app.separate && app.segments.length > 1}· {app.segments.length} files{/if}
         </div>
+        {#if app.plan.output}
+          <div class="mono small muted outname" title={app.plan.output}>→ {baseName(app.plan.output)}{app.separate && app.segments.length > 1 ? " (first of them)" : ""}</div>
+        {/if}
       {:else if app.planError}
         <div class="err small">{app.planError}</div>
       {:else if !app.media}
@@ -693,6 +696,11 @@
   .btns {
     display: flex;
     gap: 4px;
+  }
+  .outname {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .summary {
     display: flex;

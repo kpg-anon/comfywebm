@@ -67,6 +67,7 @@ impl Planned {
             auto_scaled: self.auto_scaled,
             command: self.passes.iter().map(|a| shell_join("ffmpeg", a)).collect::<Vec<_>>().join("\n"),
             warnings: self.warnings.clone(),
+            output: None,
         }
     }
 }

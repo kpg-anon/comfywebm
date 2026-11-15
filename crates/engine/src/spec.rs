@@ -414,6 +414,9 @@ pub struct PlanInfo {
     pub auto_scaled: bool,
     pub command: String,
     pub warnings: Vec<String>,
+    /// the file the job would write now (the `plan` command fills it)
+    #[serde(default)]
+    pub output: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

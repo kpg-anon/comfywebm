@@ -285,6 +285,7 @@ async fn plan(app: AppHandle, spec: EncodeSpec) -> Result<PlanInfo, String> {
         let passlog = std::env::temp_dir().join("comfywebm-pass").to_string_lossy().into_owned();
         let opts = plan::Opts { display: true, zscale, sources: Some(&sources), ..plan::Opts::new(&out, &passlog) };
         let mut info = plan::build(&spec, &info, &opts)?.info();
+        info.output = Some(out.clone());
         if st.ffmpeg.is_some() {
             let e = &st.encoders;
             let (have, name) = match spec.codec {

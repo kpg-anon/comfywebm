@@ -78,7 +78,9 @@ Work on the `exp` branch.
 - Range edges snap to the playhead, other ranges and the file's ends; Alt
   places them freely.
 - The window title shows the running job's percentage and the open file.
-- Queue: Output folder button.
+- The summary under Encode shows the file name the encode will write (full
+  path on hover).
+- Queue: Output folder button; copy a job's ffmpeg command.
 - Hints in the Open URL dialog for common yt-dlp errors (sign-in needed,
   format not available, rate limits, outdated yt-dlp).
 - The preview copy can be canceled, and opening another file stops one that

@@ -115,6 +115,8 @@ export type EncodeSpec = {
 };
 
 export type PlanInfo = {
+  /** the file the job would write if it started now */
+  output?: string | null;
   outWidth: number;
   outHeight: number;
   durationOut: number;

@@ -2,12 +2,40 @@
   import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
   import { app } from "$lib/state.svelte";
   import * as ipc from "$lib/ipc";
+  import { convertFileSrc } from "@tauri-apps/api/core";
   import { errText } from "$lib/ipc";
   import { fmtBytes, fmtEta } from "$lib/time";
   import type { Job } from "$lib/types";
   import Icon from "./Icon.svelte";
 
   let copiedId = $state<number | null>(null);
+
+  // a small picture of each job's source (cached posters), loaded one at a time
+  let posters = $state<Record<string, string>>({});
+  const asked = new Set<string>();
+  let loading = false;
+  async function pump() {
+    if (loading || app.ffmpegMissing) return;
+    loading = true;
+    try {
+      for (;;) {
+        const next = app.jobs.map((j) => j.spec.input).find((p) => !asked.has(p));
+        if (!next) break;
+        asked.add(next);
+        try {
+          posters[next] = convertFileSrc(await ipc.poster(next));
+        } catch {
+          // no picture: the row shows an empty box
+        }
+      }
+    } finally {
+      loading = false;
+    }
+  }
+  $effect(() => {
+    void app.jobs.length;
+    void pump();
+  });
   let errorOpen = $state<Record<number, boolean>>({});
 
   const pending = $derived(app.jobs.filter((j) => j.status === "pending").length);
@@ -103,6 +131,7 @@
       {#each app.jobs as j, i (j.id)}
         <div class="job {j.status}">
           <div class="top">
+            {#if posters[j.spec.input]}<img class="poster" src={posters[j.spec.input]} alt="" draggable="false" />{:else}<span class="poster"></span>{/if}
             <span class="name" title={j.output ?? `${j.spec.input}\nto ${j.spec.outputDir === "" ? "the source's folder" : (j.spec.outputDir ?? "the output folder")}`}>{jobName(j)}</span>
             <span class="muted desc mono">{describe(j)}</span>
             <span class="status">{STATUS[j.status]}</span>
@@ -222,6 +251,15 @@
   .desc {
     font-size: 11px;
     white-space: nowrap;
+  }
+  .poster {
+    width: 48px;
+    height: 27px;
+    flex: none;
+    align-self: center;
+    object-fit: cover;
+    border-radius: var(--radius-sm, 3px);
+    background: var(--bg-input);
   }
   .status {
     font-size: 11px;

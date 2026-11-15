@@ -85,6 +85,9 @@
     {#if app.outputPath}
       <button class="btn small" title={app.outputPath} onclick={() => run(() => openPath(app.outputPath!))}><Icon name="open" size={11} />Output folder</button>
     {/if}
+    {#if pending > 1}
+      <button class="btn small" title="Remove every job that has not started" onclick={async () => { for (const j of app.jobs.filter((x) => x.status === "pending")) await app.cancelJob(j.id); }}><Icon name="x" size={11} />Remove waiting</button>
+    {/if}
     <button class="btn small" disabled={!finished} onclick={() => app.clearFinished()}><Icon name="trash" size={11} />Clear finished</button>
     {#if app.queueStarted && pending}
       <button class="btn small" title="Finish the running job, then stop" onclick={() => app.pauseQueue()}><Icon name="pause" size={11} />Pause after this</button>

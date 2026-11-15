@@ -145,6 +145,7 @@ fn real_main() -> Result<(), String> {
         stream_copy: false,
         caption,
         segment_sources,
+        music: std::env::var("CWM_MUSIC").ok().map(|path| comfywebm_engine::Music { path, mix: std::env::var("CWM_MIX").is_ok(), volume_db: -6.0, offset: 0.0 }),
         overlay: std::env::var("CWM_LOGO").ok().map(|path| comfywebm_engine::Overlay { path, corner: "br".into(), size: 20.0, opacity: 0.8 }),
         subs_delay: std::env::var("CWM_SUBS_DELAY").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0),
         subs_font_size: std::env::var("CWM_SUBS_SIZE").ok().and_then(|s| s.parse().ok()),

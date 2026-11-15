@@ -6,7 +6,7 @@
   // of its settings are changed, so nothing set there goes unnoticed.
   import { app, isNeutral } from "$lib/state.svelte";
   import { batch } from "$lib/batch.svelte";
-  import { pickFolder, pickImage, pickSubtitle } from "$lib/dialogs";
+  import { pickAudio, pickFolder, pickImage, pickSubtitle } from "$lib/dialogs";
   import { CODECS_BY_CONTAINER, CODEC_LABEL } from "$lib/presets";
   import { fmtBytes, fmtTime } from "$lib/time";
   import type { Rotate } from "$lib/types";
@@ -271,6 +271,30 @@
               <Select label="Audio bitrate" bind:value={app.audioBitrateK} options={app.audioRates.map((r) => ({ value: r, label: `${r} kbps` }))} />
             </div>
             {#if app.playback === "boomerang"}<div class="muted small">Boomerang output has no audio.</div>{/if}
+          {/if}
+        {/if}
+        {#if app.container !== "audio" && app.codec !== "gif" && app.codec !== "webp"}
+          <div class="row">
+            <span title="A sound file (music) that replaces the source's sound or plays under it, cut to the clip's length and faded with it.">Music</span>
+            <span class="path small grow" class:muted={!app.musicPath} title={app.musicPath ?? ""}>{app.musicPath ? baseName(app.musicPath) : "none"}</span>
+            <button class="btn small" onclick={async () => { const f = await pickAudio(); if (f) { app.musicPath = f; app.audioOn = true; } }}>Choose</button>
+            {#if app.musicPath}<button class="btn small" onclick={() => (app.musicPath = null)}>Remove</button>{/if}
+          </div>
+          {#if app.musicPath}
+            {#if app.media?.audio.length}
+              <div class="row">
+                <span>With the source's sound</span>
+                <Seg label="Music mode" value={app.musicMix ? "mix" : "replace"} onchange={(v) => (app.musicMix = v === "mix")} options={[{ value: "replace", label: "Replace" }, { value: "mix", label: "Mix" }]} />
+              </div>
+            {/if}
+            <div class="row">
+              <span title="Music loudness change in dB; negative is quieter, for music under speech.">Music level (dB)</span>
+              <input class="field mono num" type="number" step="1" bind:value={app.musicVolume} />
+            </div>
+            <div class="row">
+              <span title="Where in the music file to start, in seconds.">Music starts at (s)</span>
+              <input class="field mono num" type="number" step="0.5" min="0" bind:value={app.musicOffset} />
+            </div>
           {/if}
         {/if}
       </Group>

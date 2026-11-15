@@ -709,7 +709,9 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             None
         }
         Some(a) => {
-            if info.audio.get(a.track as usize).is_none() {
+            // with music replacing it, the source's sound is not read
+            let replaced = spec.music.as_ref().is_some_and(|m| !m.mix || info.audio.is_empty());
+            if !replaced && info.audio.get(a.track as usize).is_none() {
                 return Err(format!("Audio track {} does not exist.", a.track));
             }
             if !a.bitrate_k.is_finite() || a.bitrate_k <= 0.0 {
@@ -1002,8 +1004,15 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         a
     };
 
-    // a logo is a second input, so it needs the filter_complex form
-    let multi = segs.len() > 1 || overlay.is_some();
+    // music: replaces the source's sound, or is mixed under it
+    let music = spec.music.as_ref().filter(|m| !m.path.trim().is_empty() && audio.is_some());
+    let music_replaces = music.is_some_and(|m| !m.mix || info.audio.is_empty());
+    if spec.music.is_some() && music.is_none() && !image && !boomerang {
+        warnings.push("Music needs sound in the output: turn on the audio.".into());
+    }
+    let music_idx = segs.len() + usize::from(overlay.is_some());
+    // a logo or music is one more input, so it needs the filter_complex form
+    let multi = segs.len() > 1 || overlay.is_some() || music.is_some();
     let track = audio.map(|a| a.track);
     let build_pass = |pass: u32| -> Vec<String> {
         let with_audio = pass != 1 && audio.is_some();
@@ -1022,6 +1031,12 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         }
         if let Some((path, _, _)) = &overlay {
             push(&mut a, &["-i", path]);
+        }
+        if let Some(m) = music {
+            if m.offset > 0.0 {
+                push(&mut a, &["-ss", &fmt_num(m.offset)]);
+            }
+            push(&mut a, &["-i", &m.path]);
         }
         if !multi {
             push(&mut a, &["-map", &format!("0:{}", v.stream_index)]);
@@ -1046,7 +1061,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
                 let chain = if chain.is_empty() { "null" } else { chain.as_str() };
                 let vi = seg_src[i].map_or(v.stream_index, |m| m.video.stream_index);
                 graph.push_str(&format!("[{i}:{vi}]{chain}[v{i}];"));
-                if let (true, Some(t)) = (with_audio, track) {
+                if let (true, Some(t)) = (with_audio && !music_replaces, track) {
                     // joined files: one sample format and layout for concat; a
                     // file without sound gives silence of the range's length
                     let norm = if mixed { ",aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo" } else { "" };
@@ -1063,14 +1078,15 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
                     }
                 }
             }
+            let src_audio = with_audio && !music_replaces;
             for i in 0..segs.len() {
                 graph.push_str(&format!("[v{i}]"));
-                if with_audio {
+                if src_audio {
                     graph.push_str(&format!("[a{i}]"));
                 }
             }
             let n = segs.len();
-            if with_audio {
+            if src_audio {
                 graph.push_str(&format!("concat=n={n}:v=1:a=1[vj][aj];"));
             } else {
                 graph.push_str(&format!("concat=n={n}:v=1:a=0[vj];"));
@@ -1086,9 +1102,37 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
                 }
                 None => graph.push_str(&format!("[vj]{}[vout]", if vpost.is_empty() { "null" } else { &vpost })),
             }
-            if with_audio {
-                let af = apost.as_deref().filter(|s| !s.is_empty()).unwrap_or("anull");
-                graph.push_str(&format!(";[aj]{af}[aout]"));
+            match (with_audio, music) {
+                (true, Some(m)) => {
+                    // the music: from its offset, the output's length, faded like the clip
+                    let mut mc = format!(
+                        "[{music_idx}:a]atrim=duration={},asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo",
+                        fmt_num(duration_out)
+                    );
+                    if m.volume_db.is_finite() && m.volume_db != 0.0 {
+                        mc.push_str(&format!(",volume={}dB", fmt_num(m.volume_db)));
+                    }
+                    let (fi, fo) = (spec.fade_in.max(0.0).min(duration_out), spec.fade_out.max(0.0).min(duration_out));
+                    if fi > 0.0 {
+                        mc.push_str(&format!(",afade=t=in:st=0:d={}", fmt_num(fi)));
+                    }
+                    if fo > 0.0 {
+                        mc.push_str(&format!(",afade=t=out:st={}:d={}", fmt_num(duration_out - fo), fmt_num(fo)));
+                    }
+                    if music_replaces {
+                        graph.push_str(&format!(";{mc}[aout]"));
+                    } else {
+                        let af = apost.as_deref().filter(|s| !s.is_empty()).unwrap_or("anull");
+                        graph.push_str(&format!(
+                            ";[aj]{af},aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[asrc];{mc}[amus];[asrc][amus]amix=inputs=2:duration=first:normalize=0[aout]"
+                        ));
+                    }
+                }
+                (true, None) => {
+                    let af = apost.as_deref().filter(|s| !s.is_empty()).unwrap_or("anull");
+                    graph.push_str(&format!(";[aj]{af}[aout]"));
+                }
+                _ => {}
             }
             push(&mut a, &["-filter_complex", &graph, "-map", "[vout]"]);
             if with_audio {
@@ -1448,6 +1492,7 @@ mod tests {
             output_name: None,
             stream_copy: false,
             caption: None,
+            music: None,
             segment_sources: vec![],
             overlay: None,
             subs_delay: 0.0,
@@ -1728,6 +1773,22 @@ mod tests {
         assert!(s.contains("force_original_aspect_ratio=decrease,pad="), "{s}");
         assert!(s.contains("anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=3"), "{s}");
         assert!((p.duration_out - 7.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn music_replace_and_mix() {
+        let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
+        sp.music = Some(crate::spec::Music { path: "m.mp3".into(), mix: false, volume_db: -6.0, offset: 5.0 });
+        let p = build(&sp, &media(), &opts()).unwrap();
+        let s = strs(&p.passes[0]).join(" ");
+        assert!(s.contains("-ss 5 -i m.mp3"), "{s}");
+        assert!(s.contains("[1:a]atrim=duration=4,asetpts=PTS-STARTPTS,aresample=48000"), "{s}");
+        assert!(s.contains("volume=-6dB[aout]"), "{s}");
+        assert!(!s.contains("[0:a:0]"), "replace must not read the source's sound: {s}");
+        sp.music.as_mut().unwrap().mix = true;
+        let s = strs(&build(&sp, &media(), &opts()).unwrap().passes[0]).join(" ");
+        assert!(s.contains("[0:a:0]asetpts=PTS-STARTPTS[a0]"), "{s}");
+        assert!(s.contains("[asrc][amus]amix=inputs=2:duration=first:normalize=0[aout]"), "{s}");
     }
 
     #[test]

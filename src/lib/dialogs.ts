@@ -16,6 +16,9 @@ export const pickSubtitle = () =>
 
 export const pickFolder = (title: string) => pick({ title, directory: true });
 
+export const pickAudio = () =>
+  pick({ title: "Choose a sound file", filters: [{ name: "Audio", extensions: ["mp3", "m4a", "aac", "opus", "ogg", "wav", "flac", "wma"] }, { name: "All files", extensions: ["*"] }] });
+
 export const pickImage = () =>
   pick({ title: "Choose an image", filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "bmp"] }, { name: "All files", extensions: ["*"] }] });
 

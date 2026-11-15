@@ -96,7 +96,9 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   bitrates, codec and profile, frame rate and count, pixel format, color tags,
   audio and subtitle tracks. Copyable as text.
 - **Audio**: off, or one track with bitrate, volume in dB and loudness
-  normalization.
+  normalization. Music: a sound file that replaces the source's sound or is
+  mixed under it, with its own level and start point; it is cut to the
+  output's length and faded with the clip.
 - **Subtitles**: burn in a text subtitle track from the file, or an external
   `.srt` / `.ass` file. Timing follows the cut; a delay moves the subtitles
   later or earlier, and the font size can be set.

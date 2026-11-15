@@ -34,6 +34,9 @@ Work on the `exp` branch.
 - Filters: Stabilize (ffmpeg deshake, per range, before the crop) and Smooth
   slow motion (at speeds below 1x, minterpolate makes in-between frames up to
   the source rate or the cap instead of repeating frames; slow to encode).
+- Music: a sound file that replaces the source's sound or is mixed under it
+  (Audio group), with its own level and start point, cut to the output's
+  length and faded with the clip. A silent video can get sound this way.
 - Subtitles: delay (seconds, either way) and font size.
 - Logo: an image (PNG with transparency, JPEG, WebP) in a corner of the
   picture, sized as a share of the output width, with opacity. Remembered,

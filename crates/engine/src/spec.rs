@@ -195,6 +195,21 @@ impl Container {
     }
 }
 
+/// A sound file (music) for the output: it replaces the source's sound or is
+/// mixed under it, from `offset` seconds into the file, cut to the output's length.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Music {
+    pub path: String,
+    /// true = mix with the source's sound; false = replace it
+    #[serde(default)]
+    pub mix: bool,
+    #[serde(default)]
+    pub volume_db: f64,
+    #[serde(default)]
+    pub offset: f64,
+}
+
 /// An image placed in a corner of the output picture.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -365,6 +380,9 @@ pub struct EncodeSpec {
     /// Ranges from other files are fitted to `input`'s frame size and rate.
     #[serde(default)]
     pub segment_sources: Vec<Option<String>>,
+    /// another sound file in place of, or mixed with, the source's sound
+    #[serde(default)]
+    pub music: Option<Music>,
     /// an image (logo, watermark) over the picture
     #[serde(default)]
     pub overlay: Option<Overlay>,

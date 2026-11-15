@@ -251,6 +251,12 @@ class AppState {
   captionText = $state("");
   captionTop = $state(false);
   captionSize = $state(7);
+  /** Music: a sound file that replaces or is mixed under the source's sound. */
+  musicPath = $state<string | null>(null);
+  musicMix = $state(false);
+  musicVolume = $state(0);
+  musicOffset = $state(0);
+
   /** Logo or watermark image; remembered, and used for batch items too. */
   logoPath = $state<string | null>(null);
   logoCorner = $state<"tl" | "tr" | "bl" | "br">("br");
@@ -394,7 +400,9 @@ class AppState {
     }
     const track = own ? this.audioTrack : (m.audio[0]?.track ?? 0);
     const box = this.boxFor(m, own ? this.crop : null);
-    const audioOk = this.audioOn && m.audio.some((a) => a.track === track);
+    // music gives a silent source sound, so audio is on with it
+    const music = this.musicPath && this.container !== "audio" ? { path: this.musicPath, mix: this.musicMix, volumeDb: Number(this.musicVolume) || 0, offset: Math.max(0, Number(this.musicOffset) || 0) } : null;
+    const audioOk = (this.audioOn && m.audio.some((a) => a.track === track)) || (!!music && (this.audioOn || !m.audio.length));
     return {
       input: m.path,
       segments: segments.map((s) => ({ start: s.start, end: s.end })),
@@ -427,6 +435,7 @@ class AppState {
       audio: audioOk ? { track, bitrateK: this.audioBitrateK, volumeDb: this.volumeDb || 0, normalize: this.normalize } : null,
       subs,
       title: own ? this.title.trim() || null : null,
+      music,
       overlay: this.logoPath && this.container !== "audio" ? { path: this.logoPath, corner: this.logoCorner, size: this.logoSize, opacity: this.logoOpacity } : null,
       subsDelay: Number(this.subsDelay) || 0,
       subsFontSize: this.subsFontSize,

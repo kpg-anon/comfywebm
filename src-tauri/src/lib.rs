@@ -574,6 +574,11 @@ fn presets_export(path: String, presets: Vec<Preset>) -> Result<(), String> {
 /// Entries that are not valid presets are skipped.
 #[tauri::command]
 fn presets_import(path: String) -> Result<Vec<Preset>, String> {
+    // a presets file is a few KB; anything far larger is not one
+    let len = std::fs::metadata(&path).map_err(|e| format!("Cannot read {path}: {e}"))?.len();
+    if len > 1024 * 1024 {
+        return Err(format!("{path} is larger than 1 MB; it is not a presets file."));
+    }
     let bytes = std::fs::read(&path).map_err(|e| format!("Cannot read {path}: {e}"))?;
     let v: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| format!("{path} is not JSON: {e}"))?;
     let list = match v {

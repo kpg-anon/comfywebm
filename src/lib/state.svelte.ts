@@ -338,8 +338,8 @@ class AppState {
     const w: string[] = [];
     const t = this.tools;
     if (t) {
-      if (!t.encoders[this.codec]) w.push(`This ffmpeg has no ${this.codec.toUpperCase()} encoder.`);
-      if (this.audioOn && this.media?.audio.length && !t.encoders[this.audioCodec])
+      if (!this.codecAvailable(this.codec)) w.push(`This ffmpeg has no ${this.codec.toUpperCase()} encoder.`);
+      if (this.container !== "audio" && this.audioOn && this.media?.audio.length && !t.encoders[this.audioCodec as keyof ToolsStatus["encoders"]])
         w.push(`This ffmpeg has no ${this.audioCodecName} encoder.`);
       if (this.subsKind !== "off" && !t.filters.subtitles) w.push("This ffmpeg has no subtitles filter; subtitles cannot be burned in.");
     }
@@ -978,6 +978,8 @@ class AppState {
 
   setContainer(c: Container) {
     this.container = c;
+    // audio-only output needs a track
+    if (c === "audio" && (!this.media || this.media.audio.length)) this.audioOn = true;
     const list = CODECS_BY_CONTAINER[c];
     if (!list.includes(this.codec) || !this.codecAvailable(this.codec)) this.setCodec(list.find((k) => this.codecAvailable(k)) ?? list[0]);
   }

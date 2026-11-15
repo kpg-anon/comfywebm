@@ -126,6 +126,7 @@ pub fn bpp_floor(codec: Codec) -> f64 {
         Codec::Gif => 1.0,
         // lossy WebP codes each frame (or changed rectangle) as a still picture
         Codec::Webp => 0.35,
+        Codec::Opus | Codec::Mp3 | Codec::Aac => 1.0,
     }
 }
 
@@ -509,6 +510,9 @@ fn codec_label(c: Codec) -> &'static str {
         Codec::Hevc => "HEVC",
         Codec::Gif => "GIF",
         Codec::Webp => "WebP",
+        Codec::Opus => "Opus",
+        Codec::Mp3 => "MP3",
+        Codec::Aac => "AAC",
     }
 }
 
@@ -525,6 +529,9 @@ fn push(args: &mut Vec<String>, items: &[&str]) {
 }
 
 pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned, String> {
+    if spec.container == Container::Audio {
+        return build_audio(spec, info, opts);
+    }
     if spec.stream_copy {
         return build_copy(spec, info, opts);
     }
@@ -539,6 +546,8 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         | (Container::Webp, Codec::Webp) => {}
         (Container::Gif, _) | (_, Codec::Gif) => return Err("GIF output needs the GIF format and codec together.".into()),
         (Container::Webp, _) | (_, Codec::Webp) => return Err("WebP output needs the WebP format and codec together.".into()),
+        (_, c) if c.is_audio() => return Err(format!("{} is for audio-only output. Choose the Audio format.", codec_label(c))),
+        (Container::Audio, _) => unreachable!("audio is planned by build_audio"),
         (Container::Webm, c) => return Err(format!("{} cannot be stored in WebM. Choose MP4.", codec_label(c))),
         (Container::Mp4, c) => return Err(format!("{} cannot be stored in MP4. Choose WebM.", codec_label(c))),
     }
@@ -728,7 +737,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             Codec::Av1 => false,
             Codec::H264 | Codec::Hevc => size_mode,
             Codec::Vp9 | Codec::Vp8 => size_mode || spec.two_pass,
-            Codec::Gif | Codec::Webp => false,
+            Codec::Gif | Codec::Webp | Codec::Opus | Codec::Mp3 | Codec::Aac => false,
         };
     let reuse_pass1 = matches!(codec, Codec::Vp9 | Codec::Vp8 | Codec::H264);
     // GIF: one palette per clip from the frames' differences, then dithered
@@ -785,6 +794,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
                 }
             }
             Codec::Gif => push(&mut a, &["-c:v", "gif"]),
+            Codec::Opus | Codec::Mp3 | Codec::Aac => unreachable!("audio is planned by build_audio"),
             Codec::Webp => {
                 // CRF mode: crf 0-100, lower = better, as quality 100 - crf.
                 // Size mode: quality 75; the picture size is what changes.
@@ -934,6 +944,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             Container::Mp4 => push(&mut a, &["-movflags", "+faststart", "-f", "mp4", opts.output]),
             Container::Gif => push(&mut a, &["-loop", "0", "-f", "gif", opts.output]),
             Container::Webp => push(&mut a, &["-loop", "0", "-f", "webp", opts.output]),
+            Container::Audio => unreachable!("audio is planned by build_audio"),
         }
         a
     };
@@ -960,7 +971,7 @@ fn copy_fits(container: Container, video: &str, audio: Option<&str>) -> bool {
     let (v_ok, a_ok): (&[&str], &[&str]) = match container {
         Container::Webm => (&["vp8", "vp9", "av1"], &["opus", "vorbis"]),
         Container::Mp4 => (&["h264", "hevc", "av1", "mpeg4"], &["aac", "mp3", "opus", "ac3", "eac3", "flac", "alac"]),
-        Container::Gif | Container::Webp => (&[], &[]),
+        Container::Gif | Container::Webp | Container::Audio => (&[], &[]),
     };
     v_ok.contains(&video) && audio.is_none_or(|a| a_ok.contains(&a))
 }
@@ -1056,6 +1067,113 @@ fn build_copy(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planne
         duration_out: end - start,
         video_kbps: None,
         audio_kbps: 0.0,
+        bits_per_pixel: None,
+        quality: None,
+        auto_scaled: false,
+        passes: vec![a],
+        reuse_pass1: false,
+        warnings,
+    })
+}
+
+/// Audio only: the chosen track of every range, joined, with speed,
+/// direction, loudness, volume and fades; no picture. Size mode sets the
+/// bitrate from the limit (8-320 kbps); quality mode uses the audio bitrate.
+fn build_audio(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned, String> {
+    if !spec.codec.is_audio() {
+        return Err("Audio-only output needs Opus, MP3 or AAC.".into());
+    }
+    let au = spec.audio.ok_or("Audio only needs an audio track. Choose one in the Audio group.")?;
+    if info.audio.get(au.track as usize).is_none() {
+        return Err(if info.audio.is_empty() { "The source has no audio.".into() } else { format!("Audio track {} does not exist.", au.track) });
+    }
+    if !spec.speed.is_finite() || spec.speed <= 0.0 {
+        return Err("Speed must be greater than 0.".into());
+    }
+    let segs = resolve_segments(&spec.segments, info.duration)?;
+    let clip: f64 = segs.iter().map(|(s, e)| e - s).sum();
+    let mut warnings = Vec::new();
+    if spec.playback == Playback::Boomerang {
+        warnings.push("Boomerang applies to the picture only; the sound plays forward.".into());
+    }
+    let duration_out = clip / spec.speed;
+    let kbps = match spec.rate {
+        Rate::Size { max_bytes } => {
+            if !max_bytes.is_finite() || max_bytes <= 0.0 {
+                return Err("The size limit must be greater than 0.".into());
+            }
+            let k = (max_bytes * 8.0 / 1000.0 / duration_out.max(0.01) * 0.97).floor();
+            if k < 32.0 {
+                warnings.push(format!("The size limit allows only {} kbps of sound. Shorten the clip or raise the limit.", k.max(8.0)));
+            }
+            // a size-fit retry passes the next bitrate here
+            opts.video_kbps.map(|o| o.floor()).unwrap_or(k).clamp(8.0, 320.0)
+        }
+        Rate::Crf { .. } => au.bitrate_k.clamp(8.0, 320.0),
+    };
+    // the size-fit loop only helps below the 320 kbps cap
+    let size_mode = matches!(spec.rate, Rate::Size { .. }) && kbps < 320.0;
+    let apost = audio_post(
+        spec.speed,
+        spec.playback == Playback::Reverse,
+        au.normalize,
+        au.volume_db,
+        spec.fade_in.max(0.0),
+        spec.fade_out.max(0.0),
+        duration_out,
+    );
+    let mut a = Vec::new();
+    push(&mut a, &["-hide_banner"]);
+    if !opts.display {
+        push(&mut a, &["-nostdin", "-loglevel", "error", "-progress", "pipe:1", "-nostats"]);
+    }
+    push(&mut a, &["-y"]);
+    for (s, e) in &segs {
+        if *s > 0.0 {
+            push(&mut a, &["-ss", &fmt_num(*s)]);
+        }
+        push(&mut a, &["-t", &fmt_num(e - s), "-i", &spec.input]);
+    }
+    let t = au.track;
+    if segs.len() == 1 {
+        push(&mut a, &["-map", &format!("0:a:{t}")]);
+        let af = if apost.is_empty() { "asetpts=PTS-STARTPTS".to_string() } else { format!("asetpts=PTS-STARTPTS,{apost}") };
+        push(&mut a, &["-af", &af]);
+    } else {
+        let mut g = String::new();
+        for i in 0..segs.len() {
+            g.push_str(&format!("[{i}:a:{t}]asetpts=PTS-STARTPTS[a{i}];"));
+        }
+        for i in 0..segs.len() {
+            g.push_str(&format!("[a{i}]"));
+        }
+        g.push_str(&format!("concat=n={}:v=0:a=1[aj];[aj]{}[aout]", segs.len(), if apost.is_empty() { "anull" } else { &apost }));
+        push(&mut a, &["-filter_complex", &g, "-map", "[aout]"]);
+    }
+    let k = format!("{}k", fmt_num(kbps));
+    match spec.codec {
+        Codec::Opus => push(&mut a, &["-c:a", "libopus", "-b:a", &k]),
+        Codec::Mp3 => push(&mut a, &["-c:a", "libmp3lame", "-b:a", &k]),
+        _ => push(&mut a, &["-c:a", "aac", "-b:a", &k]),
+    }
+    push(&mut a, &["-ac", "2", "-vn", "-sn", "-dn", "-map_metadata", "-1", "-map_chapters", "-1"]);
+    if let Some(title) = spec.title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        push(&mut a, &["-metadata", &format!("title={title}")]);
+    }
+    a.extend(spec.extra_args.iter().cloned());
+    match spec.codec {
+        Codec::Opus => push(&mut a, &["-f", "opus", opts.output]),
+        Codec::Mp3 => push(&mut a, &["-f", "mp3", opts.output]),
+        _ => push(&mut a, &["-movflags", "+faststart", "-f", "ipod", opts.output]),
+    }
+    Ok(Planned {
+        out_width: 0,
+        out_height: 0,
+        duration_out,
+        // size mode: the bitrate the size-fit loop steers (here the sound's)
+        video_kbps: size_mode.then_some(kbps),
+        audio_kbps: if size_mode { 0.0 } else { kbps },
+        // (with the cap reached, the bitrate is reported as audio and no retry runs)
         bits_per_pixel: None,
         quality: None,
         auto_scaled: false,
@@ -1364,6 +1482,27 @@ mod tests {
         assert!(s.contains("transpose=clock,scale=404:720"), "{s}");
         assert!(s.ends_with("-an -frames:v 1 -update 1 -c:v png -f image2 f.png"), "{s}");
         assert!(!s.contains("libvpx"), "{s}");
+    }
+
+    #[test]
+    fn audio_only_args() {
+        let mut sp = spec(Rate::Size { max_bytes: 1_000_000.0 });
+        sp.container = Container::Audio;
+        sp.codec = Codec::Mp3;
+        sp.segments.push(Segment { start: 20.0, end: 24.0 });
+        let p = build(&sp, &media(), &Opts { output: "out.mp3", ..opts() }).unwrap();
+        let s = strs(&p.passes[0]).join(" ");
+        // 8 s for 1,000,000 bytes: 970 kbps, capped at 320
+        assert!(s.contains("concat=n=2:v=0:a=1[aj]"), "{s}");
+        assert!(s.contains("-c:a libmp3lame -b:a 320k -ac 2 -vn"), "{s}");
+        assert!(s.ends_with("-f mp3 out.mp3"), "{s}");
+        assert_eq!(sp.ext(), "mp3");
+        // a video codec in the Audio container, or an audio codec in WebM, is refused
+        sp.codec = Codec::Vp9;
+        assert!(build(&sp, &media(), &opts()).is_err());
+        sp.container = Container::Webm;
+        sp.codec = Codec::Opus;
+        assert!(build(&sp, &media(), &opts()).is_err());
     }
 
     #[test]

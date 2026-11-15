@@ -64,6 +64,9 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   no bitrate setting, so in size limit mode the picture size is chosen to fit;
   animated WebP (libwebp, no sound) works the same way, with a quality setting
   in quality mode.
+- **Audio only**: Format Audio saves the sound of the ranges as Opus, MP3 or
+  AAC (.m4a), with speed, reverse, fades, volume and normalization. In size
+  limit mode the bitrate is worked out from the limit.
 - **Cut only (no re-encode)**: copies one range's video and audio as they are
   into WebM or MP4, when the source's codecs fit that container. Fast and
   lossless, but the clip starts on the key frame at or before the in point, and
@@ -90,9 +93,11 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   otherwise, or when that copy does not play, a 480p H.264 copy is made.
   Encoding always reads the original.
 - **Sample**: encodes 3 seconds at the playhead with the current settings and
-  plays it in a loop, with its size and bitrate.
+  plays it in a loop, with its size and bitrate; "Compare with the source"
+  shows the source next to it.
 - **Frame**: saves the frame at the playhead as a full-resolution PNG, with the
-  crop applied.
+  crop applied. Shift+S (or Shift+click) saves it as the encode sees it, with
+  the filters, adjustments, rotation and output size.
 - **Queue**: its own tab next to the editor (`Q` switches). Jobs run one at a
   time, with progress, pass and attempt, ETA, and for finished jobs the size,
   an over-limit mark, Play, Reveal and Copy path; "Clear finished" empties the

@@ -172,6 +172,8 @@
       {:else}
         <div class="muted small">{app.maxBytes.toLocaleString("en-US")} bytes · two passes · aims for 99% of the limit</div>
       {/if}
+    {:else if app.container === "audio"}
+      <div class="muted small">Quality mode uses the bitrate set in the Audio group.</div>
     {:else if app.codec === "gif"}
       <div class="muted small">GIF has no quality setting. Its size comes from the picture size, the frame rate and the length.</div>
 
@@ -208,12 +210,15 @@
       <Group id="output" title="Video" note="{app.container.toUpperCase()} · {CODEC_LABEL[app.codec]}">
         <div class="row">
           <span title="WebM plays on 4chan and in browsers; MP4 plays nearly everywhere, including phones and Discord.">Format</span>
-          <Seg label="Container" value={app.container} onchange={(v) => app.setContainer(v)} options={[{ value: "webm", label: "WebM" }, { value: "mp4", label: "MP4" }, { value: "gif", label: "GIF" }, { value: "webp", label: "WebP" }]} />
+          <Seg label="Container" value={app.container} onchange={(v) => app.setContainer(v)} options={[{ value: "webm", label: "WebM" }, { value: "mp4", label: "MP4" }, { value: "gif", label: "GIF" }, { value: "webp", label: "WebP" }, { value: "audio", label: "Audio" }]} />
         </div>
         <div class="row">
           <span title="VP9 and AV1 give the best picture per MB (AV1 encodes slowest). VP8 and H.264 are for old players. HEVC is H.265, smaller than H.264 but not supported everywhere. Grayed out: your ffmpeg lacks it.">Codec</span>
           <Seg label="Codec" value={app.codec} onchange={(v) => app.setCodec(v)} options={codecs} />
         </div>
+        {#if app.container === "audio"}
+          <div class="muted small">Audio only: the sound of the ranges, with speed, direction, fades and the audio level. Resolution, crop and the picture filters do nothing.</div>
+        {:else}
         <ResolutionPicker />
         <div class="row">
           <span title="Cut away the edges of the picture. Draw the rectangle on the video (C).">Crop</span>
@@ -225,6 +230,7 @@
             <button class="btn small" disabled={!app.media} onclick={() => (app.cropMode = true)}>Draw <kbd>C</kbd></button>
           {/if}
         </div>
+        {/if}
       </Group>
 
       <Group id="motion" title="Motion" note="{app.speed !== 1 ? `${app.speed}x · ` : ''}{app.media ? `${Math.round(app.outFps * 100) / 100} fps` : ''}">
@@ -418,15 +424,19 @@
       {#if app.plan}
         <div class="summary">
           <span class="mono small">
-            {app.plan.outWidth}x{app.plan.outHeight}{app.plan.autoScaled ? " (auto)" : ""} · {fmtTime(app.plan.durationOut)}
+            {#if app.container === "audio"}audio only{:else}{app.plan.outWidth}x{app.plan.outHeight}{app.plan.autoScaled ? " (auto)" : ""}{/if} · {fmtTime(app.plan.durationOut)}
           </span>
           {#if app.plan.quality}
             <span class="badge {app.plan.quality}">{app.plan.quality}</span>
           {/if}
         </div>
         <div class="mono small muted">
-          video {app.plan.videoKbps === null ? "CRF" : `${Math.round(app.plan.videoKbps)} kbps`}
-          · audio {app.plan.audioKbps > 0 ? `${Math.round(app.plan.audioKbps)} kbps` : "off"}
+          {#if app.container === "audio"}
+            {app.audioCodecName} {Math.round(app.plan.videoKbps ?? app.plan.audioKbps)} kbps
+          {:else}
+            video {app.plan.videoKbps === null ? "CRF" : `${Math.round(app.plan.videoKbps)} kbps`}
+            · audio {app.plan.audioKbps > 0 ? `${Math.round(app.plan.audioKbps)} kbps` : "off"}
+          {/if}
           {#if app.plan.bitsPerPixel !== null}· {app.plan.bitsPerPixel.toFixed(3)} bpp{/if}
           {#if app.rateMode === "size"}· at most {fmtBytes(app.maxBytes)}{/if}
           {#if app.separate && app.segments.length > 1}· {app.segments.length} files{/if}

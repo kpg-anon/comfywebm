@@ -340,7 +340,11 @@ fn verify(state: &AppState, out: &std::path::Path, spec: &EncodeSpec, size: (u32
         Err(e) => return vec![format!("ffprobe cannot read the output: {e}")],
     };
     let mut w = Vec::new();
-    if info.video.width == 0 || info.video.height == 0 {
+    if spec.container == comfywebm_engine::Container::Audio {
+        if info.audio.is_empty() {
+            w.push("The output has no audio stream.".to_string());
+        }
+    } else if info.video.width == 0 || info.video.height == 0 {
         w.push("The output has no readable video stream.".to_string());
     } else if (info.video.width, info.video.height) != size {
         w.push(format!("The picture is {}x{}, planned {}x{}.", info.video.width, info.video.height, size.0, size.1));

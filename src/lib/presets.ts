@@ -105,9 +105,10 @@ export const CODECS_BY_CONTAINER: Record<Container, Codec[]> = {
   mp4: ["h264", "hevc", "av1"],
   gif: ["gif"],
   webp: ["webp"],
+  audio: ["opus", "mp3", "aac"],
 };
 
-export const CODEC_LABEL: Record<Codec, string> = { vp9: "VP9", vp8: "VP8", av1: "AV1", h264: "H.264", hevc: "HEVC", gif: "GIF", webp: "WebP" };
+export const CODEC_LABEL: Record<Codec, string> = { vp9: "VP9", vp8: "VP8", av1: "AV1", h264: "H.264", hevc: "HEVC", gif: "GIF", webp: "WebP", opus: "Opus", mp3: "MP3", aac: "AAC" };
 
 /** CRF scale per codec: [min, max, default]. */
 export const CRF_RANGE: Record<Codec, [number, number, number]> = {
@@ -120,12 +121,17 @@ export const CRF_RANGE: Record<Codec, [number, number, number]> = {
   gif: [0, 63, 30],
   // 100 - libwebp quality: 25 = quality 75
   webp: [0, 100, 25],
+  // audio only: quality mode uses the audio bitrate; not used
+  opus: [0, 63, 30],
+  mp3: [0, 63, 30],
+  aac: [0, 63, 30],
 };
 
 /** The audio encoder ffmpeg uses for a container and video codec. */
-export function audioCodecFor(container: Container, codec: Codec): "opus" | "vorbis" | "aac" {
+export function audioCodecFor(container: Container, codec: Codec): "opus" | "vorbis" | "aac" | "mp3" {
+  if (container === "audio") return codec === "mp3" ? "mp3" : codec === "aac" ? "aac" : "opus";
   if (container === "mp4") return "aac";
   return codec === "vp8" ? "vorbis" : "opus";
 }
 
-export const AUDIO_LABEL = { opus: "Opus", vorbis: "Vorbis", aac: "AAC" } as const;
+export const AUDIO_LABEL = { opus: "Opus", vorbis: "Vorbis", aac: "AAC", mp3: "MP3" } as const;

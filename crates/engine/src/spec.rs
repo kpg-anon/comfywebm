@@ -136,12 +136,21 @@ pub enum Codec {
     Gif,
     /// animated WebP (libwebp_anim)
     Webp,
+    /// audio only (container `audio`): .opus, .mp3, .m4a
+    Opus,
+    Mp3,
+    Aac,
 }
 
 impl Codec {
     /// Animated image formats: no audio, no bitrate control.
     pub fn is_image(self) -> bool {
         matches!(self, Codec::Gif | Codec::Webp)
+    }
+
+    /// Audio-only output codecs.
+    pub fn is_audio(self) -> bool {
+        matches!(self, Codec::Opus | Codec::Mp3 | Codec::Aac)
     }
 }
 
@@ -155,6 +164,9 @@ impl Codec {
             Codec::Hevc => "hevc",
             Codec::Gif => "gif",
             Codec::Webp => "webp",
+            Codec::Opus => "opus",
+            Codec::Mp3 => "mp3",
+            Codec::Aac => "aac",
         }
     }
 }
@@ -167,6 +179,8 @@ pub enum Container {
     Mp4,
     Gif,
     Webp,
+    /// sound only; the file type follows the codec
+    Audio,
 }
 
 impl Container {
@@ -176,6 +190,7 @@ impl Container {
             Container::Mp4 => "mp4",
             Container::Gif => "gif",
             Container::Webp => "webp",
+            Container::Audio => "m4a",
         }
     }
 }
@@ -295,6 +310,17 @@ pub struct EncodeSpec {
     /// None = the folder from Settings when the job starts
     #[serde(default)]
     pub output_dir: Option<String>,
+}
+
+impl EncodeSpec {
+    /// File extension of the output.
+    pub fn ext(&self) -> &'static str {
+        match (self.container, self.codec) {
+            (Container::Audio, Codec::Opus) => "opus",
+            (Container::Audio, Codec::Mp3) => "mp3",
+            (c, _) => c.ext(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -464,6 +490,9 @@ pub struct Encoders {
     pub opus: bool,
     pub vorbis: bool,
     pub aac: bool,
+    /// libmp3lame
+    #[serde(default)]
+    pub mp3: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

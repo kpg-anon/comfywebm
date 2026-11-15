@@ -201,6 +201,7 @@ pub fn parse_encoders(text: &str) -> Encoders {
             "aac" => e.aac = true,
             "gif" => e.gif = true,
             "libwebp_anim" => e.webp = true,
+            "libmp3lame" => e.mp3 = true,
             _ => {}
         }
     }

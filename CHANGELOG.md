@@ -11,6 +11,13 @@ Work on the `exp` branch.
 
 ### Added
 
+- Audio only: Format Audio with Opus (.opus), MP3 (.mp3) or AAC (.m4a). The
+  ranges, speed, reverse, fades, volume and normalization apply. In size mode
+  the bitrate comes from the limit (8-320 kbps) and is corrected by the same
+  retry loop as video.
+- Sample dialog: "Compare with the source" plays the source over the same
+  seconds next to the sample.
+- A queued job keeps the output folder that was set when it was added.
 - Animated WebP output (libwebp_anim): quality on a 0-100 scale in quality
   mode (shown as 100 minus the libwebp quality, so lower is better as for
   the other codecs); in size mode quality 75 and the picture size is chosen

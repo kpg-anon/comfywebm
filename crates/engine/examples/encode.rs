@@ -51,6 +51,7 @@ fn real_main() -> Result<(), String> {
                 Some("mp4") => Container::Mp4,
                 Some("gif") => Container::Gif,
                 Some("webp") => Container::Webp,
+                Some("audio") => Container::Audio,
                 _ => Container::Webm,
             },
             "--codec" => {
@@ -61,6 +62,9 @@ fn real_main() -> Result<(), String> {
                     Some("hevc") => Codec::Hevc,
                     Some("gif") => Codec::Gif,
                     Some("webp") => Codec::Webp,
+                    Some("opus") => Codec::Opus,
+                    Some("mp3") => Codec::Mp3,
+                    Some("aac") => Codec::Aac,
                     _ => Codec::Vp9,
                 }
             }

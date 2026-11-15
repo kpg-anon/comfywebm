@@ -255,11 +255,14 @@ async fn plan(app: AppHandle, spec: EncodeSpec) -> Result<PlanInfo, String> {
                 Codec::Hevc => (e.hevc, "libx265"),
                 Codec::Gif => (e.gif, "gif"),
                 Codec::Webp => (e.webp, "libwebp_anim"),
+                Codec::Opus => (e.opus, "libopus"),
+                Codec::Mp3 => (e.mp3, "libmp3lame"),
+                Codec::Aac => (e.aac, "aac"),
             };
             if !have {
                 info.warnings.push(format!("This ffmpeg has no {name} encoder."));
             }
-            if spec.audio.is_some() {
+            if spec.audio.is_some() && spec.container != Container::Audio {
                 let (have, name) = match (spec.container, spec.codec) {
                     (Container::Mp4, _) => (e.aac, "aac"),
                     (_, Codec::Vp8) => (e.vorbis, "libvorbis"),
@@ -468,7 +471,7 @@ async fn preview_sample(app: AppHandle, spec: EncodeSpec, at: f64) -> Result<Str
             old.cancel();
         }
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let out = dir.join(format!("sample-{}-{n}.{}", std::process::id(), spec.container.ext()));
+        let out = dir.join(format!("sample-{}-{n}.{}", std::process::id(), spec.ext()));
         let res = run::sample(&ffmpeg, &spec, &info, at, &out, state.zscale(), &cancel);
         {
             let mut r = samples.running.lock().unwrap();

@@ -1,13 +1,114 @@
-# comfywebm
+<div align="center">
 
-A desktop app for cutting clips out of a video and encoding them to WebM, MP4
-or GIF, either under a file size limit or at a constant quality. Open a file or a web
-link, mark one or more ranges, optionally draw a crop, pick a preset, encode.
+<img src="docs/readme/icon.png" alt="comfywebm icon" width="170">
 
-Built with Tauri 2 (Rust) and Svelte 5. Runs on Windows, Linux and macOS.
-It uses your own ffmpeg and yt-dlp; neither is bundled.
+<h1><samp>comfywebm</samp></h1>
 
-## Features
+<p>
+  <b>Cut a clip out of any video and get a WebM, MP4, GIF or WebP that fits the size limit.</b><br>
+  <i>Open a file or a link, mark the part you want, pick a preset, encode.</i>
+</p>
+
+<p>
+  <img src="https://img.shields.io/badge/version-1.0.0-c287ff?style=for-the-badge" alt="Version 1.0.0">
+  <img src="https://img.shields.io/badge/Tauri-v2-24C8DB?style=for-the-badge&logo=tauri&logoColor=white" alt="Tauri v2">
+  <img src="https://img.shields.io/badge/Svelte-5-FF3E00?style=for-the-badge&logo=svelte&logoColor=white" alt="Svelte 5">
+  <img src="https://img.shields.io/badge/Rust-engine-CE412B?style=for-the-badge&logo=rust&logoColor=white" alt="Rust engine">
+  <img src="https://img.shields.io/badge/ffmpeg-your%20own-5cb85c?style=for-the-badge&logo=ffmpeg&logoColor=white" alt="Uses your own ffmpeg">
+  <img src="https://img.shields.io/badge/license-MIT-6ea8ff?style=for-the-badge" alt="License: MIT">
+</p>
+
+<p>
+  <a href="https://github.com/kpg-anon/comfywebm/releases/latest"><img src="https://img.shields.io/badge/⬇%20download-latest%20release-82d65a?style=for-the-badge" alt="Download the latest release"></a>
+</p>
+
+</div>
+
+<div align="center">
+  <img src="docs/readme/demo.webp" alt="Marking a range on the timeline, drawing a crop, typing a caption and encoding the clip under 4 MiB" width="860">
+  <br><sub>Mark a range with I and O, draw a crop, type a caption, encode under 4 MiB. The sample clip is generated with ffmpeg.</sub>
+</div>
+
+## Why
+
+Image boards, Discord and X each have their own file size limit, and getting a
+clip under it usually means guessing a bitrate, encoding, checking the size and
+trying again. comfywebm does that part for you: it works out the bitrate from
+the limit and the length, encodes in two passes, checks the result and encodes
+again if the file came out too big. The preview shows the crop, speed,
+rotation, colors, caption and watermark as you change them, so you see the
+result before you encode.
+
+It is a desktop app built on your own ffmpeg (and yt-dlp for web links). Nothing
+is uploaded anywhere. Built with Tauri 2 (Rust) and Svelte 5; it runs on
+Windows, Linux and macOS.
+
+## Highlights
+
+- **Fits the limit**: size mode encodes to 99% of the limit in two passes and
+  tries again when the file is over it. Presets for 4chan, Discord and X, plus
+  your own. Quality (CRF) mode when size does not matter.
+- **Edit on the timeline**: several ranges per file, thumbnails and the audio
+  waveform behind them, snapping, scene cut detection, undo and redo, frame
+  stepping, loop playback.
+- **Picture**: crop with aspect presets and black bar detection, rotate,
+  mirror, speed from 0.25x to 4x with interpolation for slow motion, reverse
+  and boomerang, fades, brightness / contrast / saturation / gamma / hue and a
+  curve, HDR to SDR tone mapping.
+- **On top**: captions in any installed font and color, at the top, bottom or
+  dragged anywhere; a watermark in a corner, dragged anywhere or tiled
+  (optionally turned, for diagonal rows); burned-in subtitles.
+- **Formats**: WebM (VP9, VP8, AV1), MP4 (H.264, HEVC, AV1), GIF, animated
+  WebP, and sound only (Opus, MP3, AAC). Cut-only stream copy when nothing
+  else changes. Sound files with a picture become a video.
+- **Many files**: a batch tab that checks every file against the settings and
+  offers one-click fixes, joining files into one, and an encode queue that
+  survives restarts.
+- **Web links**: paste a link and pick the quality and the part to download
+  (yt-dlp).
+- **In-app updates** with the changelog of each release.
+
+## Screenshots
+
+<div align="center">
+  <img src="docs/readme/editor.webp" alt="The editor: player with the crop and caption preview, timeline with ranges, thumbnails and waveform, and the settings sidebar" width="860">
+  <br><sub>The editor: preview, timeline with ranges, thumbnails, waveform and scene cuts, and the settings on the right</sub>
+</div>
+
+| | |
+|:--:|:--:|
+| <img src="docs/readme/crop.webp" alt="Drawing a crop on the picture"> | <img src="docs/readme/overlay.webp" alt="A caption and a tiled, turned watermark"> |
+| <sub>Crop drawn on the picture, with aspect presets</sub> | <sub>Caption and a tiled watermark turned 30 degrees</sub> |
+| <img src="docs/readme/batch.webp" alt="The batch tab with per-file checks"> | <img src="docs/readme/queue.webp" alt="The encode queue"> |
+| <sub>Batch: every file checked against the settings, with one-click fixes</sub> | <sub>Queue: progress, attempts, Play, Reveal</sub> |
+| <img src="docs/readme/settings.webp" alt="Settings with theme presets"> | <img src="docs/readme/themes.webp" alt="The same editor in other themes"> |
+| <sub>Settings: themes, interface size, updates, settings file</sub> | <sub>Five theme presets and your own colors</sub> |
+
+## Download
+
+**[Latest release](https://github.com/kpg-anon/comfywebm/releases/latest)** (Windows x64; on Linux and
+macOS, [build from source](#build-from-source)):
+`comfywebm_1.0.0_x64-setup.exe`. It installs for your user only (no administrator
+rights), adds a Start menu entry and an uninstaller, and gets updates inside the
+app.
+
+You also need **ffmpeg** (and **yt-dlp** for web links); see
+[Requirements](#requirements). The app tells you when one is missing and links
+to the download page.
+
+The installer is not code-signed, so Windows SmartScreen may warn the first
+time: **More info**, then **Run anyway**. The WebView2 runtime ships with
+Windows 10 and 11; the installer downloads it if it is missing.
+
+### Updates
+
+At start (Settings > Look > Updates; on by default) the app asks GitHub for the
+latest release. When there is a newer one, a notice shows its version and its
+changelog, with **Update now** and **Later**. Update now downloads the
+installer, checks its signature against the key built into the app, installs
+it and starts the app again. Settings > Look > Updates also has **Check now**.
+
+## Features in detail
 
 - **Input**: local files (open, or the first command-line argument; drag and
   drop onto the preview area), and web links through yt-dlp: title, uploader,
@@ -201,6 +302,8 @@ With the `x86_64-pc-windows-gnu` toolchain, the executable loads
 `WebView2Loader.dll` at run time. The build copies it to `target/debug` or
 `target/release`, and the NSIS installer includes it. Keep it in the same
 folder as `comfywebm.exe` when you move the executable by hand.
+
+Releases and in-app updates: see [scripts/README.md](scripts/README.md).
 
 Checks:
 

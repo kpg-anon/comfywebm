@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-16
+
 The first public release.
 
 - **Fits the limit**: size mode works out the bitrate from the limit and the

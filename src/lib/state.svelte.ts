@@ -374,13 +374,13 @@ class AppState {
   /** Frame rate of the output (source fps x speed, or the cap). */
   outFps = $derived.by(() => {
     const sp = this.speed || 1;
-    // smooth slow motion makes frames up to the source rate (or the cap)
+    // interpolation makes frames up to the source rate (or the cap)
     if (this.smoothSlowmo && sp < 1 && this.container !== "gif" && this.container !== "webp")
       return this.fps && this.fps > 0 ? Math.min(this.fps, this.fpsSrc) : this.fpsSrc;
     const r = this.fpsSrc * sp;
     return this.fps && this.fps > 0 && this.fps < r - 0.01 ? this.fps : r;
   });
-  // with smooth slow motion the output runs at the source rate, as at 1x
+  // with interpolation the output runs at the source rate, as at 1x
   motionIssues = $derived(
     this.media
       ? motionWarnings(this.fpsSrc, this.smoothSlowmo && (this.speed || 1) < 1 ? 1 : this.speed || 1, numOrNull(this.fps), this.refreshHz)

@@ -741,7 +741,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     // GIF frame delays are whole centiseconds and players treat under 2 as
     // slow, so a GIF is capped at 50 fps
     let fps_cap = if codec.is_image() && fps_cap.unwrap_or(src_fps_out) > 50.0 { Some(50.0) } else { fps_cap };
-    // smooth slow motion: frames are made up to the source rate (or the cap)
+    // interpolation (slow motion): frames are made up to the source rate (or the cap)
     let interpolate = (spec.smooth_slowmo && speed < 1.0 - 1e-9 && v.fps > 0.0 && !codec.is_image() && still.is_none())
         .then(|| fps_cap.map_or(v.fps, |c| c.min(v.fps)));
     let still_rate = still.map(|_| still_rate(duration_out, spec.fade_in > 0.0 || spec.fade_out > 0.0));
@@ -750,7 +750,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         None => interpolate.unwrap_or(fps_cap.unwrap_or(if src_fps_out > 0.0 { src_fps_out } else { 30.0 })),
     };
     if interpolate.is_some() && duration_out > 20.0 {
-        warnings.push("Smooth slow motion computes every new frame and is slow: expect minutes per second of output.".into());
+        warnings.push("Interpolation computes every new frame and is slow: expect minutes per second of output.".into());
     }
     if codec.is_image() && out_fps > 25.0 {
         warnings.push(format!(

@@ -116,6 +116,27 @@ impl AppState {
         Ok(())
     }
 
+    /// Reads settings.json again (after it was edited by hand). A file that does not parse
+    /// is left as it is and the error returned; the settings in use do not change.
+    pub fn reload_settings(&self) -> Result<Settings, String> {
+        let p = &self.settings_path;
+        let new = match std::fs::read(p) {
+            Ok(bytes) => serde_json::from_slice::<Settings>(&bytes).map_err(|e| format!("{} could not be read: {e}", p.display()))?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Settings::default(),
+            Err(e) => return Err(format!("Cannot read {}: {e}", p.display())),
+        };
+        let changed = {
+            let mut cur = self.settings.lock().unwrap();
+            let changed = cur.ffmpeg_path != new.ffmpeg_path || cur.ytdlp_path != new.ytdlp_path;
+            *cur = new.clone();
+            changed
+        };
+        if changed {
+            *self.tools.lock().unwrap() = None;
+        }
+        Ok(new)
+    }
+
     /// The next `tools()` searches again.
     pub fn forget_tools(&self) {
         *self.tools.lock().unwrap() = None;

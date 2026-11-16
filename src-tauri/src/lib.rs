@@ -793,6 +793,110 @@ async fn theme_import(app: AppHandle) -> Result<Option<String>, String> {
     std::fs::read_to_string(&path).map(Some).map_err(|e| format!("Cannot read {}: {e}", path.display()))
 }
 
+/// Settings export: settings.json's fields (without the presets, which have their own
+/// export) plus the page's appearance values (`look`: theme, interface size, ...), in one
+/// JSON file. The save dialog runs here. None when it was canceled.
+#[tauri::command]
+async fn settings_export(app: AppHandle, look: serde_json::Value) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    if look.to_string().len() > 256 * 1024 {
+        return Err("The appearance settings are too large.".into());
+    }
+    let mut settings = app.state::<AppState>().settings();
+    settings.presets.clear();
+    let json = serde_json::to_vec_pretty(&serde_json::json!({ "comfywebmSettings": 1, "settings": settings, "look": look }))
+        .map_err(|e| e.to_string())?;
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("Export settings")
+        .add_filter("comfywebm settings", &["json"])
+        .set_file_name("comfywebm-settings.json")
+        .blocking_save_file();
+    let Some(fp) = picked else { return Ok(None) };
+    let path = fp.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| format!("Cannot write {}: {e}", path.display()))?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[derive(Serialize)]
+struct ImportedSettings {
+    path: String,
+    settings: Settings,
+    look: serde_json::Value,
+}
+
+/// Settings import: the open dialog runs here. The file's settings are saved to
+/// settings.json at once (presets and the last chosen preset stay as they are); its
+/// appearance values are returned for the page to apply. None when canceled.
+#[tauri::command]
+async fn settings_import(app: AppHandle) -> Result<Option<ImportedSettings>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("Import settings")
+        .add_filter("comfywebm settings", &["json"])
+        .add_filter("All files", &["*"])
+        .blocking_pick_file();
+    let Some(fp) = picked else { return Ok(None) };
+    let path = fp.into_path().map_err(|e| e.to_string())?;
+    let shown = path.display().to_string();
+    let len = std::fs::metadata(&path).map_err(|e| format!("Cannot read {shown}: {e}"))?.len();
+    if len > 1024 * 1024 {
+        return Err(format!("{shown} is larger than 1 MB; it is not a settings file."));
+    }
+    let bytes = std::fs::read(&path).map_err(|e| format!("Cannot read {shown}: {e}"))?;
+    let mut v: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| format!("{shown} is not JSON: {e}"))?;
+    // an export file, or a settings.json copied from another computer
+    let (settings, look) = if v.get("comfywebmSettings").is_some() {
+        (v.get_mut("settings").map(serde_json::Value::take).unwrap_or_default(), v.get_mut("look").map(serde_json::Value::take).unwrap_or_default())
+    } else if v.get("nameTemplate").is_some() || v.get("ffmpegPath").is_some() {
+        (v, serde_json::Value::Null)
+    } else {
+        return Err(format!("{shown} is not a comfywebm settings file."));
+    };
+    let mut settings: Settings = serde_json::from_value(settings).map_err(|e| format!("{shown}: the settings could not be read ({e})."))?;
+    let state = app.state::<AppState>();
+    let cur = state.settings();
+    settings.presets = cur.presets;
+    settings.last_preset = cur.last_preset;
+    state.save_settings(settings.clone())?;
+    Ok(Some(ImportedSettings { path: shown, settings, look }))
+}
+
+/// Shows settings.json in the file manager ("folder") or opens it in the program
+/// set for .json files ("editor"; Notepad when none is set on Windows). The file
+/// is written first when it does not exist yet.
+#[tauri::command]
+fn settings_open(app: AppHandle, target: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let state = app.state::<AppState>();
+    let path = state.settings_path.clone();
+    if !path.is_file() {
+        state.save_settings(state.settings())?;
+    }
+    if target == "folder" {
+        return app.opener().reveal_item_in_dir(&path).map_err(|e| e.to_string());
+    }
+    let shown = path.to_string_lossy().into_owned();
+    match app.opener().open_path(&shown, None::<&str>) {
+        Ok(()) => Ok(()),
+        Err(e) if cfg!(windows) => std::process::Command::new("notepad.exe")
+            .arg(&path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e2| format!("Cannot open {shown}: {e}; Notepad: {e2}")),
+        Err(e) => Err(format!("Cannot open {shown}: {e}")),
+    }
+}
+
+/// Reads settings.json again after it was edited outside the app.
+#[tauri::command]
+fn settings_reload(state: State<AppState>) -> Result<Settings, String> {
+    state.reload_settings()
+}
+
 /// Preview proxies and timeline pictures above this total are deleted at
 /// start, oldest first. Downloads and samples are not counted.
 const CACHE_LIMIT: u64 = 4 << 30;
@@ -896,6 +1000,10 @@ pub fn run() {
             list_media,
             theme_export,
             theme_import,
+            settings_export,
+            settings_import,
+            settings_open,
+            settings_reload,
         ])
         .build(tauri::generate_context!())
         .expect("error while building comfywebm")

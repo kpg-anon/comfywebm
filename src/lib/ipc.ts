@@ -89,6 +89,10 @@ export const listMedia = (dir: string, recursive: boolean) => invoke<string[]>("
 /** The file dialogs run in Rust; null = canceled. */
 export const themeExport = (text: string) => invoke<string | null>("theme_export", { text });
 export const themeImport = () => invoke<string | null>("theme_import");
+export const settingsExport = (look: unknown) => invoke<string | null>("settings_export", { look });
+export const settingsImport = () => invoke<{ path: string; settings: Settings; look: unknown } | null>("settings_import");
+export const settingsOpen = (target: "folder" | "editor") => invoke<void>("settings_open", { target });
+export const settingsReload = () => invoke<Settings>("settings_reload");
 
 export const onJobUpdate = (cb: (job: Job) => void): Promise<UnlistenFn> =>
   listen<Job>("job-update", (e) => cb(e.payload));

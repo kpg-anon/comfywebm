@@ -16,6 +16,7 @@
     type CustomTheme,
   } from "$lib/themes";
   import Select from "./Select.svelte";
+  import type { Settings } from "$lib/types";
 
   // appearance applies at once and is kept per machine (not part of Save)
   let theme = $state(storedTheme());
@@ -62,6 +63,75 @@
       themeMsg = e instanceof SyntaxError ? "That file is not valid JSON." : ipc.errText(e);
     }
   }
+
+  // --- the settings file: import, export, open, reload ---
+  let fileMsg = $state<string | null>(null);
+
+  /** Appearance values kept in this webview (not in settings.json). */
+  const lookNow = () => ({
+    theme: storedTheme(),
+    customTheme: storedCustom(),
+    uiScale: app.uiScale,
+    refreshHz: app.refreshHz,
+    timelineFilm: app.showFilm,
+    timelineWave: app.showWave,
+  });
+
+  function applyLook(v: unknown) {
+    if (!v || typeof v !== "object") return;
+    const o = v as Record<string, unknown>;
+    const c = parseCustom(o.customTheme);
+    if (c) setCustom(c);
+    if (typeof o.theme === "string") pickTheme(o.theme);
+    if (typeof o.uiScale === "number" && o.uiScale >= 0.5 && o.uiScale <= 2) app.setUiScale(o.uiScale);
+    if (typeof o.refreshHz === "number" && REFRESH_RATES.includes(o.refreshHz)) app.setRefreshHz(o.refreshHz);
+    if (typeof o.timelineFilm === "boolean" && typeof o.timelineWave === "boolean") app.setTimelinePics(o.timelineFilm, o.timelineWave);
+  }
+
+  /** Puts saved settings into the app and into this dialog's fields. */
+  async function useSettings(s: Settings) {
+    app.settings = s;
+    ffmpegPath = s.ffmpegPath ?? "";
+    outputDir = s.outputDir ?? "";
+    outputMode = s.outputMode ?? (s.outputDir ? "folder" : "desktop");
+    ytdlpPath = s.ytdlpPath ?? "";
+    ytdlpArgs = s.ytdlpArgs.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ");
+    downloadDir = s.downloadDir ?? "";
+    keepDir = s.keepDir ?? "";
+    nameTemplate = s.nameTemplate;
+    ytdlpCookies = s.ytdlpCookies ?? "";
+    await app.refreshTools();
+  }
+
+  async function fileAction(f: () => Promise<string | null>) {
+    fileMsg = null;
+    try {
+      fileMsg = await f();
+    } catch (e) {
+      fileMsg = ipc.errText(e);
+    }
+  }
+
+  const exportSettings = () =>
+    fileAction(async () => {
+      const p = await ipc.settingsExport($state.snapshot(lookNow()));
+      return p ? `Saved ${p}` : null;
+    });
+
+  const importSettings = () =>
+    fileAction(async () => {
+      const r = await ipc.settingsImport();
+      if (!r) return null;
+      await useSettings(r.settings);
+      applyLook(r.look);
+      return `Imported and saved ${r.path}.`;
+    });
+
+  const reloadSettings = () =>
+    fileAction(async () => {
+      await useSettings(await ipc.settingsReload());
+      return "Read settings.json again.";
+    });
 
   const BROWSERS = ["firefox", "chrome", "chromium", "edge", "brave", "opera", "vivaldi", "whale", "safari"];
   let ytdlpCookies = $state(app.settings.ytdlpCookies ?? "");
@@ -396,6 +466,18 @@
       <span class="hint">Preview copies of files the player cannot show, samples and timeline pictures{cache ? ` (${cache.dir})` : ""}. Downloads saved with "Download only" are never in the cache.</span>
     </div>
     {/if}
+
+    <div class="col">
+      <span>Settings file</span>
+      <div class="line cacheline">
+        <button class="btn small" title="Read a settings file exported here or on another computer. Its settings are saved at once; your presets are kept." onclick={importSettings}>Import...</button>
+        <button class="btn small" title="Save the settings on all three tabs to one file (presets have their own export)" onclick={exportSettings}>Export...</button>
+        <button class="btn small" title="Show settings.json in the file manager" onclick={() => fileAction(async () => (await ipc.settingsOpen("folder"), null))}>Show in folder</button>
+        <button class="btn small" title="Open settings.json in the program set for .json files. Press Reload after saving it there." onclick={() => fileAction(async () => (await ipc.settingsOpen("editor"), null))}>Open in editor</button>
+        <button class="btn small" title="Read settings.json again after editing it outside the app" onclick={reloadSettings}>Reload</button>
+      </div>
+      {#if fileMsg}<span class="hint">{fileMsg}</span>{/if}
+    </div>
 
     {#if msg}<div class="err">{msg}</div>{/if}
 

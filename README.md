@@ -278,6 +278,12 @@ The longest clip is advisory: the app warns when the output is longer.
 - Settings: `settings.json` in the app config folder (`%APPDATA%\com.comfywebm.app`
   on Windows, `~/.config/com.comfywebm.app` on Linux,
   `~/Library/Application Support/com.comfywebm.app` on macOS).
+  Settings > Settings file: Import and Export (one JSON file with the
+  settings of all three tabs, including the appearance values that are kept
+  in the webview; presets are not in it), Show in folder, Open in editor (the
+  program set for .json files, else Notepad on Windows) and Reload (reads
+  settings.json again after editing it by hand). An imported file is saved
+  at once; your presets and last chosen preset are kept.
 - `config.toml` in the same folder: the resolution steps (heights and widths),
   percentages, frame rate caps and audio bitrates the app offers, and whether
   steps are heights or widths by default. Written once with comments; edit it

@@ -1996,18 +1996,14 @@ mod tests {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("contract");
         let check = |name: &str, v: serde_json::Value| {
             let p = dir.join(name);
-            let text = serde_json::to_string_pretty(&v).unwrap() + "
-";
+            let text = serde_json::to_string_pretty(&v).unwrap() + "\n";
             if std::env::var_os("CWM_WRITE_CONTRACT").is_some() {
                 std::fs::create_dir_all(&dir).unwrap();
                 std::fs::write(&p, &text).unwrap();
                 return;
             }
-            let have = std::fs::read_to_string(&p).unwrap_or_default().replace("
-", "
-");
-            assert!(have == text, "{name} no longer matches the Rust types. If intended, run with CWM_WRITE_CONTRACT=1 and update src/lib/types.ts.
-{text}");
+            let have = std::fs::read_to_string(&p).unwrap_or_default().replace("\r\n", "\n");
+            assert!(have == text, "{name} no longer matches the Rust types. If intended, run with CWM_WRITE_CONTRACT=1 and update src/lib/types.ts.\n{text}");
         };
         // every optional part filled, so its keys are in the file
         let mut sp = spec(Rate::Size { max_bytes: 4194304.0 });

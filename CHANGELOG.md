@@ -13,6 +13,14 @@ below under those numbers.
 
 ### Added
 
+- Caption position Custom: drag the caption on the player, or type the
+  position across and down in percent.
+- Watermark rotation, -90 to 90 degrees. With Tile the whole grid turns, so
+  the rows run diagonally.
+- Settings > Files > Recent files: turn the start screen's list off (which
+  also clears it) or on, and clear it.
+- Settings > Look > Sidebar: resizable by dragging its left edge. Off by
+  default.
 - Caption font, text color, outline color and outline width (none, thin,
   normal, thick). The font list holds the installed fonts; File picks a
   .ttf/.otf that is not installed. The look is remembered between runs.
@@ -137,6 +145,10 @@ below under those numbers.
 
 ### Changed
 
+- The header shows the new app icon. The icon files have a transparent
+  margin, so the Windows title bar icon is not against the window's edge.
+- The sidebar can only be resized when Settings > Look > Sidebar is on
+  (it could always be dragged before).
 - New app icon (the sleeping man with the play-button pillow).
 - "Smooth slow motion" is called "Interpolation".
 - "Logo" is called "Watermark".

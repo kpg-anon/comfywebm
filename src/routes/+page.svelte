@@ -186,7 +186,7 @@
 <div class="app">
   <header>
     <span class="brand">
-      <Logo size={22} />
+      <Logo size={26} />
       <span class="logo">comfywebm</span>
       {#if version}<span class="ver mono">v{version}</span>{/if}
     </span>

@@ -79,6 +79,11 @@ pub fn cpu_threads() -> usize {
 
 /// Lowest video bitrate ever passed to the encoder.
 const MIN_VIDEO_KBPS: f64 = 8.0;
+/// Share of a size limit (as kbps) kept for a still picture when the sound would
+/// otherwise fill it: a 640x360 keyframe every 10 s is about 20-50 KB.
+const STILL_VIDEO_KBPS: f64 = 40.0;
+/// The sound bitrate is not lowered below this for a still picture.
+const MIN_STILL_AUDIO_KBPS: f64 = 24.0;
 
 /// Size mode, first attempt: `(maxBytes * 8 / 1000 / durationOut - audioKbps) * 0.985`.
 /// The 1.5% margin covers container overhead and encoder overshoot; the
@@ -778,6 +783,23 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         }
         None => None,
     };
+    // a still picture needs little of the budget, but a long song at the chosen bitrate can
+    // be larger than the limit on its own: the sound bitrate is lowered to leave the picture
+    // STILL_VIDEO_KBPS
+    let mut audio = audio;
+    if let (Some(_), Rate::Size { max_bytes }, Some(a)) = (still, &spec.rate, audio.as_mut()) {
+        let max_bytes = *max_bytes;
+        let room = (max_bytes * 8.0 / 1000.0 / duration_out) * 0.985 - STILL_VIDEO_KBPS;
+        if max_bytes > 0.0 && duration_out > 0.0 && a.bitrate_k > room {
+            let k = room.floor().max(MIN_STILL_AUDIO_KBPS);
+            warnings.push(if room < MIN_STILL_AUDIO_KBPS {
+                format!("The sound is too long for the size limit even at {k} kbps. Shorten it or raise the limit.")
+            } else {
+                format!("The sound bitrate is lowered from {} to {k} kbps to fit the size limit.", a.bitrate_k)
+            });
+            a.bitrate_k = k;
+        }
+    }
     let audio_kbps = audio.map(|a| a.bitrate_k).unwrap_or(0.0);
 
     // --- rate ---
@@ -1937,6 +1959,27 @@ mod tests {
         assert!(s.contains("-i m.mp3 -i in.mp3"), "{s}");
         assert!(s.contains("[2:1]loop="), "{s}");
         assert!(!s.contains("concat"), "music replaces the sound: {s}");
+    }
+
+    #[test]
+    fn cover_long_song_lowers_audio() {
+        let mut sp = spec(Rate::Size { max_bytes: 4.0 * 1024.0 * 1024.0 });
+        sp.input = "in.mp3".into();
+        sp.segments = vec![Segment { start: 0.0, end: 400.0 }];
+        sp.audio = Some(AudioSel { track: 0, bitrate_k: 96.0, volume_db: 0.0, normalize: false });
+        let mut m = sound(true);
+        m.duration = 400.0;
+        let p = build(&sp, &m, &opts()).unwrap();
+        // 4 MiB over 400 s is 83.9 kbps in all; 96k sound alone would be 4.6 MiB
+        assert_eq!(p.audio_kbps, 42.0, "{:?}", p.warnings);
+        assert!(p.warnings.iter().any(|w| w.contains("lowered from 96 to 42 kbps")), "{:?}", p.warnings);
+        let s = strs(&p.passes[p.passes.len() - 1]).join(" ");
+        assert!(s.contains("-b:a 42k"), "{s}");
+        // a short one keeps its bitrate
+        sp.segments = vec![Segment { start: 0.0, end: 60.0 }];
+        m.duration = 60.0;
+        let p = build(&sp, &m, &opts()).unwrap();
+        assert_eq!(p.audio_kbps, 96.0);
     }
 
     #[test]

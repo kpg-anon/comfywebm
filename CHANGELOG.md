@@ -15,7 +15,9 @@ Work on the `exp` branch.
   with no picture; a video format makes a video of the sound with a still
   picture: Basic > Picture, or the file's embedded cover. The picture runs at
   about 1 frame per second, with a keyframe every 10 seconds, and in size mode
-  a file under the limit is not encoded again to fill it.
+  a file under the limit is not encoded again to fill it. A long sound that
+  would not fit the limit next to the picture gets a lower bitrate, with a
+  warning (400 s at 4 MiB: 96 kbps becomes 42 kbps).
 - Batch: a small picture of each file (from 10% in), made two at a time.
 - Batch: "Join into one file" makes one job from the included files in list
   order, each with its trim, at the first file's picture size and frame

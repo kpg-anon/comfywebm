@@ -82,7 +82,7 @@ class Updater {
   /** Dev only: shows the notice with sample notes, without a release. */
   preview(notes: string) {
     this.update = null;
-    this.version = "9.9.9";
+    this.version = "1.0.1";
     this.notes = notes;
     this.dismissed = false;
     this.phase = "available";

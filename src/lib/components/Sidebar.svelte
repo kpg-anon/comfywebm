@@ -522,18 +522,21 @@
           <span class="mono small">
             {#if app.container === "audio"}audio only{:else}{app.plan.outWidth}x{app.plan.outHeight}{app.plan.autoScaled ? " (auto)" : ""}{/if} · {fmtTime(app.plan.durationOut)}
           </span>
-          {#if app.plan.quality}
+          {#if app.plan.quality && !app.audioOnly}
             <span class="badge {app.plan.quality}">{app.plan.quality}</span>
           {/if}
         </div>
         <div class="mono small muted">
           {#if app.container === "audio"}
             {app.audioCodecName} {Math.round(app.plan.videoKbps ?? app.plan.audioKbps)} kbps
+          {:else if app.audioOnly}
+            <!-- a still picture is one frame repeated; its bitrate and bits per pixel say nothing -->
+            still picture · audio {Math.round(app.plan.audioKbps)} kbps
           {:else}
             video {app.plan.videoKbps === null ? "CRF" : `${Math.round(app.plan.videoKbps)} kbps`}
             · audio {app.plan.audioKbps > 0 ? `${Math.round(app.plan.audioKbps)} kbps` : "off"}
           {/if}
-          {#if app.plan.bitsPerPixel !== null}· {app.plan.bitsPerPixel.toFixed(3)} bpp{/if}
+          {#if app.plan.bitsPerPixel !== null && !app.audioOnly}· {app.plan.bitsPerPixel.toFixed(3)} bpp{/if}
           {#if app.rateMode === "size"}· at most {fmtBytes(app.maxBytes)}{/if}
           {#if app.separate && app.segments.length > 1}· {app.segments.length} files{/if}
         </div>

@@ -211,6 +211,77 @@ if run cover_long_size webm; then
   report cover_long_size $ok "size=$s limit=1048576 $(res)"
 else fail_run cover_long_size; fi
 
+# 17. splits: a wide 640x360 30 fps clip with sound (4 s) and a tall 360x640 60 fps one without (3 s)
+gen -f lavfi -i testsrc2=size=640x360:rate=30:duration=4 -f lavfi -i sine=frequency=330:sample_rate=48000:duration=4 \
+  -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -shortest "$work/wide.mp4"
+gen -f lavfi -i testsrc2=size=360x640:rate=60:duration=3 -c:v libx264 -preset ultrafast -pix_fmt yuv420p "$work/tall.mp4"
+wide=$(native "$work/wide.mp4"); tall=$(native "$work/tall.mp4")
+aud='"audio":{"track":0,"bitrateK":64,"volumeDb":0,"normalize":false}'
+# lay NAME LAYOUT_JSON [EXTRA_JSON]: the two clips (or three for a grid) with that layout
+lay() {
+  local clips="\"segments\":[{\"start\":0,\"end\":4},{\"start\":0,\"end\":3}],\"segmentSources\":[null,\"$tall\"]"
+  case "$2" in *'"grid"'*) clips="\"segments\":[{\"start\":0,\"end\":4},{\"start\":0,\"end\":3},{\"start\":1,\"end\":4}],\"segmentSources\":[null,\"$tall\",null]" ;; esac
+  spec "$1" "{\"input\":\"$wide\",$clips,\"layout\":$2,$aud${3:+,$3}}"
+}
+fps_of() { ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate -of csv=p=0 "$1"; }
+has_audio() { [ "$(probe "$1" | grep -c 'codec_type=audio')" = 1 ]; }
+L='"width":640,"height":360,"fps":30,"gap":0,"gapColor":"#000000","weights":[],"columns":0,"sound":"clip","soundClip":0'
+
+for fill in bars crop blur; do
+  lay "seq_$fill" "{\"mode\":\"sequence\",\"fill\":\"$fill\",\"length\":\"shortest\",$L}"
+  if run "seq_$fill" webm; then
+    d=$(val "$info" duration)
+    ok=0; [ "$(val "$info" width)" = 640 ] && [ "$(val "$info" height)" = 360 ] && near "$d" 7 0.15 && [ "$(fps_of "$out")" = 30/1 ] && has_audio "$out" && ok=1
+    report "splits_sequence_$fill" $ok "$(val "$info" width)x$(val "$info" height) duration=$d fps=$(fps_of "$out")"
+  else fail_run "splits_sequence_$fill"; fi
+done
+
+lay side '{"mode":"columns","fill":"bars","length":"shortest",'"$L"'}'
+if run side webm; then
+  d=$(val "$info" duration)
+  ok=0; [ "$(val "$info" width)" = 640 ] && near "$d" 3 0.15 && has_audio "$out" && ok=1
+  report splits_side_by_side $ok "$(val "$info" width)x$(val "$info" height) duration=$d"
+else fail_run splits_side_by_side; fi
+
+# stacked with a red 16 px gap: the pixel in the middle of the gap is red
+lay stacked '{"mode":"rows","fill":"crop","length":"shortest","width":360,"height":640,"fps":30,"gap":16,"gapColor":"#ff0000","weights":[],"columns":0,"sound":"clip","soundClip":0}'
+if run stacked webm; then
+  px=$(ffmpeg -v error -ss 1 -i "$out" -vf crop=2:2:180:320 -frames:v 1 -f rawvideo -pix_fmt rgb24 - | od -An -tu1 | head -1 | tr -s ' ')
+  r=$(echo $px | cut -d' ' -f1); g=$(echo $px | cut -d' ' -f2)
+  ok=0; [ "$(val "$info" width)" = 360 ] && [ "$(val "$info" height)" = 640 ] && [ "$r" -gt 180 ] && [ "$g" -lt 80 ] && ok=1
+  report splits_stacked_gap $ok "$(val "$info" width)x$(val "$info" height) gap pixel rgb=$px"
+else fail_run splits_stacked_gap; fi
+
+lay grid3 '{"mode":"grid","fill":"bars","length":"shortest",'"$L"'}'
+if run grid3 webm; then
+  d=$(val "$info" duration)
+  ok=0; [ "$(val "$info" width)" = 640 ] && near "$d" 3 0.15 && ok=1
+  report splits_grid_3_of_4 $ok "$(val "$info" width)x$(val "$info" height) duration=$d"
+else fail_run splits_grid_3_of_4; fi
+
+# longest: the 3 s clip holds its last frame up to 4 s
+lay longest '{"mode":"columns","fill":"bars","length":"longest",'"$L"'}'
+if run longest webm; then
+  d=$(val "$info" duration)
+  ok=0; near "$d" 4 0.15 && ok=1
+  report splits_longest_holds $ok "duration=$d"
+else fail_run splits_longest_holds; fi
+
+# mix with a silent clip: sound from the one that has it
+lay mix '{"mode":"columns","fill":"bars","length":"longest","width":640,"height":360,"fps":30,"gap":0,"gapColor":"#000000","weights":[],"columns":0,"sound":"mix","soundClip":0}'
+if run mix webm; then
+  d=$(val "$info" duration)
+  ok=0; has_audio "$out" && near "$d" 4 0.15 && ok=1
+  report splits_mix_with_silent $ok "duration=$d audio=$(probe "$out" | grep -c 'codec_type=audio')"
+else fail_run splits_mix_with_silent; fi
+
+lay sized '{"mode":"columns","fill":"blur","length":"shortest",'"$L"'}' '"rate":{"mode":"size","maxBytes":300000},"twoPass":true'
+if run sized webm; then
+  s=$(val "$info" size)
+  ok=0; [ "$s" -le 300000 ] && ok=1
+  report splits_size_limit $ok "size=$s limit=300000 $(res)"
+else fail_run splits_size_limit; fi
+
 # 16. cancel during pass 1: nothing may be left behind
 spec cancel "{\"input\":\"$(native "$work/long.mp4")\",\"effort\":\"best\",\"rate\":{\"mode\":\"size\",\"maxBytes\":4194304}}"
 log=$("$bin" "$work/cancel.json" "$(native "$work/cancel.webm")" --cancel-after 1.5 2>&1)

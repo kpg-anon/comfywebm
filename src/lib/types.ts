@@ -4,6 +4,30 @@
 // seconds on the source timeline; `id` is frontend-only (output order) and is not sent
 export type WatermarkPlace = "tl" | "tr" | "bl" | "br" | "custom" | "tile";
 
+export type LayoutMode = "sequence" | "columns" | "rows" | "grid";
+export type Fill = "bars" | "crop" | "blur";
+export type Rect = { x: number; y: number; w: number; h: number };
+/** Splits: the segments (one per clip, from segmentSources) combined into one picture. */
+export type Layout = {
+  mode: LayoutMode;
+  /** the canvas, before the output size */
+  width: number;
+  height: number;
+  fill: Fill;
+  fps: number;
+  /** split screen: one clip's sound, all mixed, or none */
+  sound: "clip" | "mix" | "none";
+  soundClip: number;
+  length: "shortest" | "longest";
+  /** split screen: space between the parts, canvas pixels */
+  gap: number;
+  gapColor: string;
+  /** side by side / stacked: relative size of each part; [] = equal */
+  weights: number[];
+  /** grid columns; 0 = as square as possible */
+  columns: number;
+};
+
 export type Segment = { start: number; end: number; id?: number };
 
 export type MediaInfo = {
@@ -124,6 +148,8 @@ export type EncodeSpec = {
   } | null;
   /** the file of each range by index (null = input); other files are fitted to input's size */
   segmentSources?: (string | null)[];
+  /** splits */
+  layout?: Layout | null;
   /** a sound file that replaces (mix false) or is mixed under the source's sound */
   music?: { path: string; mix: boolean; volumeDb: number; offset: number } | null;
   /** an image in a corner; size = % of the output width */
@@ -166,6 +192,8 @@ export type PlanInfo = {
   autoScaled: boolean;
   command: string;
   warnings: string[];
+  /** splits, split screen: each clip's box on the canvas */
+  cells?: Rect[];
 };
 
 export type JobStatus = "pending" | "running" | "done" | "failed" | "canceled";

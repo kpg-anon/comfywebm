@@ -215,6 +215,95 @@ pub struct Music {
     pub offset: f64,
 }
 
+/// Splits: two or more clips (the `segments`, each from its `segment_sources`
+/// file) combined into one picture of `width` x `height`, one after another or
+/// at the same time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Layout {
+    #[serde(default)]
+    pub mode: LayoutMode,
+    /// the canvas, before the output size is applied
+    pub width: u32,
+    pub height: u32,
+    /// how each clip fills its space
+    #[serde(default)]
+    pub fill: Fill,
+    /// frame rate of the combined picture
+    pub fps: f64,
+    /// split screen: where the sound comes from
+    #[serde(default)]
+    pub sound: SplitSound,
+    /// split screen, `sound` = clip: index of that clip
+    #[serde(default)]
+    pub sound_clip: usize,
+    /// split screen: the shortest clip's length, or the longest (the others hold their last frame)
+    #[serde(default)]
+    pub length: SplitLength,
+    /// split screen: space between the parts, in canvas pixels
+    #[serde(default)]
+    pub gap: u32,
+    #[serde(default = "black")]
+    pub gap_color: String,
+    /// side by side / stacked: relative size of each part (empty = equal)
+    #[serde(default)]
+    pub weights: Vec<f64>,
+    /// grid: columns (0 = as square as possible)
+    #[serde(default)]
+    pub columns: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutMode {
+    /// one after another
+    #[default]
+    Sequence,
+    /// side by side
+    Columns,
+    /// one above the other
+    Rows,
+    Grid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Fill {
+    /// the whole picture, with bars
+    #[default]
+    Bars,
+    /// fill the space, cutting the edges
+    Crop,
+    /// the whole picture over a blurred copy of itself
+    Blur,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SplitSound {
+    #[default]
+    Clip,
+    Mix,
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SplitLength {
+    #[default]
+    Shortest,
+    Longest,
+}
+
+/// A rectangle in canvas pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Rect {
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
+}
+
 /// A watermark image over the output picture.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -443,6 +532,9 @@ pub struct EncodeSpec {
     /// an image (logo, watermark) over the picture
     #[serde(default)]
     pub overlay: Option<Overlay>,
+    /// splits: the segments, one per clip, combined into one picture
+    #[serde(default)]
+    pub layout: Option<Layout>,
     /// seconds the burned-in subtitles are shown later (negative: earlier)
     #[serde(default)]
     pub subs_delay: f64,
@@ -500,6 +592,9 @@ pub struct PlanInfo {
     /// the file the job would write now (the `plan` command fills it)
     #[serde(default)]
     pub output: Option<String>,
+    /// splits: where each clip's picture is on the canvas (split screen: one per clip)
+    #[serde(default)]
+    pub cells: Vec<Rect>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

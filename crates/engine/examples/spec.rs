@@ -38,6 +38,13 @@ fn real_main() -> Result<(), String> {
     let ffmpeg = t.ffmpeg.ok_or("ffmpeg not found")?;
     let ffprobe = t.ffprobe.ok_or("ffprobe not found")?;
     let info = probe::probe(&ffprobe, &spec.input)?;
+    // the other files ranges come from (joins, splits), probed as the app does
+    let mut sources = std::collections::HashMap::new();
+    for p in spec.segment_sources.iter().flatten() {
+        if p != &spec.input && !sources.contains_key(p) {
+            sources.insert(p.clone(), probe::probe(&ffprobe, p)?);
+        }
+    }
 
     let cancel = Arc::new(run::Cancel::new());
     if let Some(secs) = cancel_after {
@@ -48,7 +55,7 @@ fn real_main() -> Result<(), String> {
         });
     }
     let out = Path::new(&output);
-    match run::run_job(&ffmpeg, &spec, &info, out, st.filters.zscale, None, &cancel, |_| {}) {
+    match run::run_job(&ffmpeg, &spec, &info, out, st.filters.zscale, Some(&sources), &cancel, |_| {}) {
         Ok(o) => {
             println!("output: {}", o.output.display());
             println!("result: {}", serde_json::to_string(&o.result).unwrap());

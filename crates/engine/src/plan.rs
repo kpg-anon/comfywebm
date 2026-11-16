@@ -52,6 +52,8 @@ pub struct Planned {
     /// a retry may run only pass 2 and reuse the pass 1 log (libvpx, x264)
     pub reuse_pass1: bool,
     pub warnings: Vec<String>,
+    /// splits, split screen: each clip's box on the canvas
+    pub cells: Vec<crate::spec::Rect>,
 }
 
 impl Planned {
@@ -68,6 +70,7 @@ impl Planned {
             command: self.passes.iter().map(|a| shell_join("ffmpeg", a)).collect::<Vec<_>>().join("\n"),
             warnings: self.warnings.clone(),
             output: None,
+            cells: self.cells.clone(),
         }
     }
 }
@@ -364,6 +367,119 @@ pub fn overlay_chain(o: &crate::spec::Overlay, out_w: u32, out_h: u32) -> (Strin
             let y = if c.starts_with('t') { format!("{m}") } else { format!("H-h-{m}") };
             (lg, format!("overlay=x={x}:y={y}:format=auto"))
         }
+    }
+}
+
+/// Splits: for each of `n` clips of a split screen, its tile (the tiles cover
+/// the canvas exactly) and the box its picture goes in (the tile less half the
+/// gap on each side that meets another tile). A grid has `cols` columns; tiles
+/// past `n` are left empty (returned after the clips' tiles, with no box).
+/// Every size is even, for 4:2:0 video.
+pub fn layout_cells(l: &crate::spec::Layout, n: usize) -> Vec<(crate::spec::Rect, Option<crate::spec::Rect>)> {
+    use crate::spec::{LayoutMode, Rect};
+    let (cw, ch) = (l.width / 2 * 2, l.height / 2 * 2);
+    let even = |v: f64| ((v / 2.0).round() as u32 * 2).max(2);
+    // split `total` into parts by weight; the last part takes the remainder
+    let split = |total: u32, weights: &[f64]| -> Vec<(u32, u32)> {
+        let sum: f64 = weights.iter().sum();
+        let mut out = Vec::new();
+        let mut at = 0u32;
+        for (i, w) in weights.iter().enumerate() {
+            let len = if i + 1 == weights.len() { total - at } else { even(total as f64 * w / sum).min(total - at) };
+            out.push((at, len));
+            at += len;
+        }
+        out
+    };
+    let weights: Vec<f64> = if l.weights.len() == n && l.weights.iter().all(|w| w.is_finite() && *w > 0.0) {
+        l.weights.clone()
+    } else {
+        vec![1.0; n]
+    };
+    let tiles: Vec<Rect> = match l.mode {
+        LayoutMode::Columns => split(cw, &weights).into_iter().map(|(x, w)| Rect { x, y: 0, w, h: ch }).collect(),
+        LayoutMode::Rows => split(ch, &weights).into_iter().map(|(y, h)| Rect { x: 0, y, w: cw, h }).collect(),
+        LayoutMode::Grid => {
+            let cols = if l.columns > 0 { l.columns as usize } else { (n as f64).sqrt().ceil() as usize }.max(1);
+            let rows = n.div_ceil(cols).max(1);
+            let xs = split(cw, &vec![1.0; cols]);
+            let ys = split(ch, &vec![1.0; rows]);
+            (0..cols * rows).map(|k| Rect { x: xs[k % cols].0, y: ys[k / cols].0, w: xs[k % cols].1, h: ys[k / cols].1 }).collect()
+        }
+        LayoutMode::Sequence => vec![Rect { x: 0, y: 0, w: cw, h: ch }],
+    };
+    let half = (l.gap / 4) * 2; // half the gap, even
+    tiles
+        .into_iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let l0 = if t.x > 0 { half } else { 0 };
+            let r0 = if t.x + t.w < cw { half } else { 0 };
+            let t0 = if t.y > 0 { half } else { 0 };
+            let b0 = if t.y + t.h < ch { half } else { 0 };
+            let inner = Rect { x: t.x + l0, y: t.y + t0, w: t.w.saturating_sub(l0 + r0).max(2), h: t.h.saturating_sub(t0 + b0).max(2) };
+            (t, (i < n || l.mode == LayoutMode::Sequence).then_some(inner))
+        })
+        .collect()
+}
+
+/// "#rrggbb" for a filter's color option ("0xRRGGBB"); anything else is black.
+fn filter_color(c: &str) -> String {
+    let h = c.trim().trim_start_matches('#');
+    if h.len() == 6 && h.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        format!("0x{}", h.to_ascii_uppercase())
+    } else {
+        "black".into()
+    }
+}
+
+/// Splits: one clip's graph fragment, `[src]` (after its own source filters,
+/// in `pre`) fitted into `bx` x `by` with `fill`, at `fps`, placed in its tile
+/// (`pad`: tile size, offset, color), held on its last frame up to `hold`
+/// seconds and cut to `len` seconds, ending in `[out]`. Labels made here start
+/// with `tag`.
+#[allow(clippy::too_many_arguments)]
+pub fn fit_fragment(
+    src: &str,
+    pre: &str,
+    out: &str,
+    tag: &str,
+    fill: crate::spec::Fill,
+    bx: u32,
+    by: u32,
+    fps: f64,
+    pad: Option<(crate::spec::Rect, crate::spec::Rect, &str)>,
+    hold: Option<f64>,
+    len: Option<f64>,
+) -> String {
+    use crate::spec::Fill;
+    let pre = if pre.is_empty() { "null".to_string() } else { pre.to_string() };
+    let mut tail = vec![format!("fps={}", fmt_num(fps)), "format=yuv420p".to_string()];
+    if let Some((tile, inner, color)) = pad {
+        tail.push(format!("pad={}:{}:{}:{}:color={color}", tile.w, tile.h, inner.x - tile.x, inner.y - tile.y));
+    }
+    if let Some(h) = hold.filter(|h| *h > 0.0) {
+        tail.push(format!("tpad=stop_mode=clone:stop_duration={}", fmt_num(h)));
+    }
+    if let Some(l) = len {
+        tail.push(format!("trim=duration={}", fmt_num(l)));
+    }
+    tail.push("setpts=PTS-STARTPTS".into());
+    let tail = tail.join(",");
+    match fill {
+        Fill::Bars => format!(
+            "{src}{pre},scale={bx}:{by}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={bx}:{by}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,{tail}{out};"
+        ),
+        Fill::Crop => format!(
+            "{src}{pre},scale={bx}:{by}:force_original_aspect_ratio=increase:force_divisible_by=2,crop={bx}:{by},setsar=1,{tail}{out};"
+        ),
+        // the picture whole, over a blurred copy that fills the space
+        Fill::Blur => format!(
+            "{src}{pre},setsar=1,split[{tag}a][{tag}b];\
+             [{tag}a]scale={bx}:{by}:force_original_aspect_ratio=increase:force_divisible_by=2,crop={bx}:{by},gblur=sigma=30,eq=brightness=-0.08[{tag}bg];\
+             [{tag}b]scale={bx}:{by}:force_original_aspect_ratio=decrease:force_divisible_by=2[{tag}fg];\
+             [{tag}bg][{tag}fg]overlay=(W-w)/2:(H-h)/2,setsar=1,{tail}{out};"
+        ),
     }
 }
 
@@ -746,14 +862,41 @@ fn still_rate(duration_out: f64, fade: bool) -> (f64, String) {
 const STILL_GOP_SECS: f64 = 10.0;
 
 pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned, String> {
+    let layout = spec.layout.as_ref();
+    if layout.is_some() && spec.container == Container::Audio {
+        return Err("Splits make a picture: choose a video format (WebM, MP4, GIF or WebP).".into());
+    }
     if spec.container == Container::Audio {
         return build_audio(spec, info, opts);
     }
-    if spec.stream_copy {
+    if spec.stream_copy && layout.is_none() {
         return build_copy(spec, info, opts);
     }
     let mut warnings = Vec::new();
+    if let Some(l) = layout {
+        if spec.segments.len() < 2 {
+            return Err("Splits need at least two clips.".into());
+        }
+        if l.width < 16 || l.height < 16 || l.width > 8192 || l.height > 8192 {
+            return Err(format!("The picture size {}x{} is not usable.", l.width, l.height));
+        }
+        if !l.fps.is_finite() || l.fps <= 0.0 || l.fps > 240.0 {
+            return Err("The frame rate of the splits must be between 0 and 240.".into());
+        }
+        if spec.stream_copy {
+            warnings.push("Cut only (no re-encode) does not apply to splits; they are encoded.".into());
+        }
+        if spec.crop.is_some() || spec.rotate != 0 || spec.mirror || spec.vflip {
+            warnings.push("Crop, rotate and flip apply to one file and are not used with splits.".into());
+        }
+        if spec.subs.is_some() {
+            warnings.push("Subtitles are not burned in on splits.".into());
+        }
+    }
     // a sound file becomes a video with a still picture: the chosen one, else the embedded cover
+    if layout.is_some() && info.audio_only {
+        return Err(format!("{} has no video stream, so it cannot be a clip of the splits.", info.file_name));
+    }
     let still = if info.audio_only {
         let chosen = spec.cover.as_deref().map(str::trim).filter(|p| !p.is_empty());
         let (path, stream, size) = match (chosen, spec.cover_size) {
@@ -768,7 +911,9 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     } else {
         None
     };
-    let v = still.as_ref().map_or(&info.video, |(_, cv)| cv);
+    // splits: the canvas stands in for the source picture from here on
+    let canvas = layout.map(|l| VideoInfo { width: l.width / 2 * 2, height: l.height / 2 * 2, fps: l.fps, ..VideoInfo::default() });
+    let v = canvas.as_ref().or(still.as_ref().map(|(_, cv)| cv)).unwrap_or(&info.video);
     let still = still.as_ref().map(|(s, _)| s);
     let codec = spec.codec;
 
@@ -803,7 +948,11 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             })
             .collect::<Result<_, String>>()?
     };
-    let mixed = seg_src.iter().any(|s| s.is_some());
+    // splits: every clip is treated as a file of its own, the first one too
+    let mixed = layout.is_some() || seg_src.iter().any(|s| s.is_some());
+    // split screen (the clips at the same time), not one after another
+    let split = layout.filter(|l| l.mode != crate::spec::LayoutMode::Sequence);
+    let clip_info = |i: usize| -> &MediaInfo { seg_src.get(i).copied().flatten().unwrap_or(info) };
     if let (None, Some(m)) = (still, seg_src.iter().flatten().find(|m| m.audio_only)) {
         return Err(format!("{} has no video stream, so it cannot be joined to a video.", m.file_name));
     }
@@ -817,7 +966,12 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     } else {
         resolve_segments(&spec.segments, info.duration)?
     };
-    let clip: f64 = segs.iter().map(|(s, e)| e - s).sum();
+    let lens: Vec<f64> = segs.iter().map(|(s, e)| e - s).collect();
+    let clip: f64 = match split.map(|l| l.length) {
+        Some(crate::spec::SplitLength::Shortest) => lens.iter().cloned().fold(f64::INFINITY, f64::min),
+        Some(crate::spec::SplitLength::Longest) => lens.iter().cloned().fold(0.0, f64::max),
+        None => lens.iter().sum(),
+    };
     let speed = spec.speed;
     // a still picture has nothing to play backwards; the sound plays forward
     let boomerang = spec.playback == Playback::Boomerang && still.is_none();
@@ -869,7 +1023,8 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         Some(a) => {
             // with music replacing it, the source's sound is not read
             let replaced = spec.music.as_ref().filter(|m| !m.path.trim().is_empty()).is_some_and(|m| !m.mix || info.audio.is_empty());
-            if !replaced && info.audio.get(a.track as usize).is_none() {
+            // splits: each clip's own track (or silence) is used, see the graph
+            if !replaced && layout.is_none() && info.audio.get(a.track as usize).is_none() {
                 return Err(format!("Audio track {} does not exist.", a.track));
             }
             if !a.bitrate_k.is_finite() || a.bitrate_k <= 0.0 {
@@ -901,6 +1056,23 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             a.bitrate_k = k;
         }
     }
+    // split screen: the sound of one clip, all mixed, or none
+    if let (Some(l), Some(_)) = (split, audio) {
+        let n = segs.len();
+        let none = |why: String, warnings: &mut Vec<String>| {
+            warnings.push(why);
+            None
+        };
+        audio = match l.sound {
+            crate::spec::SplitSound::None => None,
+            crate::spec::SplitSound::Clip if l.sound_clip >= n => return Err(format!("The sound is set to come from clip {}, which does not exist.", l.sound_clip + 1)),
+            crate::spec::SplitSound::Clip if clip_info(l.sound_clip).audio.is_empty() => {
+                none(format!("Clip {} has no sound, so the output is silent.", l.sound_clip + 1), &mut warnings)
+            }
+            crate::spec::SplitSound::Mix if (0..n).all(|i| clip_info(i).audio.is_empty()) => none("None of the clips has sound, so the output is silent.".into(), &mut warnings),
+            _ => audio,
+        };
+    }
     let audio_kbps = audio.map(|a| a.bitrate_k).unwrap_or(0.0);
 
     // --- rate ---
@@ -925,8 +1097,10 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
 
     // --- geometry ---
     // crop is drawn on a video frame; a still picture is used whole
-    let crop = if still.is_some() { None } else { spec.crop };
-    let mut g = geometry(v.width, v.height, crop, spec.rotate, spec.max_width, spec.max_height);
+    // splits: the canvas is used as it is (crop and rotation belong to one file)
+    let crop = if still.is_some() || layout.is_some() { None } else { spec.crop };
+    let rotate = if layout.is_some() { 0 } else { spec.rotate };
+    let mut g = geometry(v.width, v.height, crop, rotate, spec.max_width, spec.max_height);
     let mut auto_scaled = false;
     if let (true, true, Some(k)) = (size_mode, spec.auto_scale, video_kbps) {
         let (ng, ok) = auto_scale(g, spec.max_width, spec.max_height, k, out_fps, codec);
@@ -979,7 +1153,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     }
 
     // --- subtitles ---
-    let subtitles = match &spec.subs {
+    let subtitles = match spec.subs.as_ref().filter(|_| layout.is_none()) {
         None => None,
         Some(SubsSel::Embedded { track }) => {
             let t = info.subs.get(*track as usize).ok_or(format!("Subtitle track {track} does not exist."))?;
@@ -1056,8 +1230,45 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             c.join(",")
         })
         .collect();
-    if mixed && spec.subs.is_some() {
+    if mixed && spec.subs.is_some() && layout.is_none() {
         warnings.push("Subtitles are burned in only on the ranges from the first file.".into());
+    }
+    // splits: one fragment per clip, from its input to [v{i}]: its own source
+    // filters (deinterlace and tone mapping as that file needs), then fitted to
+    // the canvas (one after another) or to its part of it (split screen)
+    let cells = layout.map(|l| layout_cells(l, segs.len())).unwrap_or_default();
+    let gap_color = layout.map(|l| filter_color(&l.gap_color)).unwrap_or_default();
+    let layout_frags: Option<Vec<String>> = layout.map(|l| {
+        (0..segs.len())
+            .map(|i| {
+                let m = clip_info(i);
+                let pre = segment_chain(
+                    &SegmentFilters {
+                        deinterlace: m.video.interlaced,
+                        tonemap: m.video.hdr && opts.zscale,
+                        anamorphic: m.video.anamorphic,
+                        crop: None,
+                        subtitles: None,
+                        rotate: 0,
+                        mirror: false,
+                        vflip: false,
+                        ..sf
+                    },
+                    segs[i].0,
+                )
+                .join(",");
+                let (bx, by, pad, hold, len) = match (split, cells.get(i)) {
+                    (Some(_), Some((tile, Some(inner)))) => {
+                        (inner.w, inner.h, Some((*tile, *inner, gap_color.as_str())), Some(clip - lens[i]), Some(clip))
+                    }
+                    _ => (v.width, v.height, None, None, None),
+                };
+                fit_fragment(&format!("[{i}:{}]", m.video.stream_index), &pre, &format!("[v{i}]"), &format!("f{i}"), l.fill, bx, by, l.fps, pad, hold, len)
+            })
+            .collect()
+    });
+    if layout.is_some() && (0..segs.len()).any(|i| clip_info(i).video.hdr) && !opts.zscale {
+        warnings.push("A clip is HDR, and this ffmpeg lacks the zscale filter to tone map it; its colors look washed out.".into());
     }
     if let Some(c) = spec.caption.as_ref().filter(|c| !c.text.trim().is_empty()) {
         if c.font.as_deref().is_some_and(|f| !f.trim().is_empty()) && caption_own_font(c).is_none() {
@@ -1294,43 +1505,87 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         } else {
             let mut graph = String::new();
             for (i, chain) in seg_chains.iter().enumerate() {
-                let chain = if chain.is_empty() { "null" } else { chain.as_str() };
-                if still.is_none() {
+                if let Some(frags) = &layout_frags {
+                    graph.push_str(&frags[i]);
+                } else if still.is_none() {
+                    let chain = if chain.is_empty() { "null" } else { chain.as_str() };
                     let vi = seg_src[i].map_or(v.stream_index, |m| m.video.stream_index);
                     graph.push_str(&format!("[{i}:{vi}]{chain}[v{i}];"));
                 }
-                if let (true, Some(t)) = (with_audio && !music_replaces, track) {
+                // split screen: only the clip the sound comes from, or all of them (mix)
+                let wanted = match split {
+                    Some(l) if l.sound == crate::spec::SplitSound::Clip => i == l.sound_clip,
+                    _ => true,
+                };
+                if let (true, Some(t), true) = (with_audio && !music_replaces, track, wanted) {
                     // joined files: one sample format and layout for concat; a
-                    // file without sound gives silence of the range's length
+                    // file without sound gives silence of the range's length.
+                    // Split screen: every sound lasts the output's length.
                     let norm = if mixed { ",aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo" } else { "" };
-                    match seg_src[i] {
+                    let (fit_len, silence_len) = match split {
+                        Some(_) => (format!(",apad,atrim=duration={}", fmt_num(clip)), clip),
+                        None => (String::new(), segs[i].1 - segs[i].0),
+                    };
+                    // splits: every clip is a file of its own, the first one too
+                    let src_m = if layout.is_some() { Some(clip_info(i)) } else { seg_src[i] };
+                    match src_m {
                         Some(m) if m.audio.is_empty() => graph.push_str(&format!(
                             "anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration={},aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}];",
-                            fmt_num(segs[i].1 - segs[i].0)
+                            fmt_num(silence_len)
                         )),
                         Some(m) => {
                             let ft = if (t as usize) < m.audio.len() { t } else { 0 };
-                            graph.push_str(&format!("[{i}:a:{ft}]asetpts=PTS-STARTPTS{norm}[a{i}];"));
+                            graph.push_str(&format!("[{i}:a:{ft}]asetpts=PTS-STARTPTS{norm}{fit_len}[a{i}];"));
                         }
                         None => graph.push_str(&format!("[{i}:a:{t}]asetpts=PTS-STARTPTS{norm}[a{i}];")),
                     }
                 }
             }
             let src_audio = with_audio && !music_replaces;
-            for i in 0..segs.len() {
-                if still.is_none() {
-                    graph.push_str(&format!("[v{i}]"));
-                }
-                if src_audio {
-                    graph.push_str(&format!("[a{i}]"));
-                }
-            }
             let n = segs.len();
-            match (&still_chain, src_audio) {
-                (None, true) => graph.push_str(&format!("concat=n={n}:v=1:a=1[vj][aj];")),
-                (None, false) => graph.push_str(&format!("concat=n={n}:v=1:a=0[vj];")),
-                (Some(c), true) => graph.push_str(&format!("concat=n={n}:v=0:a=1[aj];{c}")),
-                (Some(c), false) => graph.push_str(c),
+            if let Some(l) = split {
+                // every part already fills its tile; an empty grid tile gets the gap color
+                let mut ins = String::new();
+                let mut pos = Vec::new();
+                for (k, (tile, inner)) in cells.iter().enumerate() {
+                    if inner.is_some() && k < n {
+                        ins.push_str(&format!("[v{k}]"));
+                    } else {
+                        graph.push_str(&format!(
+                            "color=c={gap_color}:s={}x{}:r={}:d={},format=yuv420p[e{k}];",
+                            tile.w,
+                            tile.h,
+                            fmt_num(l.fps),
+                            fmt_num(clip)
+                        ));
+                        ins.push_str(&format!("[e{k}]"));
+                    }
+                    pos.push(format!("{}_{}", tile.x, tile.y));
+                }
+                graph.push_str(&format!("{ins}xstack=inputs={}:layout={}[vj];", cells.len(), pos.join("|")));
+                if src_audio {
+                    if l.sound == crate::spec::SplitSound::Mix {
+                        let all: String = (0..n).map(|i| format!("[a{i}]")).collect();
+                        graph.push_str(&format!("{all}amix=inputs={n}:duration=longest:normalize=0,atrim=duration={}[aj];", fmt_num(clip)));
+                    } else {
+                        graph.push_str(&format!("[a{}]anull[aj];", l.sound_clip));
+                    }
+                }
+            } else {
+                for i in 0..n {
+                    if still.is_none() {
+                        graph.push_str(&format!("[v{i}]"));
+                    }
+                    if src_audio {
+                        graph.push_str(&format!("[a{i}]"));
+                    }
+                }
+                match (&still_chain, src_audio) {
+                    (None, true) => graph.push_str(&format!("concat=n={n}:v=1:a=1[vj][aj];")),
+                    (None, false) => graph.push_str(&format!("concat=n={n}:v=1:a=0[vj];")),
+                    (Some(c), true) => graph.push_str(&format!("concat=n={n}:v=0:a=1[aj];{c}")),
+                    (Some(c), false) => graph.push_str(c),
+                }
             }
             match &overlay {
                 Some((_, logo, place)) => {
@@ -1448,6 +1703,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         passes,
         reuse_pass1,
         warnings,
+        cells: if split.is_some() { cells.iter().take(segs.len()).filter_map(|(_, inner)| *inner).collect() } else { Vec::new() },
     })
 }
 
@@ -1561,6 +1817,7 @@ fn build_copy(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planne
         passes: vec![a],
         reuse_pass1: false,
         warnings,
+        cells: Vec::new(),
     })
 }
 
@@ -1668,6 +1925,7 @@ fn build_audio(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Plann
         passes: vec![a],
         reuse_pass1: false,
         warnings,
+        cells: Vec::new(),
     })
 }
 
@@ -1749,6 +2007,7 @@ mod tests {
             caption: None,
             music: None,
             segment_sources: vec![],
+            layout: None,
             overlay: None,
             subs_delay: 0.0,
             subs_font_size: None,
@@ -2081,6 +2340,106 @@ mod tests {
         assert!(!s.contains("concat"), "music replaces the sound: {s}");
     }
 
+    fn test_layout(mode: crate::spec::LayoutMode) -> crate::spec::Layout {
+        crate::spec::Layout {
+            mode,
+            width: 1280,
+            height: 720,
+            fill: crate::spec::Fill::Bars,
+            fps: 30.0,
+            sound: crate::spec::SplitSound::Clip,
+            sound_clip: 0,
+            length: crate::spec::SplitLength::Shortest,
+            gap: 8,
+            gap_color: "#000000".into(),
+            weights: vec![],
+            columns: 0,
+        }
+    }
+
+    /// two clips: in.mp4 (1280x720, 60 s, sound) 10-14 s and b.mp4 (1080x1920 portrait, 9 s, silent) 0-9 s
+    fn split_spec(l: crate::spec::Layout) -> (EncodeSpec, std::collections::HashMap<String, MediaInfo>) {
+        let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
+        sp.segments.push(Segment { start: 0.0, end: 9.0 });
+        sp.segment_sources = vec![None, Some("b.mp4".into())];
+        sp.layout = Some(l);
+        let mut other = media();
+        other.path = "b.mp4".into();
+        other.file_name = "b.mp4".into();
+        other.duration = 9.0;
+        other.audio.clear();
+        other.video.width = 1080;
+        other.video.height = 1920;
+        other.video.fps = 60.0;
+        let mut m = std::collections::HashMap::new();
+        m.insert("b.mp4".to_string(), other);
+        (sp, m)
+    }
+
+    #[test]
+    fn layout_cells_tile_the_canvas() {
+        use crate::spec::{LayoutMode, Rect};
+        let l = test_layout(LayoutMode::Columns);
+        let c = layout_cells(&l, 2);
+        assert_eq!(c[0], (Rect { x: 0, y: 0, w: 640, h: 720 }, Some(Rect { x: 0, y: 0, w: 636, h: 720 })));
+        assert_eq!(c[1], (Rect { x: 640, y: 0, w: 640, h: 720 }, Some(Rect { x: 644, y: 0, w: 636, h: 720 })));
+        // weights 2:1
+        let c = layout_cells(&crate::spec::Layout { weights: vec![2.0, 1.0], gap: 0, ..test_layout(LayoutMode::Rows) }, 2);
+        assert_eq!((c[0].0.h, c[1].0.y, c[1].0.h), (480, 480, 240));
+        // a 2x2 grid with 3 clips: the fourth tile is empty
+        let c = layout_cells(&crate::spec::Layout { gap: 0, ..test_layout(LayoutMode::Grid) }, 3);
+        assert_eq!(c.len(), 4);
+        assert_eq!(c[3], (Rect { x: 640, y: 360, w: 640, h: 360 }, None));
+        assert!(c.iter().all(|(t, _)| t.w % 2 == 0 && t.h % 2 == 0));
+    }
+
+    #[test]
+    fn split_screen_plan() {
+        use crate::spec::{Fill, LayoutMode, SplitLength, SplitSound};
+        let (sp, m) = split_spec(crate::spec::Layout { length: SplitLength::Longest, sound: SplitSound::Mix, fill: Fill::Blur, ..test_layout(LayoutMode::Columns) });
+        let p = build(&sp, &media(), &Opts { sources: Some(&m), ..opts() }).unwrap();
+        let s = strs(&p.passes[0]).join(" ");
+        assert!(s.contains("xstack=inputs=2:layout=0_0|640_0[vj]"), "{s}");
+        // the 4 s clip holds its last frame up to the 9 s one
+        assert!(s.contains("tpad=stop_mode=clone:stop_duration=5"), "{s}");
+        assert!(s.contains("gblur=sigma=30"), "{s}");
+        // b.mp4 has no sound: silence of the output's length, mixed
+        assert!(s.contains("anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=9"), "{s}");
+        assert!(s.contains("amix=inputs=2:duration=longest:normalize=0,atrim=duration=9[aj]"), "{s}");
+        assert!((p.duration_out - 9.0).abs() < 1e-9);
+        assert_eq!(p.cells.len(), 2);
+        assert_eq!((p.out_width, p.out_height), (1280, 720));
+        // shortest, sound from clip 2 (silent): no audio, with a warning
+        let (sp, m) = split_spec(crate::spec::Layout { sound_clip: 1, ..test_layout(LayoutMode::Columns) });
+        let p = build(&sp, &media(), &Opts { sources: Some(&m), ..opts() }).unwrap();
+        assert!((p.duration_out - 4.0).abs() < 1e-9);
+        assert_eq!(p.audio_kbps, 0.0);
+        assert!(p.warnings.iter().any(|w| w.contains("Clip 2 has no sound")), "{:?}", p.warnings);
+        // a grid with an empty tile gets a color source for it
+        let (sp, m) = split_spec(test_layout(LayoutMode::Grid));
+        let s = strs(&build(&sp, &media(), &Opts { sources: Some(&m), ..opts() }).unwrap().passes[0]).join(" ");
+        assert!(s.contains("xstack=inputs=2:layout=0_0|640_0"), "{s}");
+    }
+
+    #[test]
+    fn sequence_layout_plan() {
+        use crate::spec::{Fill, LayoutMode};
+        let (mut sp, m) = split_spec(crate::spec::Layout { fill: Fill::Crop, ..test_layout(LayoutMode::Sequence) });
+        sp.crop = Some(Crop { x: 0.0, y: 0.0, w: 100.0, h: 100.0 });
+        let p = build(&sp, &media(), &Opts { sources: Some(&m), ..opts() }).unwrap();
+        let s = strs(&p.passes[0]).join(" ");
+        // both clips filled into 1280x720, then joined; the crop is not used
+        assert_eq!(s.matches("force_original_aspect_ratio=increase:force_divisible_by=2,crop=1280:720").count(), 2, "{s}");
+        assert!(s.contains("concat=n=2:v=1:a=1[vj][aj]"), "{s}");
+        assert!(!s.contains("crop=100:100"), "{s}");
+        assert!(p.warnings.iter().any(|w| w.contains("Crop, rotate and flip")), "{:?}", p.warnings);
+        assert!((p.duration_out - 13.0).abs() < 1e-9);
+        assert!(p.cells.is_empty());
+        // one clip is not a layout
+        sp.segments.truncate(1);
+        assert!(build(&sp, &media(), &Opts { sources: Some(&m), ..opts() }).is_err());
+    }
+
     #[test]
     fn watermark_placement() {
         let mut o = crate::spec::Overlay { path: "w.png".into(), corner: "tl".into(), size: 10.0, opacity: 1.0, x: 0.25, y: 0.75, spacing: 0.5, angle: 0.0 };
@@ -2173,6 +2532,7 @@ mod tests {
         // every optional part filled, so its keys are in the file
         let mut sp = spec(Rate::Size { max_bytes: 4194304.0 });
         sp.adjust = Some(crate::spec::Adjust::default());
+        sp.layout = Some(test_layout(crate::spec::LayoutMode::Columns));
         check("encode_spec.json", serde_json::to_value(&sp).unwrap());
         check("media_info.json", serde_json::to_value(media()).unwrap());
         check("settings.json", serde_json::to_value(crate::spec::Settings::default()).unwrap());

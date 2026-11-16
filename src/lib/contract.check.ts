@@ -15,8 +15,9 @@ export const contract: [
   Same<typeof spec, EncodeSpec>,
   Same<typeof spec.adjust, NonNullable<EncodeSpec["adjust"]>>,
   Same<typeof spec.audio, NonNullable<EncodeSpec["audio"]>>,
+  Same<typeof spec.layout, NonNullable<EncodeSpec["layout"]>>,
   Same<typeof media, MediaInfo>,
   Same<typeof media.video, MediaInfo["video"]>,
   Same<(typeof media.audio)[number], MediaInfo["audio"][number]>,
   Same<typeof settings, Settings>,
-] = [true, true, true, true, true, true, true];
+] = [true, true, true, true, true, true, true, true];

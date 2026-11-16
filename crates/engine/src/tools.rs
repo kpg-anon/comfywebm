@@ -104,7 +104,7 @@ fn exe_name(name: &str) -> String {
 
 /// Search order: the settings override (a folder, or a file whose folder is
 /// also searched for the other tool), then the folder of the running exe,
-/// then PATH.
+/// then PATH, then the usual install folders of this system (`extra_dirs`).
 pub fn find(ffmpeg_override: Option<&str>, ytdlp_override: Option<&str>) -> Tools {
     Tools {
         ffmpeg: find_one("ffmpeg", ffmpeg_override),
@@ -140,7 +140,28 @@ fn find_one(name: &str, override_path: Option<&str>) -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("PATH") {
         dirs.extend(std::env::split_paths(&path));
     }
+    dirs.extend(extra_dirs(std::env::var_os("HOME").map(PathBuf::from)));
     dirs.into_iter().map(|d| d.join(&file)).find(|c| c.is_file())
+}
+
+/// Where package managers put programs, for when PATH does not have them: an
+/// app started from the macOS Finder or Dock gets only /usr/bin:/bin:/usr/sbin:/sbin,
+/// without Homebrew's folders, and a Linux desktop session may not have
+/// ~/.local/bin (pipx) or /snap/bin.
+pub fn extra_dirs(home: Option<PathBuf>) -> Vec<PathBuf> {
+    let mut d: Vec<PathBuf> = Vec::new();
+    if cfg!(target_os = "macos") {
+        // Homebrew on Apple silicon, Homebrew on Intel, MacPorts
+        d.extend(["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"].map(PathBuf::from));
+    } else if cfg!(unix) {
+        d.extend(["/usr/local/bin", "/usr/bin", "/snap/bin"].map(PathBuf::from));
+    }
+    if cfg!(unix) {
+        if let Some(h) = home {
+            d.push(h.join(".local/bin"));
+        }
+    }
+    d
 }
 
 fn stdout_of(program: &Path, args: &[&str]) -> Option<String> {
@@ -226,4 +247,24 @@ pub fn parse_filters(text: &str) -> Filters {
         }
     }
     f
+}
+
+#[cfg(test)]
+mod extra_dirs_tests {
+    use super::*;
+
+    #[test]
+    fn extra_dirs_per_system() {
+        let d = extra_dirs(Some(PathBuf::from("/home/u")));
+        if cfg!(target_os = "macos") {
+            assert_eq!(d[0], PathBuf::from("/opt/homebrew/bin"));
+            assert!(d.contains(&PathBuf::from("/usr/local/bin")));
+        } else if cfg!(unix) {
+            assert!(d.contains(&PathBuf::from("/snap/bin")));
+            assert!(d.contains(&PathBuf::from("/home/u/.local/bin")));
+        } else {
+            // Windows: installers put the tools on PATH or beside the app
+            assert!(d.is_empty());
+        }
+    }
 }

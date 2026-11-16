@@ -75,6 +75,7 @@
     refreshHz: app.refreshHz,
     timelineFilm: app.showFilm,
     timelineWave: app.showWave,
+    showRecent: app.showRecent,
   });
 
   function applyLook(v: unknown) {
@@ -86,6 +87,7 @@
     if (typeof o.uiScale === "number" && o.uiScale >= 0.5 && o.uiScale <= 2) app.setUiScale(o.uiScale);
     if (typeof o.refreshHz === "number" && REFRESH_RATES.includes(o.refreshHz)) app.setRefreshHz(o.refreshHz);
     if (typeof o.timelineFilm === "boolean" && typeof o.timelineWave === "boolean") app.setTimelinePics(o.timelineFilm, o.timelineWave);
+    if (typeof o.showRecent === "boolean") app.setShowRecent(o.showRecent);
   }
 
   /** Puts saved settings into the app and into this dialog's fields. */
@@ -452,6 +454,15 @@
       <input class="field mono" type="text" spellcheck="false" bind:value={nameTemplate} />
       <span class="hint">Tokens: <code>{"{name}"}</code> <code>{"{start}"}</code> <code>{"{end}"}</code> <code>{"{codec}"}</code> <code>{"{height}"}</code> <code>{"{date}"}</code>. The extension (.webm, .mp4, .gif, .webp, .opus, .mp3 or .m4a) is added. Existing files are never overwritten.</span>
     </label>
+
+    <div class="col">
+      <span>Recent files</span>
+      <div class="line cacheline">
+        <label><input type="checkbox" checked={app.showRecent} onchange={(e) => app.setShowRecent((e.currentTarget as HTMLInputElement).checked)} /> Keep and show recent files</label>
+        <button class="btn small" disabled={!app.recent.length} onclick={() => app.clearRecent()}>Clear list</button>
+      </div>
+      <span class="hint">The last 10 files opened, listed on the start screen. Turning this off also clears the list. Applies at once.</span>
+    </div>
 
     <div class="col">
       <span>Cache</span>

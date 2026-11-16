@@ -138,6 +138,18 @@ class AppState {
   keysOpen = $state(false);
   /** Recently opened files, newest first (localStorage, per machine). */
   recent = $state<string[]>(loadRecent());
+  /** Settings > Files: keep and show the recent files list (per machine). */
+  showRecent = $state(load<boolean>("showRecent") ?? true);
+  setShowRecent(on: boolean) {
+    this.showRecent = on;
+    save("showRecent", on);
+    // turned off: the list is not kept either
+    if (!on) this.clearRecent();
+  }
+  clearRecent() {
+    this.recent = [];
+    save("recent", []);
+  }
   ready = $state(false); // init() has loaded settings and restored the remembered options
   /** Jobs running or waiting. */
   activeJobs = $derived(this.jobs.filter((j) => j.status === "running" || j.status === "pending").length);
@@ -620,6 +632,7 @@ class AppState {
   }
 
   private remember(path: string) {
+    if (!this.showRecent) return;
     const same = (p: string) => p.replace(/\\/g, "/").toLowerCase() === path.replace(/\\/g, "/").toLowerCase();
     this.recent = [path, ...this.recent.filter((p) => !same(p))].slice(0, 10);
     save("recent", this.recent);

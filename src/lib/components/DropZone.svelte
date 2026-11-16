@@ -31,7 +31,7 @@
       <button class="btn" disabled={!url.trim()} onclick={() => onurl(url.trim())}><Icon name="link" size={14} />Open URL</button>
     </div>
 
-    {#if app.recent.length}
+    {#if app.showRecent && app.recent.length}
       <div class="recent">
         <div class="rhead head-text">Recent</div>
         {#each app.recent as p (p)}

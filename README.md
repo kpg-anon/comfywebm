@@ -186,7 +186,7 @@ npx tauri build --debug --no-bundle       # debug executable only, in target/deb
 ```
 
 On Windows, `npx tauri build` writes `target/release/comfywebm.exe` and the
-NSIS installer `target/release/bundle/nsis/comfywebm_1.2.0_x64-setup.exe`.
+NSIS installer `target/release/bundle/nsis/comfywebm_1.0.0_x64-setup.exe`.
 `src-tauri/tauri.windows.conf.json` limits the Windows bundle to NSIS, so no
 WiX download is needed; Linux and macOS use the targets in `tauri.conf.json`.
 
@@ -278,8 +278,8 @@ The longest clip is advisory: the app warns when the output is longer.
   steps are heights or widths by default. Written once with comments; edit it
   and press "Reload config" (the pencil button next to the preset list).
 - `presets/platform/*.toml` and `presets/saved/*.toml`: one preset per file.
-  Presets saved in `settings.json` by 1.1.0 are moved to `presets/saved` on the
-  first start of 1.2.0.
+  Presets saved in `settings.json` by older builds are moved to
+  `presets/saved` on start.
 - Downloads opened for editing, preview copies, samples and timeline pictures:
   the app cache folder (`%LOCALAPPDATA%\com.comfywebm.app` on Windows). The
   download folder can be changed in Settings. Settings shows the cache size and

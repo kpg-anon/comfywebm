@@ -7,7 +7,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-Work on the `exp` branch.
+Work toward 1.0.0, the first public release. Earlier builds were numbered
+1.0.0 to 1.2.0 before the version went back to 1.0.0; their notes are kept
+below under those numbers.
 
 ### Added
 
@@ -179,7 +181,7 @@ Work on the `exp` branch.
 - Preview copies and timeline pictures above 4 GiB are deleted at start,
   oldest first.
 
-## [1.2.0] - 2026-11-15
+## Build 1.2.0 - 2026-11-15
 
 ### Added
 
@@ -218,7 +220,7 @@ Work on the `exp` branch.
 - Theme import and export open their file dialogs in the Rust side, so no
   command takes a file path from the page for them.
 
-## [1.1.0] - 2026-11-15
+## Build 1.1.0 - 2026-11-15
 
 ### Added
 
@@ -283,9 +285,9 @@ Work on the `exp` branch.
 - Drop-down lists closed when the mouse button was released, so no option
   could be picked.
 
-## [1.0.0] - 2026-11-15
+## Build 1.0.0 - 2026-11-15
 
-First release.
+First build.
 
 ### Added
 

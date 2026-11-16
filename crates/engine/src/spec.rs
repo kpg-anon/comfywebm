@@ -554,7 +554,7 @@ pub struct Settings {
     pub ytdlp_cookies: Option<String>,
     pub name_template: String,
     pub last_preset: Option<String>,
-    /// presets kept in settings.json before 1.2.0; moved to presets/saved/*.toml on start
+    /// presets kept in settings.json by older builds; moved to presets/saved/*.toml on start
     pub presets: Vec<Preset>,
 }
 

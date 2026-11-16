@@ -1,20 +1,27 @@
 name: release
 
-# A tag vX.Y.Z (pushed by scripts/release.ps1):
-#   notes   checks the tag against the version, takes the CHANGELOG.md section
-#   draft   creates one draft release with those notes
-#   build   Windows, Linux, macOS (Apple silicon and Intel) upload into it;
-#           Windows also uploads the portable zip
-#   latest  writes latest.json for the in-app updater from the signatures on
-#           the draft, once every build is done
-# Publishing the draft (by hand) makes it the latest release, which installed
-# copies then offer as an update.
-# Started by hand (Actions > release > Run workflow) it only builds, and keeps
-# the bundles as workflow artifacts.
+# scripts/release.ps1 builds Windows (installer + portable zip) on the
+# maintainer's PC, publishes the GitHub release with them and a latest.json
+# for Windows, and that publishing starts this workflow, which adds the
+# platforms a Windows PC cannot build:
+#   prep    finds the release, and which platforms it still lacks
+#   build   macOS (Apple silicon and Intel) and Linux (AppImage, deb, rpm),
+#           uploaded into the release (Windows too if the release has no installer)
+#   latest  rewrites latest.json from the signatures on the release, with
+#           every platform, so installed copies on every system get the update
+#
+# Started by hand (Actions > release > Run workflow):
+#   with a tag:    the same for that tag's existing release (to redo a failed run)
+#   without a tag: builds every platform as workflow artifacts, no release
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build into (empty: build only, no release)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -23,78 +30,54 @@ env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
-  notes:
+  prep:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.notes.outputs.version }}
+      tag: ${{ steps.p.outputs.tag }}
+      release_id: ${{ steps.p.outputs.release_id }}
+      version: ${{ steps.p.outputs.version }}
+      include: ${{ steps.p.outputs.include }}
     steps:
-      - uses: actions/checkout@v4
-      - id: notes
-        name: Release notes from CHANGELOG.md
+      - id: p
         shell: python
         env:
-          GITHUB_REF_TYPE: ${{ github.ref_type }}
+          EVENT: ${{ github.event_name }}
+          REL_TAG: ${{ github.event.release.tag_name }}
+          REL_ID: ${{ github.event.release.id }}
+          IN_TAG: ${{ inputs.tag }}
         run: |
-          import json, os, re, sys
-          version = json.load(open("src-tauri/tauri.conf.json"))["version"]
-          ref = os.environ.get("GITHUB_REF_NAME", "")
-          if os.environ["GITHUB_REF_TYPE"] == "tag" and ref != f"v{version}":
-              sys.exit(f"tag {ref} does not match the version {version} in tauri.conf.json")
-          text = open("CHANGELOG.md", encoding="utf-8").read()
-          m = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
-          section = m.group(1).strip() if m else f"comfywebm {version}"
-          body = section + "\n\n---\nFull changelog: https://github.com/kpg-anon/comfywebm/blob/main/CHANGELOG.md\n"
-          open("notes.md", "w", encoding="utf-8").write(body)
+          import json, os, subprocess
+          repo = os.environ["GITHUB_REPOSITORY"]
+          tag = os.environ["REL_TAG"] if os.environ["EVENT"] == "release" else os.environ.get("IN_TAG", "").strip()
+          rid, have = "", set()
+          if tag:
+              rel = json.loads(subprocess.run(["gh", "api", f"repos/{repo}/releases/tags/{tag}"], check=True, capture_output=True, text=True).stdout)
+              rid = str(rel["id"])
+              have = {a["name"] for a in rel["assets"]}
+          print("tag:", tag or "(none: build only)", "release:", rid, "assets:", sorted(have))
+          mac = [
+              {"os": "macos-latest", "args": "--target aarch64-apple-darwin", "rust_target": "aarch64-apple-darwin"},
+              {"os": "macos-latest", "args": "--target x86_64-apple-darwin", "rust_target": "x86_64-apple-darwin"},
+          ]
+          # 22.04: the AppImage then runs on systems with glibc 2.35 or newer
+          include = [{"os": "ubuntu-22.04", "args": "", "rust_target": ""}] + mac
+          # Windows is built on the maintainer's PC; CI builds it when the release has no installer, or with no release
+          if not tag or not any(n.endswith("-setup.exe") for n in have):
+              include.insert(0, {"os": "windows-latest", "args": "", "rust_target": ""})
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              f.write(f"version={version}\n")
-      - uses: actions/upload-artifact@v4
-        with:
-          name: notes
-          path: notes.md
-
-  draft:
-    if: github.ref_type == 'tag'
-    needs: notes
-    runs-on: ubuntu-latest
-    outputs:
-      id: ${{ steps.draft.outputs.id }}
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: notes
-      - id: draft
-        # the API returns the new release's id; listing releases right after
-        # creating one may not show the draft yet
-        run: |
-          id=$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
-            -f tag_name="$GITHUB_REF_NAME" -f name="comfywebm $GITHUB_REF_NAME" \
-            -F draft=true -F prerelease=false -F body=@notes.md --jq .id)
-          if [ -z "$id" ] || [ "$id" = null ]; then echo "no release id"; exit 1; fi
-          echo "draft release $id"
-          echo "id=$id" >> "$GITHUB_OUTPUT"
+              f.write(f"tag={tag}\nrelease_id={rid}\nversion={tag.lstrip('v')}\ninclude={json.dumps(include)}\n")
 
   build:
-    needs: [notes, draft]
-    # a run started by hand has no draft; it still builds
-    if: ${{ !cancelled() && needs.notes.result == 'success' && (needs.draft.result == 'success' || needs.draft.result == 'skipped') }}
+    needs: prep
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            args: ""
-          # 22.04: the AppImage then runs on systems with glibc 2.35 or newer
-          - os: ubuntu-22.04
-            args: ""
-          - os: macos-latest
-            args: --target aarch64-apple-darwin
-            rust_target: aarch64-apple-darwin
-          - os: macos-latest
-            args: --target x86_64-apple-darwin
-            rust_target: x86_64-apple-darwin
+        include: ${{ fromJson(needs.prep.outputs.include) }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prep.outputs.tag || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -117,8 +100,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          # the draft from the draft job; empty when started by hand (build only)
-          releaseId: ${{ needs.draft.outputs.id }}
+          # the release to upload into; empty (build only): nothing is uploaded
+          releaseId: ${{ needs.prep.outputs.release_id }}
           # latest.json is written once by the latest job, so parallel builds cannot overwrite each other's entry
           includeUpdaterJson: false
           args: ${{ matrix.args }}
@@ -126,7 +109,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $v = '${{ needs.notes.outputs.version }}'
+          $v = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
           $dir = 'target/release/portable'
           New-Item -ItemType Directory -Force $dir | Out-Null
           Copy-Item target/release/comfywebm.exe $dir
@@ -139,15 +122,15 @@ jobs:
           New-Item -ItemType Directory -Force target/release/bundle/portable | Out-Null
           $zip = "target/release/bundle/portable/comfywebm_${v}_x64-portable.zip"
           Compress-Archive -Path "$dir/*" -DestinationPath $zip -Force
-          if ('${{ github.ref_type }}' -eq 'tag') {
-            if (-not '${{ needs.draft.outputs.id }}') { throw 'no draft release id' }
+          $rid = '${{ needs.prep.outputs.release_id }}'
+          if ($rid) {
             $name = Split-Path $zip -Leaf
             gh api --method POST -H 'Content-Type: application/zip' `
-              "https://uploads.github.com/repos/$env:GITHUB_REPOSITORY/releases/${{ needs.draft.outputs.id }}/assets?name=$name" `
+              "https://uploads.github.com/repos/$env:GITHUB_REPOSITORY/releases/$rid/assets?name=$name" `
               --input $zip --jq .name
           }
-      - name: Keep the bundles (run started by hand)
-        if: github.ref_type != 'tag'
+      - name: Keep the bundles (build only)
+        if: needs.prep.outputs.release_id == ''
         uses: actions/upload-artifact@v4
         with:
           name: bundles-${{ matrix.os }}-${{ matrix.rust_target }}
@@ -157,23 +140,22 @@ jobs:
           if-no-files-found: error
 
   latest:
-    if: github.ref_type == 'tag'
-    needs: [notes, draft, build]
+    if: needs.prep.outputs.release_id != ''
+    needs: [prep, build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: notes
-      - name: latest.json from the signatures on the draft
+      - name: latest.json from the signatures on the release
         shell: python
         env:
-          RELEASE_ID: ${{ needs.draft.outputs.id }}
-          VERSION: ${{ needs.notes.outputs.version }}
+          RELEASE_ID: ${{ needs.prep.outputs.release_id }}
+          TAG: ${{ needs.prep.outputs.tag }}
+          VERSION: ${{ needs.prep.outputs.version }}
         run: |
           import json, os, subprocess, sys, datetime
-          repo, rid, tag, version = os.environ["GITHUB_REPOSITORY"], os.environ["RELEASE_ID"], os.environ["GITHUB_REF_NAME"], os.environ["VERSION"]
-          def gh(*a, raw=False):
-              return subprocess.run(["gh", "api", *a], check=True, capture_output=True, text=not raw).stdout
+          repo, rid, tag, version = os.environ["GITHUB_REPOSITORY"], os.environ["RELEASE_ID"], os.environ["TAG"], os.environ["VERSION"]
+          def gh(*a):
+              return subprocess.run(["gh", "api", *a], check=True, capture_output=True, text=True).stdout
+          rel = json.loads(gh(f"repos/{repo}/releases/{rid}"))
           assets = json.loads(gh(f"repos/{repo}/releases/{rid}/assets", "--paginate"))
           names = {a["name"]: a for a in assets}
           print("assets:", ", ".join(sorted(names)))
@@ -190,12 +172,11 @@ jobs:
           platforms = {}
           for plat, name in files.items():
               sig = gh("-H", "Accept: application/octet-stream", f"repos/{repo}/releases/assets/{names[name + '.sig']['id']}")
-              # the URL it gets once the draft is published
               platforms[plat] = {"signature": sig.strip(), "url": f"https://github.com/{repo}/releases/download/{tag}/{name}"}
           latest = {
               "version": version,
-              "notes": open("notes.md", encoding="utf-8").read().strip(),
-              "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "notes": (rel.get("body") or f"comfywebm {tag}").strip(),
+              "pub_date": rel.get("published_at") or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
               "platforms": platforms,
           }
           json.dump(latest, open("latest.json", "w", encoding="utf-8"), indent=2)

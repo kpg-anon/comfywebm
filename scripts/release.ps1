@@ -1,30 +1,34 @@
 <#
 .SYNOPSIS
-    Starts a comfywebm release: version, changelog section, commit, tag, push.
-    GitHub Actions (.github/workflows/release.yml) then builds Windows, Linux
-    and macOS and puts everything on a draft release.
+    Releases comfywebm from this PC: Windows is built here and published at
+    once; GitHub Actions adds macOS and Linux to the same release afterwards.
 
 .DESCRIPTION
-    1. Checks: on branch main with nothing uncommitted in the files it changes,
-       git identity is the kpg-anon noreply address, the GitHub repo is public
-       (the updater downloads without signing in), the updater signing secrets
-       exist on GitHub, and the tag does not exist yet.
+    1. Checks: on main, the files it commits have no other changes, git
+       identity is the kpg-anon noreply address, gh is signed in, the repo is
+       public, the signing secrets exist on GitHub (for the macOS and Linux
+       builds), the local key files exist, the tag is new.
     2. Sets the version everywhere (bump-version.ps1).
-    3. CHANGELOG.md: when there is no "## [x.y.z]" section yet, the
-       "## [Unreleased]" section becomes "## [x.y.z] - <today>" and an empty
-       [Unreleased] is left above it. That section is the release notes.
-    4. Commits only the files it changed ("release: vX.Y.Z"), tags vX.Y.Z and
-       pushes main and the tag.
-
-    Then: Actions > release builds for about 15 minutes and creates a draft
-    release with the installers and latest.json. Look at it and press Publish;
-    only a published release is offered to installed copies.
+    3. CHANGELOG.md: "## [Unreleased]" becomes "## [x.y.z] - <today>" (an
+       empty [Unreleased] stays above it). That section is the release notes.
+    4. Deletes old bundles of this version, then builds the signed NSIS
+       installer (npx tauri build) and checks that it is new.
+    5. The portable zip: comfywebm.exe, WebView2Loader.dll, the "portable" file.
+    6. latest.json for Windows (the release workflow rewrites it with every
+       platform when its builds are done).
+    7. Commits only the files it changed ("release: vX.Y.Z") and pushes main.
+    8. gh release create: makes the tag on that commit and publishes the
+       release with the installer, its .sig, the portable zip and latest.json.
+       Windows copies can update from now on.
+    9. Publishing starts .github/workflows/release.yml, which builds macOS and
+       Linux into the release (about 15 minutes) and rewrites latest.json.
 
     -DryRun prints the notes and the steps and changes nothing.
+    See docs/SHIP.md (local) or scripts/README.md.
 
 .EXAMPLE
-    ./scripts/release.ps1 1.0.0 -DryRun
-    ./scripts/release.ps1 1.0.0
+    ./scripts/release.ps1 1.0.1 -DryRun
+    ./scripts/release.ps1 1.0.1
 #>
 [CmdletBinding()]
 param(
@@ -43,6 +47,12 @@ $tag = "v$Version"
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $files = @('package.json', 'package-lock.json', 'src-tauri/tauri.conf.json', 'src-tauri/Cargo.toml',
     'crates/engine/Cargo.toml', 'Cargo.lock', 'README.md', 'USAGE.md', 'CHANGELOG.md')
+$keyPath = Join-Path $root '.tauri-updater.key'
+$passPath = Join-Path $root '.tauri-updater.pass'
+$release = Join-Path $root 'target/release'
+$nsis = Join-Path $release 'bundle/nsis'
+$setupName = "comfywebm_${Version}_x64-setup.exe"
+$portableName = "comfywebm_${Version}_x64-portable.zip"
 
 function Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 function Run([string]$exe, [string[]]$argv) {
@@ -61,14 +71,17 @@ $dirty = git status --porcelain -- @files
 if ($dirty) { Problem "Uncommitted changes in files the release commit would include:`n$dirty" }
 $email = (git config user.email).Trim()
 if ($email -ne '128227694+kpg-anon@users.noreply.github.com') { Problem "git user.email is '$email', expected the kpg-anon noreply address." }
+gh auth status *> $null
+if ($LASTEXITCODE) { Problem 'gh is not signed in (gh auth login).' }
 $private = (gh api "repos/$repo" --jq '.private').Trim()
-if ($private -ne 'false') {
-    Problem "The GitHub repo $repo is private. Installed copies download latest.json and the installers without signing in, so they would get 404 and never update. Make the repo public first."
-}
+if ($private -ne 'false') { Problem "The GitHub repo $repo is private; installed copies could not download the update." }
 $secrets = (gh secret list --repo $repo) -join "`n"
 foreach ($s in @('TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD')) {
-    if ($secrets -notmatch "(?m)^$s\b") { Problem "The repo secret $s is missing; the build could not sign the updates. See scripts/README.md." }
+    if ($secrets -notmatch "(?m)^$s\b") { Problem "The repo secret $s is missing; the macOS and Linux builds could not sign their updates." }
 }
+if (-not (Test-Path $keyPath) -or -not (Test-Path $passPath)) { Problem 'The updater key files (.tauri-updater.key, .tauri-updater.pass) are missing.' }
+git fetch -q --tags origin
+if ($LASTEXITCODE) { Problem 'git fetch failed (network?); cannot check the tags on GitHub.' }
 if (git tag --list $tag) { Problem "Tag $tag exists already." }
 Write-Host '    done' -ForegroundColor Green
 
@@ -96,19 +109,87 @@ $start = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l.StartsWit
 $body = @()
 for ($i = $start + 1; $i -lt $lines.Count -and -not $lines[$i].StartsWith('## '); $i++) { $body += $lines[$i] }
 $section = ($body -join "`n").Trim()
-if (-not $section) { throw "The $verHead section of CHANGELOG.md is empty." }
+if (-not $section) { throw "The $verHead section of CHANGELOG.md is empty: write what changed under [Unreleased] first." }
+$notes = "$section`n`n---`nFull changelog: https://github.com/$repo/blob/main/CHANGELOG.md"
 Write-Host '    notes (the release and the in-app update notice show this):' -ForegroundColor DarkGray
 $section -split "`n" | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
 
-# ---------------------------------------------------------------- 4. publish the tag
-Step "Commit, tag $tag, push"
+# ---------------------------------------------------------------- 4. build Windows
+Step 'Build Windows (npx tauri build, signed)'
+if (-not $DryRun) {
+    # an installer of this version left from an earlier build (a test, a failed run) must not be published
+    Get-ChildItem $nsis -Filter "*_${Version}_*" -ErrorAction SilentlyContinue | Remove-Item -Force
+    Get-ChildItem (Join-Path $release 'bundle/portable') -Filter "*_${Version}_*" -ErrorAction SilentlyContinue | Remove-Item -Force
+}
+$buildStart = Get-Date
+# the passphrase must not be empty: PowerShell 5.1 drops empty environment
+# variables for child processes, and the bundler would then ask for it
+if (-not $DryRun) {
+    $env:TAURI_SIGNING_PRIVATE_KEY = [System.IO.File]::ReadAllText($keyPath)
+    $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = [System.IO.File]::ReadAllText($passPath).Trim()
+}
+Run 'npx' @('tauri', 'build')
+$setup = Join-Path $nsis $setupName
+if (-not $DryRun) {
+    foreach ($f in @($setup, "$setup.sig")) {
+        if (-not (Test-Path $f)) { throw "$f was not built." }
+        if ((Get-Item $f).LastWriteTime -lt $buildStart) { throw "$f is older than this build." }
+    }
+    Write-Host "    $setupName, $((Get-Item $setup).Length) bytes" -ForegroundColor Green
+}
+
+# ---------------------------------------------------------------- 5. portable zip
+Step 'Portable zip'
+$portable = Join-Path $release "bundle/portable/$portableName"
+if (-not $DryRun) {
+    $dir = Join-Path $release 'portable'
+    if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+    New-Item -ItemType Directory -Force $dir, (Split-Path $portable) | Out-Null
+    Copy-Item (Join-Path $release 'comfywebm.exe') $dir
+    # this PC builds with the GNU toolchain: the exe loads WebView2Loader.dll from its folder
+    $dll = Join-Path $release 'WebView2Loader.dll'
+    if (-not (Test-Path $dll)) { throw "$dll is missing; the portable exe would not start." }
+    Copy-Item $dll $dir
+    [System.IO.File]::WriteAllText((Join-Path $dir 'portable'),
+        "This file makes comfywebm portable: while it is here, settings, presets, the queue,`r`nthe cache and the remembered options are kept in the `"data`" folder beside it.`r`n", $utf8)
+    Compress-Archive -Path (Join-Path $dir '*') -DestinationPath $portable -Force
+    Write-Host "    $portableName, $((Get-Item $portable).Length) bytes" -ForegroundColor Green
+}
+
+# ---------------------------------------------------------------- 6. latest.json (Windows)
+Step 'latest.json (Windows; the workflow adds macOS and Linux)'
+$latest = Join-Path $release 'latest.json'
+if (-not $DryRun) {
+    $manifest = [ordered]@{
+        version   = $Version
+        notes     = $notes
+        pub_date  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+        platforms = [ordered]@{
+            'windows-x86_64' = [ordered]@{
+                signature = ([System.IO.File]::ReadAllText("$setup.sig")).Trim()
+                url       = "https://github.com/$repo/releases/download/$tag/$setupName"
+            }
+        }
+    }
+    [System.IO.File]::WriteAllText($latest, ($manifest | ConvertTo-Json -Depth 6), $utf8)
+}
+
+# ---------------------------------------------------------------- 7. commit, push
+Step 'Commit and push main'
 Run 'git' (@('add', '--') + $files)
 Run 'git' @('commit', '-m', "release: $tag")
-Run 'git' @('tag', $tag)
 Run 'git' @('push', 'origin', 'main')
-Run 'git' @('push', 'origin', $tag)
+$sha = if ($DryRun) { '<commit>' } else { (git rev-parse HEAD).Trim() }
 
-Write-Host "`nTagged $tag. GitHub Actions now builds it:" -ForegroundColor Cyan
+# ---------------------------------------------------------------- 8. publish
+Step "Publish $tag"
+$notesFile = Join-Path $env:TEMP "comfywebm-$tag-notes.md"
+if (-not $DryRun) { [System.IO.File]::WriteAllText($notesFile, $notes, $utf8) }
+Run 'gh' @('release', 'create', $tag, $setup, "$setup.sig", $portable, $latest,
+    '--repo', $repo, '--target', $sha, '--title', "comfywebm $tag", '--notes-file', $notesFile, '--latest')
+Run 'git' @('fetch', '-q', '--tags', 'origin')
+
+Write-Host "`nPublished ${tag}: https://github.com/$repo/releases/tag/$tag" -ForegroundColor Cyan
+Write-Host "Windows copies can update now. macOS and Linux are being built (about 15 minutes):"
 Write-Host "  https://github.com/$repo/actions/workflows/release.yml"
-Write-Host "When it is done, check the draft and press Publish:"
-Write-Host "  https://github.com/$repo/releases"
+Write-Host "Until that finishes, latest.json lists Windows only; Mac and Linux copies find no update yet."

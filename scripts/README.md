@@ -6,47 +6,60 @@ Run from the repo root.
 | --- | --- |
 | `smoke.sh` | Short real encodes of generated clips (bash; needs ffmpeg). One PASS or FAIL line per case. |
 | `bump-version.ps1 <x.y.z>` | Sets the version in package.json, package-lock.json, tauri.conf.json, both Cargo.toml files, Cargo.lock and the README (badge and installer name). |
-| `release.ps1 <x.y.z>` | Starts a release: version, changelog section, commit, tag, push. `-DryRun` prints the notes and the steps and changes nothing. |
+| `release.ps1 <x.y.z>` | Releases from this PC: builds Windows, publishes the release at once; GitHub Actions then adds macOS and Linux. `-DryRun` prints the notes and the steps and changes nothing. |
 
 ## Making a release
 
 ```powershell
-./scripts/release.ps1 1.0.0 -DryRun   # read the notes it will publish
-./scripts/release.ps1 1.0.0
+./scripts/release.ps1 1.0.1 -DryRun   # read the notes it will publish
+./scripts/release.ps1 1.0.1
 ```
 
-1. `release.ps1` stops unless you are on `main`, the files it commits have no
-   other changes, `git config user.email` is the kpg-anon noreply address, the
-   GitHub repo is **public**, the two signing secrets exist on GitHub and the
-   tag is new. It sets the version everywhere, renames `## [Unreleased]` in
-   CHANGELOG.md to `## [x.y.z] - <today>` (edit that section first: it is what
-   users read), commits those files only (`release: vX.Y.Z`), tags `vX.Y.Z`
-   and pushes main and the tag.
-2. The tag starts `.github/workflows/release.yml` (Actions > release, about 15
-   minutes). It checks that the tag matches the version, takes the CHANGELOG
-   section as the release notes, and builds:
+Write what changed under `## [Unreleased]` in CHANGELOG.md first: that
+section becomes the release notes, on the release page and in the app's
+update notice.
 
-   File names (from a build-only run, 2026-11-16):
+`release.ps1`, on this PC (Windows):
+
+1. Checks: on `main`, no other changes in the files it commits, the kpg-anon
+   noreply address as git identity, `gh` signed in, the repo public, the two
+   signing secrets on GitHub, the local key files, a new tag.
+2. Sets the version everywhere and turns `[Unreleased]` into
+   `## [x.y.z] - <today>`.
+3. Deletes old bundles of that version and builds the signed NSIS installer
+   (`npx tauri build`, about 3 minutes), checking that it is new.
+4. Makes the portable zip (`comfywebm.exe`, `WebView2Loader.dll`, the
+   `portable` file) and a `latest.json` that lists Windows.
+5. Commits only its files (`release: vX.Y.Z`), pushes `main`, and runs
+   `gh release create`: the tag and a **published** release with the
+   installer, its `.sig`, the portable zip and `latest.json`. Windows copies
+   can update from that moment.
+
+Publishing starts `.github/workflows/release.yml` (about 15 minutes):
+
+1. `prep` finds the release and what it lacks.
+2. `build` makes, and uploads into the release:
 
    | runner | files |
    | --- | --- |
-   | windows-latest | `comfywebm_X.Y.Z_x64-setup.exe` (NSIS), `comfywebm_X.Y.Z_x64-portable.zip` |
    | ubuntu-22.04 | `comfywebm_X.Y.Z_amd64.AppImage`, `comfywebm_X.Y.Z_amd64.deb`, `comfywebm-X.Y.Z-1.x86_64.rpm` |
-   | macos-latest, Apple silicon | `comfywebm_X.Y.Z_aarch64.dmg`, the app as `.app.tar.gz` (update) |
-   | macos-latest, Intel | `comfywebm_X.Y.Z_x64.dmg`, the app as `.app.tar.gz` (update) |
+   | macos-latest, Apple silicon | `comfywebm_X.Y.Z_aarch64.dmg`, `comfywebm_aarch64.app.tar.gz` (update) |
+   | macos-latest, Intel | `comfywebm_X.Y.Z_x64.dmg`, `comfywebm_x64.app.tar.gz` (update) |
+   | windows-latest | only when the release has no installer |
 
-   A first job creates one **draft** release; `tauri-apps/tauri-action` signs
-   the update files with the secrets and uploads into it; the Windows job adds
-   the portable zip. When all four builds are done, a last job writes
-   `latest.json` from the `.sig` files on the draft (`windows-x86_64`,
-   `linux-x86_64`, `darwin-aarch64`, `darwin-x86_64`) and stops if one is
-   missing.
-3. Open the draft on the Releases page, check it, press **Publish release**.
-   Only then is it `releases/latest`, which installed copies read.
+3. `latest` rewrites `latest.json` from the `.sig` files on the release
+   with all four platforms (`windows-x86_64`, `linux-x86_64`,
+   `darwin-aarch64`, `darwin-x86_64`), and stops if one is missing.
 
-Actions > release > **Run workflow** builds all platforms without a release;
-the bundles are kept as artifacts of that run. Use it to check that a change
-still builds everywhere.
+Until `latest` has run, `latest.json` lists Windows only, so Mac and Linux
+copies find no update (their check at start stays silent; Check now says the
+platform is missing).
+
+If a CI job fails: fix it on `main`, then Actions > release > **Run
+workflow** with the tag (for example `v1.0.1`): it builds into that release
+again and rewrites `latest.json`. Run without a tag, it builds every
+platform as workflow artifacts and touches no release (to check that
+everything still builds).
 
 ## How installed copies update
 

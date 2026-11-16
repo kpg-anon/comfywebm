@@ -6,7 +6,7 @@ Run from the repo root.
 | --- | --- |
 | `smoke.sh` | Short real encodes of generated clips (bash; needs ffmpeg). One PASS or FAIL line per case. |
 | `bump-version.ps1 <x.y.z>` | Sets the version in package.json, package-lock.json, tauri.conf.json, both Cargo.toml files, Cargo.lock and the README (badge and installer name). |
-| `release.ps1 <x.y.z>` | Publishes a release that installed copies get as an in-app update. `-DryRun` prints the notes and the steps and changes nothing. |
+| `release.ps1 <x.y.z>` | Starts a release: version, changelog section, commit, tag, push. `-DryRun` prints the notes and the steps and changes nothing. |
 
 ## Making a release
 
@@ -15,58 +15,80 @@ Run from the repo root.
 ./scripts/release.ps1 1.0.0
 ```
 
-`release.ps1`:
+1. `release.ps1` stops unless you are on `main`, the files it commits have no
+   other changes, `git config user.email` is the kpg-anon noreply address, the
+   GitHub repo is **public**, the two signing secrets exist on GitHub and the
+   tag is new. It sets the version everywhere, renames `## [Unreleased]` in
+   CHANGELOG.md to `## [x.y.z] - <today>` (edit that section first: it is what
+   users read), commits those files only (`release: vX.Y.Z`), tags `vX.Y.Z`
+   and pushes main and the tag.
+2. The tag starts `.github/workflows/release.yml` (Actions > release, about 15
+   minutes). It checks that the tag matches the version, takes the CHANGELOG
+   section as the release notes, and builds:
 
-1. Stops unless you are on `main`, `git config user.email` is the kpg-anon
-   noreply address, the GitHub repo is **public**, the tag does not exist and
-   the updater key files are there.
-2. Sets the version everywhere (`bump-version.ps1`).
-3. In CHANGELOG.md, when there is no `## [x.y.z]` section yet, renames
-   `## [Unreleased]` to `## [x.y.z] - <today>` and leaves an empty
-   `## [Unreleased]` above it. That section is the release notes, in the
-   GitHub release and in the app's update notice. Edit it before releasing.
-4. Builds the NSIS installer with `npx tauri build`, signed with the updater
-   key.
-5. Writes `target/release/latest.json` with the version, the notes, the date
-   and the installer's URL and signature.
-6. Commits only the files it changed (`release: vX.Y.Z`), tags, pushes `main`
-   and the tag, and creates the GitHub release with the installer and
-   `latest.json`.
+   File names as Tauri makes them (not yet confirmed by a CI run):
+
+   | runner | files |
+   | --- | --- |
+   | windows-latest | `comfywebm_X.Y.Z_x64-setup.exe` (NSIS) |
+   | ubuntu-22.04 | `comfywebm_X.Y.Z_amd64.AppImage`, `comfywebm_X.Y.Z_amd64.deb`, an `.rpm` |
+   | macos-latest, Apple silicon | `comfywebm_X.Y.Z_aarch64.dmg`, `.app.tar.gz` |
+   | macos-latest, Intel | `comfywebm_X.Y.Z_x64.dmg`, `.app.tar.gz` |
+
+   `tauri-apps/tauri-action` signs the update files with the secrets and puts
+   everything on a **draft** release, with one `latest.json` listing
+   `windows-x86_64`, `linux-x86_64`, `darwin-aarch64` and `darwin-x86_64`.
+3. Open the draft on the Releases page, check it, press **Publish release**.
+   Only then is it `releases/latest`, which installed copies read.
+
+Actions > release > **Run workflow** builds all platforms without a release;
+the bundles are kept as artifacts of that run. Use it to check that a change
+still builds everywhere.
 
 ## How installed copies update
 
 The app reads
 `https://github.com/kpg-anon/comfywebm/releases/latest/download/latest.json`
 (`plugins.updater.endpoints` in `src-tauri/tauri.conf.json`), at start and
-from Settings > Look > Updates > Check now. When its version is newer, the
-notice shows the notes. Update now downloads the installer, checks its
-signature against `plugins.updater.pubkey`, runs it in passive mode and
-restarts the app.
+from Settings > Look > Updates > Check now. When its version is newer, a
+notice shows the notes. Update now downloads the file for this system, checks
+its signature against `plugins.updater.pubkey`, installs it and restarts.
 
-The download has no sign-in, so this only works while the repo is public. A
-private repo answers 404 and the app says "Could not fetch a valid release
-JSON from the remote" on Check now (the check at start stays silent).
+- Windows: the NSIS installer runs in passive mode.
+- macOS: the `.app.tar.gz` replaces the app.
+- Linux: only an AppImage can replace itself (the AppImage runtime sets
+  `APPIMAGE`). A `.deb` or `.rpm` install shows "Open the release page"
+  instead (`can_self_update` in `src-tauri/src/lib.rs`).
+
+The download has no sign-in, so this only works while the repo is public.
 
 ## Updater key
 
-Two gitignored files in the repo root hold the secret. Never commit them, and
-keep a copy somewhere safe: without them no update can be published that
-existing installs accept.
+The key pair signs the update files; installed copies accept only files
+signed with it.
 
-- `.tauri-updater.key`: the private key.
-- `.tauri-updater.pass`: its passphrase. It must not be empty (PowerShell 5.1
-  drops empty environment variables for child processes, and the bundler then
-  asks for the passphrase).
+- `.tauri-updater.key` (the private key) and `.tauri-updater.pass` (its
+  passphrase) are in the repo root, gitignored. Keep a copy somewhere safe.
+- GitHub needs both as repo secrets for the release workflow:
+  ```sh
+  gh secret set TAURI_SIGNING_PRIVATE_KEY < .tauri-updater.key
+  gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD < .tauri-updater.pass
+  ```
+- The public key is `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`.
 
-The public key is `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`. A
-new pair is made with
+A new pair (`npx tauri signer generate -w .tauri-updater.key -p <passphrase> --ci`,
+then the new public key into tauri.conf.json and both secrets updated) means
+copies installed with the old key cannot update to builds signed with the new
+one.
 
-```powershell
-npx tauri signer generate -w .tauri-updater.key -p <passphrase> --ci
-```
+## macOS signing
 
-and the new public key goes into tauri.conf.json. Copies installed with the
-old key then cannot update to a build signed with the new one.
+The macOS builds are signed ad hoc (`signingIdentity: "-"` in
+`src-tauri/tauri.macos.conf.json`), not with an Apple Developer ID, so they
+are not notarized. Gatekeeper then says the app "cannot be opened" or "is
+damaged" on first start; the README says how to open it anyway. A Developer ID
+($99 a year) would remove that; it needs `APPLE_CERTIFICATE`,
+`APPLE_SIGNING_IDENTITY` and notarization secrets for tauri-action.
 
 ## Testing an update locally
 

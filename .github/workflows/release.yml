@@ -1,0 +1,105 @@
+name: release
+
+# A tag vX.Y.Z (pushed by scripts/release.ps1) builds every platform and puts
+# the installers and latest.json on a draft GitHub release, with the
+# CHANGELOG.md section of that version as its notes. Publishing the draft makes
+# it the latest release, which installed copies then offer as an update.
+# Started by hand (Actions > release > Run workflow) it only builds, and keeps
+# the bundles as workflow artifacts.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    outputs:
+      body: ${{ steps.notes.outputs.body }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: notes
+        name: Release notes from CHANGELOG.md
+        shell: python
+        run: |
+          import json, os, re, sys
+          version = json.load(open("src-tauri/tauri.conf.json"))["version"]
+          ref = os.environ.get("GITHUB_REF_NAME", "")
+          if os.environ["GITHUB_REF_TYPE"] == "tag" and ref != f"v{version}":
+              sys.exit(f"tag {ref} does not match the version {version} in tauri.conf.json")
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          m = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## )", text, re.S | re.M)
+          section = m.group(1).strip() if m else f"comfywebm {version}"
+          body = section + """
+
+          ---
+          Full changelog: https://github.com/kpg-anon/comfywebm/blob/main/CHANGELOG.md
+          """.replace("\n          ", "\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write("body<<NOTES_END\n" + body.strip() + "\nNOTES_END\n")
+        env:
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
+
+  build:
+    needs: notes
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: ""
+          # 22.04: the AppImage then runs on systems with an older glibc too
+          - os: ubuntu-22.04
+            args: ""
+          - os: macos-latest
+            args: --target aarch64-apple-darwin
+            rust_target: aarch64-apple-darwin
+          - os: macos-latest
+            args: --target x86_64-apple-darwin
+            rust_target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+      - name: Linux build packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}-${{ matrix.rust_target }}
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        id: tauri
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          # no tag (a run started by hand): build only, no release
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: comfywebm v__VERSION__
+          releaseBody: ${{ needs.notes.outputs.body }}
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          args: ${{ matrix.args }}
+      - name: Keep the bundles (run started by hand)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundles-${{ matrix.os }}-${{ matrix.rust_target }}
+          path: |
+            target/release/bundle/
+            target/*/release/bundle/
+          if-no-files-found: error

@@ -39,6 +39,8 @@ $targets = @(
     # installer names: comfywebm_1.0.0_x64-setup.exe, _aarch64.dmg, _amd64.AppImage ...
     @{ Path = 'README.md';                 Pattern = '(comfywebm_)\d+\.\d+\.\d+(_)';                                           First = $false }
     @{ Path = 'USAGE.md';                  Pattern = '(comfywebm_)\d+\.\d+\.\d+(_)';                                           First = $false }
+    # the rpm: comfywebm-1.0.0-1.x86_64.rpm
+    @{ Path = 'README.md';                 Pattern = '(comfywebm-)\d+\.\d+\.\d+(-1\.)';                                        First = $false }
 )
 
 foreach ($t in $targets) {

@@ -252,6 +252,11 @@ file does not apply.
 
 ## Files
 
+The Windows portable copy (a file named `portable` beside `comfywebm.exe`)
+keeps all of the below in `data` beside the exe instead: `data/config`,
+`data/cache` and `data/webview` (the remembered options, theme and recent
+files).
+
 - Settings: `settings.json` in the app config folder (`%APPDATA%\com.comfywebm.app`
   on Windows, `~/.config/com.comfywebm.app` on Linux,
   `~/Library/Application Support/com.comfywebm.app` on macOS).

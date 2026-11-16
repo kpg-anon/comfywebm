@@ -26,18 +26,21 @@ Run from the repo root.
    minutes). It checks that the tag matches the version, takes the CHANGELOG
    section as the release notes, and builds:
 
-   File names as Tauri makes them (not yet confirmed by a CI run):
+   File names (from a build-only run, 2026-11-16):
 
    | runner | files |
    | --- | --- |
-   | windows-latest | `comfywebm_X.Y.Z_x64-setup.exe` (NSIS) |
-   | ubuntu-22.04 | `comfywebm_X.Y.Z_amd64.AppImage`, `comfywebm_X.Y.Z_amd64.deb`, an `.rpm` |
-   | macos-latest, Apple silicon | `comfywebm_X.Y.Z_aarch64.dmg`, `.app.tar.gz` |
-   | macos-latest, Intel | `comfywebm_X.Y.Z_x64.dmg`, `.app.tar.gz` |
+   | windows-latest | `comfywebm_X.Y.Z_x64-setup.exe` (NSIS), `comfywebm_X.Y.Z_x64-portable.zip` |
+   | ubuntu-22.04 | `comfywebm_X.Y.Z_amd64.AppImage`, `comfywebm_X.Y.Z_amd64.deb`, `comfywebm-X.Y.Z-1.x86_64.rpm` |
+   | macos-latest, Apple silicon | `comfywebm_X.Y.Z_aarch64.dmg`, the app as `.app.tar.gz` (update) |
+   | macos-latest, Intel | `comfywebm_X.Y.Z_x64.dmg`, the app as `.app.tar.gz` (update) |
 
-   `tauri-apps/tauri-action` signs the update files with the secrets and puts
-   everything on a **draft** release, with one `latest.json` listing
-   `windows-x86_64`, `linux-x86_64`, `darwin-aarch64` and `darwin-x86_64`.
+   A first job creates one **draft** release; `tauri-apps/tauri-action` signs
+   the update files with the secrets and uploads into it; the Windows job adds
+   the portable zip. When all four builds are done, a last job writes
+   `latest.json` from the `.sig` files on the draft (`windows-x86_64`,
+   `linux-x86_64`, `darwin-aarch64`, `darwin-x86_64`) and stops if one is
+   missing.
 3. Open the draft on the Releases page, check it, press **Publish release**.
    Only then is it `releases/latest`, which installed copies read.
 
@@ -58,7 +61,9 @@ its signature against `plugins.updater.pubkey`, installs it and restarts.
 - macOS: the `.app.tar.gz` replaces the app.
 - Linux: only an AppImage can replace itself (the AppImage runtime sets
   `APPIMAGE`). A `.deb` or `.rpm` install shows "Open the release page"
-  instead (`can_self_update` in `src-tauri/src/lib.rs`).
+  instead (`update_mode` in `src-tauri/src/lib.rs`).
+- Windows portable (a `portable` file beside the exe): also "Open the release
+  page"; the user unzips the new version over the folder.
 
 The download has no sign-in, so this only works while the repo is public.
 

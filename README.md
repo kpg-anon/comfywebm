@@ -91,12 +91,13 @@ Windows, Linux and macOS.
 
 | system | file | updates |
 | :-- | :-- | :-- |
-| Windows 10 / 11 (x64) | `comfywebm_1.0.0_x64-setup.exe` | in the app |
+| Windows 10 / 11 (x64), installer | `comfywebm_1.0.0_x64-setup.exe` | in the app |
+| Windows 10 / 11 (x64), portable | `comfywebm_1.0.0_x64-portable.zip` | download the new zip |
 | macOS 11+, Apple silicon (M1 and later) | `comfywebm_1.0.0_aarch64.dmg` | in the app |
 | macOS 11+, Intel | `comfywebm_1.0.0_x64.dmg` | in the app |
-| Linux (x64), any distribution | `comfywebm_1.0.0_amd64.AppImage` | in the app |
+| Linux (x64): Ubuntu 22.04, Debian 12, Fedora 36 or newer | `comfywebm_1.0.0_amd64.AppImage` | in the app |
 | Debian, Ubuntu, Mint | `comfywebm_1.0.0_amd64.deb` | download the new `.deb` |
-| Fedora, openSUSE | the `.rpm` | download the new `.rpm` |
+| Fedora, openSUSE | `comfywebm-1.0.0-1.x86_64.rpm` | download the new `.rpm` |
 
 comfywebm uses your own **ffmpeg** (and **yt-dlp** for web links); neither is
 bundled. When one is missing, the app says which and how to get it.
@@ -107,6 +108,13 @@ Run the installer. It installs for your user only (no administrator rights),
 and adds a Start menu entry and an uninstaller. It is not code-signed, so
 SmartScreen may warn the first time: **More info**, then **Run anyway**.
 
+**Portable**: unzip anywhere (a USB stick works) and run `comfywebm.exe`. The
+file named `portable` beside it makes the app keep its settings, presets,
+queue, cache and remembered options in a `data` folder there instead of in
+your user profile; delete that file to use the normal locations. To update,
+unzip the new version over the folder; `data` stays. The portable copy needs
+the WebView2 runtime, which Windows 10 and 11 have.
+
 ffmpeg: the "full" build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/)
 (`winget install Gyan.FFmpeg`). yt-dlp: `winget install yt-dlp`.
 
@@ -114,12 +122,14 @@ ffmpeg: the "full" build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/)
 
 Open the `.dmg` and drag comfywebm to Applications. The app is not notarized
 by Apple, so the first start is refused ("cannot be opened" or "is damaged").
-Either right-click the app, choose **Open** and confirm, or run once in
-Terminal:
+Run this once in Terminal, then open it as usual:
 
 ```sh
 xattr -cr /Applications/comfywebm.app
 ```
+
+Or: try to open it once, then System Settings > Privacy & Security > **Open
+Anyway** (on macOS 14 and older, right-click the app > **Open** also works).
 
 ffmpeg and yt-dlp with [Homebrew](https://brew.sh): `brew install ffmpeg yt-dlp`.
 The app finds them in Homebrew's folders even when started from the Dock.
@@ -135,8 +145,11 @@ chmod +x comfywebm_*_amd64.AppImage
 
 It needs FUSE 2 (`sudo apt install libfuse2`; on Ubuntu 24.04 `libfuse2t64`).
 
+The AppImage is built on Ubuntu 22.04 and needs glibc 2.35 or newer (Ubuntu
+22.04, Debian 12, Fedora 36 or newer).
+
 **.deb / .rpm**: `sudo apt install ./comfywebm_*_amd64.deb` or
-`sudo dnf install ./comfywebm-*.rpm`.
+`sudo dnf install ./comfywebm-*.x86_64.rpm`.
 
 ffmpeg: `sudo apt install ffmpeg` (Fedora: from RPM Fusion,
 `sudo dnf install ffmpeg`). yt-dlp: `pipx install yt-dlp` or your package

@@ -16,7 +16,7 @@ test("fit never upscales", () => {
 
 // plan.rs `even_down` rounds to the nearest pixel before dropping to even;
 // fit() floors, so 865.78 px becomes 864 here and 866 in the engine.
-test("fit matches the engine's even_down rounding", { todo: true }, () => {
+test("fit matches the engine's even_down rounding", () => {
   assert.deepEqual(fit(1920, 1080, { w: null, h: 487 }), { w: 866, h: 486 });
 });
 

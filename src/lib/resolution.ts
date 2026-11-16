@@ -9,7 +9,8 @@ export type ResMode = "auto" | "source" | "step" | "percent" | "exact";
 
 export type Box = { w: number | null; h: number | null };
 
-const even = (x: number) => Math.max(2, Math.floor(x / 2) * 2);
+// as the engine's even_down: round to a pixel, then down to an even number
+const even = (x: number) => { const v = Math.max(2, Math.round(x)); return v - (v % 2); };
 
 /** Output size for a picture of w x h fitted in a box, as the engine computes it. */
 export function fit(w: number, h: number, box: Box): { w: number; h: number } {

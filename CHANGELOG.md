@@ -74,7 +74,8 @@ Work on the `exp` branch.
 - The sidebar can be resized by dragging its edge; double-click resets.
 - The size field takes units: MB, KB, GB are decimal, MiB, KiB, GiB (or a
   bare number) binary. Up and Down step 0.5 MiB (Shift: 5 MiB).
-- CI workflow: frontend typecheck and build, engine tests.
+- CI workflow: frontend typecheck and build, engine tests, and frontend
+  unit tests (`npm test`, Node's own test runner, no new packages).
 - Shift+S (or Shift+click Frame) saves the frame as the encode sees it:
   filters, adjustments, crop, rotation, flips and the output size.
 - Hovering the timeline shows the thumbnail at the pointer.
@@ -117,6 +118,9 @@ Work on the `exp` branch.
   defaults on the next save. It is now renamed to `<name>.bad-<time>`
   and a notice at start says so. Two settings saves at the same moment
   can no longer interleave on the temp file.
+- The picture size shown for a resolution step could be 2 px narrower
+  than the encode's (1920x1080 at 487 px high: shown 864, encoded 866);
+  the app now rounds as the engine does.
 - Closing the app left ffmpeg running when a job, sample or download was
   active; all child processes are now stopped on exit.
 - A finished output or saved frame could replace a file that appeared at

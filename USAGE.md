@@ -390,7 +390,7 @@ Linux also needs the WebKitGTK packages, on Debian and Ubuntu:
 `sudo apt install libwebkit2gtk-4.1-dev librsvg2-dev patchelf`.
 
 On Windows, `npx tauri build` writes `target/release/comfywebm.exe` and the
-NSIS installer `target/release/bundle/nsis/comfywebm_1.0.0_x64-setup.exe`.
+NSIS installer `target/release/bundle/nsis/comfywebm_1.0.1_x64-setup.exe`.
 `src-tauri/tauri.windows.conf.json` limits the Windows bundle to NSIS, so no
 WiX download is needed; Linux and macOS use the targets in `tauri.conf.json`.
 

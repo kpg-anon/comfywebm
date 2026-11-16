@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-16
+
 ### Added
 
 - **Splits**: a tab that combines two or more clips into one output, even

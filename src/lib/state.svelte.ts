@@ -78,7 +78,7 @@ export const NEUTRAL_ADJUST: Adjust = { brightness: 0, contrast: 1, saturation: 
 export const isNeutral = (a: Adjust) =>
   a.brightness === 0 && a.contrast === 1 && a.saturation === 1 && a.gamma === 1 && a.hue === 0 && a.curve.every(([x, y]) => Math.abs(x - y) < 1e-4);
 
-export type View = "editor" | "batch" | "queue";
+export type View = "editor" | "batch" | "splits" | "queue";
 
 /** Per-file changes a batch item can make to the global settings. */
 export type ItemOverrides = {

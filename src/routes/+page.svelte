@@ -9,6 +9,8 @@
   import UpdateNotice from "$lib/components/UpdateNotice.svelte";
   import BatchView from "$lib/components/BatchView.svelte";
   import { batch } from "$lib/batch.svelte";
+  import SplitsView from "$lib/components/SplitsView.svelte";
+  import { splits } from "$lib/splits.svelte";
   import Logo from "$lib/components/Logo.svelte";
   import { app } from "$lib/state.svelte";
   import * as ipc from "$lib/ipc";
@@ -100,10 +102,11 @@
   let preview = $state<HTMLDivElement>();
   let queueView = $state<HTMLDivElement>();
   let batchView = $state<HTMLDivElement>();
+  let splitsView = $state<HTMLDivElement>();
 
   /** Is a drag position (physical pixels, from Tauri) over the drop target of the shown view? */
   function overPreview(p: { x: number; y: number }): boolean {
-    const el = app.view === "queue" ? queueView : app.view === "batch" ? batchView : preview;
+    const el = app.view === "queue" ? queueView : app.view === "batch" ? batchView : app.view === "splits" ? splitsView : preview;
     if (!el) return false;
     const r = el.getBoundingClientRect();
     const x = p.x / devicePixelRatio;
@@ -117,7 +120,7 @@
       .then((v) => (version = v))
       .catch(() => {});
     // dev builds: the state object for testing over the DevTools protocol
-    if (import.meta.env.DEV) Object.assign(window, { __cwm: app, __cwmBatch: batch });
+    if (import.meta.env.DEV) Object.assign(window, { __cwm: app, __cwmBatch: batch, __cwmSplits: splits });
     let disposed = false;
     const keep = (p: Promise<() => void>) =>
       p.then((u) => (disposed ? u() : unlisten.push(u))).catch((e) => (app.error = ipc.errText(e)));
@@ -142,6 +145,7 @@
             // the batch view collects files (and folders); elsewhere one file
             // opens in the editor and several become queue jobs
             if (app.view === "batch") void batch.addPaths(p.paths);
+            else if (app.view === "splits") void splits.addPaths(p.paths);
             else {
               if (p.paths.length === 1) app.setView("editor");
               void app.openPaths(p.paths);
@@ -206,6 +210,17 @@
       >
         <Icon name="stack" size={13} />Batch
         {#if batch.items.length}<span class="badge plain">{batch.items.length}</span>{/if}
+      </button>
+      <button
+        class="view"
+        class:on={app.view === "splits"}
+        role="tab"
+        aria-selected={app.view === "splits"}
+        title="Combine clips into one: one after another, side by side, stacked or in a grid"
+        onclick={() => app.setView("splits")}
+      >
+        <Icon name="cut" size={13} />Splits
+        {#if splits.clips.length}<span class="badge plain">{splits.clips.length}</span>{/if}
       </button>
       <button
         class="view"
@@ -290,6 +305,14 @@
         <BatchView />
         {#if app.dragging}
           <div class="dropping"><div>Drop to add to the batch</div></div>
+        {/if}
+      </div>
+    {/if}
+    {#if app.view === "splits"}
+      <div class="left" bind:this={splitsView}>
+        <SplitsView />
+        {#if app.dragging}
+          <div class="dropping"><div>Drop to add clips</div></div>
         {/if}
       </div>
     {/if}

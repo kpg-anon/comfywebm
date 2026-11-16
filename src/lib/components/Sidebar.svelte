@@ -6,6 +6,7 @@
   // of its settings are changed, so nothing set there goes unnoticed.
   import { app, isNeutral } from "$lib/state.svelte";
   import { batch } from "$lib/batch.svelte";
+  import { splits } from "$lib/splits.svelte";
   import { pickAudio, pickFolder, pickImage, pickSubtitle } from "$lib/dialogs";
   import { CODECS_BY_CONTAINER, CODEC_LABEL } from "$lib/presets";
   import { fmtBytes, fmtTime } from "$lib/time";
@@ -571,7 +572,13 @@
   </div>
 
   <div class="fixed bottom">
-    {#if app.view === "batch"}
+    {#if app.view === "splits"}
+      <div class="muted small">These settings apply to the combined clips{splits.clips.length ? ` (${splits.clips.length})` : ""}. The choices for combining them are on the left.</div>
+      <div class="actions">
+        <button class="btn primary big" disabled={splits.clips.length < 2 || app.ffmpegMissing || !!splits.planError} onclick={() => splits.enqueue(true)}>Encode</button>
+        <button class="btn big" disabled={splits.clips.length < 2 || app.ffmpegMissing || !!splits.planError} onclick={() => splits.enqueue(false)}>Add to queue</button>
+      </div>
+    {:else if app.view === "batch"}
       <div class="muted small">These settings apply to every file in the batch{batch.included.length ? ` (${batch.included.length})` : ""}. Each file's check is on the left.</div>
       <div class="actions">
         <button class="btn primary big" disabled={!batch.included.length || app.ffmpegMissing} onclick={() => batch.enqueue(true)}>Encode {batch.included.length} files</button>

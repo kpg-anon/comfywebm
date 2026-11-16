@@ -1,0 +1,37 @@
+{
+  "audio": [
+    {
+      "bitrateK": null,
+      "channels": 2,
+      "codec": "aac",
+      "lang": null,
+      "sampleRate": null,
+      "title": null,
+      "track": 0
+    }
+  ],
+  "audioOnly": false,
+  "bitrateK": null,
+  "created": null,
+  "duration": 60.0,
+  "encoder": null,
+  "fileName": "in.mp4",
+  "format": "",
+  "path": "in.mp4",
+  "sizeBytes": 1,
+  "subs": [],
+  "video": {
+    "bitrateK": null,
+    "codec": "h264",
+    "color": null,
+    "fps": 30.0,
+    "frames": null,
+    "hdr": false,
+    "height": 720,
+    "interlaced": false,
+    "pixFmt": null,
+    "profile": null,
+    "vfr": false,
+    "width": 1280
+  }
+}

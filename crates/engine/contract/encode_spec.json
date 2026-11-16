@@ -1,0 +1,62 @@
+{
+  "adjust": {
+    "brightness": 0.0,
+    "contrast": 1.0,
+    "curve": [],
+    "gamma": 1.0,
+    "hue": 0.0,
+    "saturation": 1.0
+  },
+  "audio": {
+    "bitrateK": 64.0,
+    "normalize": false,
+    "track": 0,
+    "volumeDb": 0.0
+  },
+  "autoScale": false,
+  "caption": null,
+  "codec": "vp9",
+  "container": "webm",
+  "cover": null,
+  "coverSize": null,
+  "crop": null,
+  "deinterlace": false,
+  "denoise": false,
+  "effort": "balanced",
+  "extraArgs": [],
+  "fadeIn": 0.0,
+  "fadeOut": 0.0,
+  "fps": null,
+  "input": "in.mp4",
+  "maxHeight": null,
+  "maxWidth": null,
+  "mirror": false,
+  "music": null,
+  "outputDir": null,
+  "outputName": null,
+  "overlay": null,
+  "playback": "forward",
+  "rate": {
+    "maxBytes": 4194304.0,
+    "mode": "size"
+  },
+  "rotate": 0,
+  "segmentSources": [],
+  "segments": [
+    {
+      "end": 14.0,
+      "start": 10.0
+    }
+  ],
+  "smoothSlowmo": false,
+  "speed": 1.0,
+  "stabilize": false,
+  "streamCopy": false,
+  "subs": null,
+  "subsDelay": 0.0,
+  "subsFontSize": null,
+  "title": null,
+  "tonemap": false,
+  "twoPass": false,
+  "vflip": false
+}

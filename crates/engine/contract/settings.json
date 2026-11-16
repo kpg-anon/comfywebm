@@ -1,0 +1,13 @@
+{
+  "downloadDir": null,
+  "ffmpegPath": null,
+  "keepDir": null,
+  "lastPreset": null,
+  "nameTemplate": "{name}_{start}-{end}",
+  "outputDir": null,
+  "outputMode": null,
+  "presets": [],
+  "ytdlpArgs": [],
+  "ytdlpCookies": null,
+  "ytdlpPath": null
+}

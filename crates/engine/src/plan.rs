@@ -1981,6 +1981,36 @@ mod tests {
         assert!(!s.contains("concat"), "music replaces the sound: {s}");
     }
 
+    /// The JSON the frontend exchanges with the engine, checked in under `contract/`.
+    /// `src/lib/contract.check.ts` compares its keys with `src/lib/types.ts`, so a field
+    /// renamed, added or removed on either side fails a check. After an intended change run
+    /// `CWM_WRITE_CONTRACT=1 cargo test -p comfywebm-engine contract` and update types.ts.
+    #[test]
+    fn contract_fixtures() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("contract");
+        let check = |name: &str, v: serde_json::Value| {
+            let p = dir.join(name);
+            let text = serde_json::to_string_pretty(&v).unwrap() + "
+";
+            if std::env::var_os("CWM_WRITE_CONTRACT").is_some() {
+                std::fs::create_dir_all(&dir).unwrap();
+                std::fs::write(&p, &text).unwrap();
+                return;
+            }
+            let have = std::fs::read_to_string(&p).unwrap_or_default().replace("
+", "
+");
+            assert!(have == text, "{name} no longer matches the Rust types. If intended, run with CWM_WRITE_CONTRACT=1 and update src/lib/types.ts.
+{text}");
+        };
+        // every optional part filled, so its keys are in the file
+        let mut sp = spec(Rate::Size { max_bytes: 4194304.0 });
+        sp.adjust = Some(crate::spec::Adjust::default());
+        check("encode_spec.json", serde_json::to_value(&sp).unwrap());
+        check("media_info.json", serde_json::to_value(media()).unwrap());
+        check("settings.json", serde_json::to_value(crate::spec::Settings::default()).unwrap());
+    }
+
     #[test]
     fn reverse_memory_warning() {
         let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });

@@ -90,6 +90,9 @@ Work on the `exp` branch.
   bare number) binary. Up and Down step 0.5 MiB (Shift: 5 MiB).
 - CI workflow: frontend typecheck and build, engine tests, and frontend
   unit tests (`npm test`, Node's own test runner, no new packages).
+- The JSON field names of EncodeSpec, MediaInfo and Settings are checked in
+  (`crates/engine/contract/`); an engine test and `npm run check` fail when
+  the Rust types or `src/lib/types.ts` drift from them.
 - Shift+S (or Shift+click Frame) saves the frame as the encode sees it:
   filters, adjustments, crop, rotation, flips and the output size.
 - Hovering the timeline shows the thumbnail at the pointer.

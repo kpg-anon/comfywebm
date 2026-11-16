@@ -58,7 +58,7 @@
     const rate = s.rate.mode === "size" ? `${(s.rate.maxBytes / 1048576).toFixed(s.rate.maxBytes % 1048576 ? 1 : 0)} MiB` : `CRF ${s.rate.crf}`;
     const len = s.segments.reduce((a, g) => a + (g.end - g.start), 0);
     const cut = s.segments.length ? `${s.segments.length > 1 ? `${s.segments.length} ranges, ` : ""}${fmtEta(len / (s.speed || 1))}` : "whole file";
-    return `${s.codec.toUpperCase()} Â· ${rate} Â· ${cut}`;
+    return `${s.codec.toUpperCase()} · ${rate} · ${cut}`;
   }
 
   async function run(f: () => Promise<unknown>) {

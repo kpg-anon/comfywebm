@@ -2,6 +2,7 @@
 //! No Tauri dependencies; the app shell lives in `src-tauri`.
 
 pub mod config;
+pub mod fonts;
 pub mod naming;
 pub mod plan;
 pub mod probe;

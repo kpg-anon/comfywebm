@@ -309,6 +309,24 @@ fn caption_font() -> Option<String> {
     .map(|p| escape_filter_value(p))
 }
 
+/// The caption's own font file when it is a font file that exists.
+fn caption_own_font(c: &Caption) -> Option<&str> {
+    c.font
+        .as_deref()
+        .filter(|f| !f.trim().is_empty())
+        .filter(|f| crate::fonts::is_font_file(std::path::Path::new(f)) && std::path::Path::new(f).is_file())
+}
+
+/// "#rrggbb" as drawtext's "0xRRGGBB"; anything else gives `fallback`.
+fn drawtext_color(c: &str, fallback: &str) -> String {
+    let h = c.trim().trim_start_matches('#');
+    if h.len() == 6 && h.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        format!("0x{}", h.to_ascii_uppercase())
+    } else {
+        fallback.to_string()
+    }
+}
+
 /// The drawtext filter for a caption on a picture `out_h` pixels high.
 pub fn caption_filter(c: &Caption, out_h: u32) -> Option<String> {
     let text = c.text.trim_end();
@@ -316,15 +334,26 @@ pub fn caption_filter(c: &Caption, out_h: u32) -> Option<String> {
         return None;
     }
     let size = ((out_h as f64) * c.size.clamp(2.0, 30.0) / 100.0).round().max(8.0);
-    let border = (size / 14.0).round().max(1.0);
+    let outline = c.outline.clamp(0.0, 25.0);
+    let border = if outline > 0.0 {
+        let b = (size * outline / 100.0).round().max(1.0);
+        format!(":borderw={b}:bordercolor={}", drawtext_color(&c.outline_color, "0x000000"))
+    } else {
+        String::new()
+    };
     let margin = (out_h as f64 * 0.04).round();
     let y = if c.top { format!("{margin}") } else { format!("h-text_h-{margin}") };
-    let font = caption_font().map(|f| format!("fontfile={f}:")).unwrap_or_default();
+    let font = caption_own_font(c)
+        .map(escape_filter_value)
+        .or_else(caption_font)
+        .map(|f| format!("fontfile={f}:"))
+        .unwrap_or_default();
     // centered lines (text_align needs ffmpeg 6.1 or newer, so only when there are several)
     let align = if text.contains('\n') { "text_align=C:" } else { "" };
     Some(format!(
-        "drawtext={font}{align}text={}:expansion=none:fontsize={size}:fontcolor=white:borderw={border}:bordercolor=black:line_spacing={}:x=(w-text_w)/2:y={y}",
+        "drawtext={font}{align}text={}:expansion=none:fontsize={size}:fontcolor={}{border}:line_spacing={}:x=(w-text_w)/2:y={y}",
         escape_filter_text(text),
+        drawtext_color(&c.color, "0xFFFFFF"),
         (size * 0.15).round()
     ))
 }
@@ -964,6 +993,11 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         .collect();
     if mixed && spec.subs.is_some() {
         warnings.push("Subtitles are burned in only on the ranges from the first file.".into());
+    }
+    if let Some(c) = spec.caption.as_ref().filter(|c| !c.text.trim().is_empty()) {
+        if c.font.as_deref().is_some_and(|f| !f.trim().is_empty()) && caption_own_font(c).is_none() {
+            warnings.push("The caption font file was not found; a bold sans is used instead.".into());
+        }
     }
     let vpost = video_post(&PostFilters {
         scale: ((g.out_w, g.out_h) != (g.rot_w, g.rot_h)).then_some((g.out_w, g.out_h)),
@@ -1985,6 +2019,41 @@ mod tests {
         assert!(s.contains("-i m.mp3 -i in.mp3"), "{s}");
         assert!(s.contains("[2:1]loop="), "{s}");
         assert!(!s.contains("concat"), "music replaces the sound: {s}");
+    }
+
+    #[test]
+    fn caption_font_color_outline() {
+        let mut c = Caption {
+            text: "hi".into(),
+            top: false,
+            size: 10.0,
+            font: None,
+            color: "#ff8800".into(),
+            outline_color: "#112233".into(),
+            outline: 10.0,
+        };
+        let f = caption_filter(&c, 1000).unwrap();
+        assert!(f.contains("fontcolor=0xFF8800"), "{f}");
+        assert!(f.contains(":borderw=10:bordercolor=0x112233"), "{f}");
+        // no outline
+        c.outline = 0.0;
+        assert!(!caption_filter(&c, 1000).unwrap().contains("borderw"));
+        // a bad color cannot reach the filter string
+        c.color = "red:x=0".into();
+        assert!(caption_filter(&c, 1000).unwrap().contains("fontcolor=0xFFFFFF"));
+        // a file that is not a font is not used, and the plan says so
+        c.font = Some("C:/Windows/win.ini".into());
+        assert!(!caption_filter(&c, 1000).unwrap().contains("win.ini"));
+        let mut sp = spec(Rate::Size { max_bytes: 4194304.0 });
+        sp.caption = Some(c.clone());
+        let p = build(&sp, &media(), &opts()).unwrap();
+        assert!(p.warnings.iter().any(|w| w.contains("caption font")), "{:?}", p.warnings);
+        // an installed font is used
+        if let Some(face) = crate::fonts::list_fonts().into_iter().next() {
+            c.font = Some(face.path.clone());
+            let f = caption_filter(&c, 1000).unwrap();
+            assert!(f.contains(&format!("fontfile={}", escape_filter_value(&face.path))), "{f}");
+        }
     }
 
     /// The JSON the frontend exchanges with the engine, checked in under `contract/`.

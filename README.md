@@ -85,9 +85,12 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   in-between frames below 1x speed), HDR to SDR tone mapping, rotate, flip
   horizontal and vertical, reverse, boomerang (forward then reverse), fade in
   and out.
-- **Caption**: text drawn on the picture, top or bottom, white with a black
-  outline (drawtext with a bold system font), sized as a share of the output
-  height. Shown on the player while editing.
+- **Caption**: text drawn on the picture, top or bottom, sized as a share of
+  the output height. Font (any installed font, or a .ttf/.otf file), text
+  color, outline color and outline width (none, thin, normal, thick); the
+  default is white bold sans with a black outline. The look is remembered
+  between runs; the text is cleared when another file opens. Shown on the
+  player while editing.
 - **Logo**: an image in a corner of the picture (a watermark), sized as a
   share of the output width, with opacity; remembered between runs and used
   for batch files too.

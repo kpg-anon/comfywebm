@@ -31,7 +31,15 @@ fn real_main() -> Result<(), String> {
     while let Some(a) = args.next() {
         match a.as_str() {
             "--url-info" => url = args.next(),
-            "--caption" => caption = args.next().map(|text| comfywebm_engine::Caption { text, top: false, size: 7.0 }),
+            "--caption" => caption = args.next().map(|text| comfywebm_engine::Caption {
+                text,
+                top: false,
+                size: 7.0,
+                font: std::env::var("CWM_CAPTION_FONT").ok(),
+                color: std::env::var("CWM_CAPTION_COLOR").unwrap_or_else(|_| "#ffffff".into()),
+                outline_color: "#000000".into(),
+                outline: 7.0,
+            }),
             "--range" => {
                 let r = args.next().unwrap_or_default();
                 let (s, e) = r.split_once('-').ok_or("--range needs S-E")?;

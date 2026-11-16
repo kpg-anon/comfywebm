@@ -104,10 +104,26 @@
     void tick().then(() => list?.querySelector<HTMLElement>(".opt.act")?.scrollIntoView({ block: "nearest" }));
   }
 
+  // typing letters while open jumps to the first option whose label starts with them
+  let typed = "";
+  let typedAt = 0;
+  function jump(ch: string) {
+    const now = Date.now();
+    typed = now - typedAt > 800 ? ch : typed + ch;
+    typedAt = now;
+    const t = typed.toLowerCase();
+    const i = options.findIndex((o) => !o.disabled && o.label.toLowerCase().startsWith(t));
+    if (i < 0) return;
+    active = i;
+    void tick().then(() => list?.querySelector<HTMLElement>(".opt.act")?.scrollIntoView({ block: "nearest" }));
+  }
+
   // while open, the list owns the keyboard wherever focus is
   function keys(e: KeyboardEvent) {
     const k = e.key;
-    if (k === "ArrowDown" || k === "ArrowUp") step(k === "ArrowDown" ? 1 : -1);
+    if (k.length === 1 && k !== " " && !e.ctrlKey && !e.altKey && !e.metaKey) jump(k);
+    else if (k === " " && typed && Date.now() - typedAt < 800) jump(k);
+    else if (k === "ArrowDown" || k === "ArrowUp") step(k === "ArrowDown" ? 1 : -1);
     else if (k === "Home") {
       active = -1;
       step(1);

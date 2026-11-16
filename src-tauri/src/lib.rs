@@ -201,6 +201,13 @@ struct Samples {
 }
 
 /// Runs blocking work (ffprobe, ffmpeg, yt-dlp) off the main thread and the async workers.
+/// Installed fonts for the caption font list; read once, then kept.
+#[tauri::command]
+async fn list_fonts() -> Result<Vec<comfywebm_engine::fonts::FontFace>, String> {
+    static FONTS: std::sync::OnceLock<Vec<comfywebm_engine::fonts::FontFace>> = std::sync::OnceLock::new();
+    blocking(|| Ok(FONTS.get_or_init(comfywebm_engine::fonts::list_fonts).clone())).await
+}
+
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
     // error text goes to the UI, where it can be copied: no sign-in tokens from links in it
     match tauri::async_runtime::spawn_blocking(f).await {
@@ -330,6 +337,13 @@ async fn plan(app: AppHandle, spec: EncodeSpec) -> Result<PlanInfo, String> {
             let p = std::path::Path::new(path);
             let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
             if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "bmp") && p.is_file() {
+                let _ = app.asset_protocol_scope().allow_file(p);
+            }
+        }
+        // a caption font file that is not installed is previewed through it too
+        if let Some(f) = spec.caption.as_ref().and_then(|c| c.font.as_ref()) {
+            let p = std::path::Path::new(f);
+            if comfywebm_engine::fonts::is_font_file(p) && p.is_file() {
                 let _ = app.asset_protocol_scope().allow_file(p);
             }
         }
@@ -861,6 +875,7 @@ pub fn run() {
             poster,
             proxy_cancel,
             cache_info,
+            list_fonts,
             cache_clear,
             queue_cancel,
             queue_remove,

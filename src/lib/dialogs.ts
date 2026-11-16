@@ -23,6 +23,9 @@ export const pickAudio = () =>
 export const pickImage = () =>
   pick({ title: "Choose an image", filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "bmp"] }, { name: "All files", extensions: ["*"] }] });
 
+export const pickFont = () =>
+  pick({ title: "Choose a font file", filters: [{ name: "Fonts", extensions: ["ttf", "otf", "ttc", "otc"] }, { name: "All files", extensions: ["*"] }] });
+
 export const pickAnyFile = (title: string) => pick({ title });
 
 export const pickVideos = async (): Promise<string[]> => {

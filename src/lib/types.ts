@@ -103,7 +103,18 @@ export type EncodeSpec = {
   /** cut only: copy the streams, no encode (one range, filters ignored) */
   streamCopy?: boolean;
   /** text on the picture (white, black outline); size = % of the output height */
-  caption?: { text: string; top: boolean; size: number } | null;
+  caption?: {
+    text: string;
+    top: boolean;
+    size: number;
+    /** font file; null = a bold sans the system has */
+    font: string | null;
+    /** "#rrggbb" */
+    color: string;
+    outlineColor: string;
+    /** outline width in percent of the text height; 0 = none */
+    outline: number;
+  } | null;
   /** the file of each range by index (null = input); other files are fitted to input's size */
   segmentSources?: (string | null)[];
   /** a sound file that replaces (mix false) or is mixed under the source's sound */

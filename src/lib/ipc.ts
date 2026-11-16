@@ -56,6 +56,14 @@ export const sceneCuts = (path: string) => invoke<number[]>("scene_cuts", { path
 export const timelineWave = (path: string, track: number) => invoke<string>("timeline_wave", { path, track });
 export type CacheInfo = { dir: string; bytes: number; files: number; downloadBytes: number };
 export const cacheInfo = () => invoke<CacheInfo>("cache_info");
+export interface FontFace {
+  path: string;
+  family: string;
+  style: string;
+  weight: number;
+  italic: boolean;
+}
+export const listFonts = () => invoke<FontFace[]>("list_fonts");
 export const cacheClear = (downloads: boolean) => invoke<void>("cache_clear", { downloads });
 export const settingsGet = () => invoke<Settings>("settings_get");
 export const settingsSet = (settings: Settings) => invoke<void>("settings_set", { settings });

@@ -16,6 +16,44 @@
     logoTry = 0;
   });
 
+  // Caption font for the preview: an installed font by its family name; a font
+  // file that is not installed is loaded through the asset protocol once the
+  // plan command has granted it (tried again a few times, as the logo is).
+  const captionFace = $derived(app.captionFont ? (app.fonts.find((f) => f.path === app.captionFont) ?? null) : null);
+  let fileFontReady = $state(false);
+  $effect(() => {
+    const path = app.captionFont;
+    fileFontReady = false;
+    if (!path || captionFace || !app.fonts.length) return;
+    let stop = false;
+    let face: FontFace | null = null;
+    (async () => {
+      for (let n = 0; n < 6 && !stop; n++) {
+        try {
+          face = new FontFace("cwm-caption-file", `url("${convertFileSrc(path)}")`);
+          await face.load();
+          if (stop) return;
+          document.fonts.add(face);
+          fileFontReady = true;
+          return;
+        } catch {
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      }
+    })();
+    return () => {
+      stop = true;
+      if (face) document.fonts.delete(face);
+    };
+  });
+  const captionCss = $derived(
+    captionFace
+      ? { family: `"${captionFace.family.replace(/"/g, "")}", Arial, sans-serif`, weight: String(captionFace.weight), style: captionFace.italic ? "italic" : "normal" }
+      : app.captionFont && fileFontReady
+        ? { family: `"cwm-caption-file", Arial, sans-serif`, weight: "normal", style: "normal" }
+        : null,
+  );
+
   $effect(() => {
     app.video = video ?? null;
     return () => {
@@ -182,8 +220,16 @@
     {#if app.captionText.trim() && !app.cropMode && app.container !== "audio"}
       {@const c = app.crop && !turned ? app.crop : null}
       {@const r = c && app.srcW ? { x: box.x + (c.x / app.srcW) * box.w, y: box.y + (c.y / app.srcH) * box.h, w: (c.w / app.srcW) * box.w, h: (c.h / app.srcH) * box.h } : { x: box.x, y: box.y, w: box.w, h: box.h }}
+      {@const fs = (r.h * app.captionSize) / 100}
       <div class="caption" class:top={app.captionTop} style:left="{r.x}px" style:top="{r.y}px" style:width="{r.w}px" style:height="{r.h}px">
-        <span style:font-size="{(r.h * app.captionSize) / 100}px" style:-webkit-text-stroke="{Math.max(1, (r.h * app.captionSize) / 100 / 14)}px black">{app.captionText}</span>
+        <span
+          style:font-size="{fs}px"
+          style:color={app.captionColor}
+          style:-webkit-text-stroke={app.captionOutline > 0 ? `${Math.max(1, (fs * app.captionOutline) / 100) * 2}px ${app.captionOutlineColor}` : null}
+          style:font-family={captionCss?.family}
+          style:font-weight={captionCss?.weight}
+          style:font-style={captionCss?.style}>{app.captionText}</span
+        >
       </div>
     {/if}
   {/if}

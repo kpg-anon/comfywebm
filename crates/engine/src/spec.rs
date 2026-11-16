@@ -243,7 +243,7 @@ fn one_f() -> f64 {
     1.0
 }
 
-/// A line (or lines) of text on the picture: white, black outline, bold sans.
+/// A line (or lines) of text on the picture, centered at the top or bottom.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Caption {
@@ -254,10 +254,34 @@ pub struct Caption {
     /// text height in percent of the output picture height
     #[serde(default = "caption_size")]
     pub size: f64,
+    /// font file; None = a bold sans the system has (Arial Bold, DejaVu Sans Bold)
+    #[serde(default)]
+    pub font: Option<String>,
+    /// text color, "#rrggbb"
+    #[serde(default = "white")]
+    pub color: String,
+    /// outline color, "#rrggbb"
+    #[serde(default = "black")]
+    pub outline_color: String,
+    /// outline width in percent of the text height; 0 = no outline
+    #[serde(default = "caption_outline")]
+    pub outline: f64,
 }
 
 fn caption_size() -> f64 {
     7.0
+}
+
+fn caption_outline() -> f64 {
+    7.0
+}
+
+fn white() -> String {
+    "#ffffff".into()
+}
+
+fn black() -> String {
+    "#000000".into()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

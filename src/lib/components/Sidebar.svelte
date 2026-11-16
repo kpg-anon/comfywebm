@@ -19,6 +19,7 @@
   import ResolutionPicker from "./ResolutionPicker.svelte";
   import Seg from "./Seg.svelte";
   import Select from "./Select.svelte";
+  import CaptionStyle from "./CaptionStyle.svelte";
   import SizeField from "./SizeField.svelte";
 
 
@@ -455,7 +456,7 @@
 
       <Group id="caption" title="Caption" note={app.captionText.trim() ? (app.captionTop ? "top" : "bottom") : "none"}>
         <label class="col">
-          <span title="Text drawn on the picture, centered, white with a black outline. Several lines are allowed. The player shows where it goes; Sample shows the real result.">Text</span>
+          <span title="Text drawn on the picture, centered. Several lines are allowed. The player shows where it goes; Sample shows the real result.">Text</span>
           <textarea class="field" rows="2" spellcheck="true" placeholder="none" bind:value={app.captionText}></textarea>
         </label>
         <div class="row">
@@ -466,6 +467,7 @@
           <span title="Text height as a share of the output picture's height.">Size</span>
           <Select label="Caption size" bind:value={app.captionSize} options={[4, 5, 7, 9, 12, 15].map((v) => ({ value: v, label: `${v}%` }))} />
         </div>
+        <CaptionStyle />
       </Group>
 
       <Group id="logo" title="Logo" note={app.logoPath ? baseName(app.logoPath) : "none"}>

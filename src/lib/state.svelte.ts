@@ -69,6 +69,7 @@ const REMEMBERED = [
   "twoPass", "audioOn", "audioBitrateK", "volumeDb", "normalize", "separate", "aspect",
   "resMode", "resStep", "resPct", "exactEdge", "exactVal", "stepBy", "adjustPreview",
   "logoPath", "logoCorner", "logoSize", "logoOpacity",
+  "captionFont", "captionColor", "captionOutlineColor", "captionOutline",
 ] as const;
 
 export const NEUTRAL_ADJUST: Adjust = { brightness: 0, contrast: 1, saturation: 1, gamma: 1, hue: 0, curve: [] };
@@ -260,6 +261,19 @@ class AppState {
   captionText = $state("");
   captionTop = $state(false);
   captionSize = $state(7);
+  /** Caption look; remembered. Font is a font file path, null = default bold sans. */
+  captionFont = $state<string | null>(null);
+  captionColor = $state("#ffffff");
+  captionOutlineColor = $state("#000000");
+  captionOutline = $state(7);
+  /** Installed fonts for the caption font list; read on first use. */
+  fonts = $state<ipc.FontFace[]>([]);
+  private fontsAsked = false;
+  loadFonts() {
+    if (this.fontsAsked) return;
+    this.fontsAsked = true;
+    ipc.listFonts().then((f) => (this.fonts = f)).catch(() => (this.fontsAsked = false));
+  }
   /** Music: a sound file that replaces or is mixed under the source's sound. */
   musicPath = $state<string | null>(null);
   musicMix = $state(false);
@@ -464,7 +478,15 @@ class AppState {
       overlay: this.logoPath && this.container !== "audio" ? { path: this.logoPath, corner: this.logoCorner, size: this.logoSize, opacity: this.logoOpacity } : null,
       subsDelay: Number(this.subsDelay) || 0,
       subsFontSize: this.subsFontSize,
-      caption: own && this.captionText.trim() && this.container !== "audio" ? { text: this.captionText, top: this.captionTop, size: this.captionSize } : null,
+      caption: own && this.captionText.trim() && this.container !== "audio" ? {
+              text: this.captionText,
+              top: this.captionTop,
+              size: this.captionSize,
+              font: this.captionFont,
+              color: this.captionColor,
+              outlineColor: this.captionOutlineColor,
+              outline: this.captionOutline,
+            } : null,
       extraArgs: splitArgs(this.extraArgs),
       outputName: own ? this.outputName.trim() || null : null,
       cover: own && m.audioOnly && this.coverPath ? this.coverPath : null,

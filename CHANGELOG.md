@@ -76,6 +76,8 @@ Work on the `exp` branch.
   notification.
 - Reopening a file restores its ranges, output order and crop (last 40
   files); Ctrl+Z removes the restored edit.
+- Undo and redo also cover rotation, mirror, vertical flip and the
+  adjustments (a slider drag is one step).
 - Settings: cache size with Clear and Clear downloads; Search again for
   ffmpeg, ffprobe and yt-dlp.
 - Settings > Tools says when a saved ffmpeg or yt-dlp location does not

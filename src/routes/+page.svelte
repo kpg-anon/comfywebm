@@ -164,7 +164,8 @@
     return () => clearTimeout(t);
   });
 
-  // an undo step once ranges, order or crop have stopped changing for a moment (a drag is one step)
+  // an undo step once the edit (ranges, order, crop, rotation, flips, adjustments) has stopped
+  // changing for a moment, so a drag is one step
   $effect(() => {
     void app.editKey();
     if (!app.media) return;

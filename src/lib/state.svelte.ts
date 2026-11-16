@@ -100,8 +100,17 @@ export type Toast = {
 /** Display refresh rates offered for the motion check. */
 export const REFRESH_RATES = [50, 60, 75, 90, 100, 120, 144, 165, 240];
 
-/** One undo step: ranges, output order, selected range, crop. */
-type EditSnap = { segments: Segment[]; order: number[] | null; sel: number; crop: Crop | null };
+/** One undo step: ranges, output order, selected range, crop, rotation, flips, adjustments. */
+type EditSnap = {
+  segments: Segment[];
+  order: number[] | null;
+  sel: number;
+  crop: Crop | null;
+  rotate: Rotate;
+  mirror: boolean;
+  vflip: boolean;
+  adjust: Adjust;
+};
 type EditMemory = { segments: Segment[]; order: number[] | null; crop: Crop | null; t: number };
 
 function loadRecent(): string[] {
@@ -271,7 +280,7 @@ class AppState {
   extraArgs = $state("");
   outputName = $state("");
 
-  // undo/redo of ranges, output order and crop; see noteEdit()
+  // undo/redo of ranges, output order, crop, rotation, flips and adjustments; see noteEdit()
   private past: EditSnap[] = [];
   private future: EditSnap[] = [];
   private committed: EditSnap | null = null;
@@ -468,15 +477,16 @@ class AppState {
 
   /** The edit state as text; a change in it is an edit. The selection alone is not. */
   editKey(): string {
-    return JSON.stringify([this.segments, this.order, this.crop]);
+    return JSON.stringify([this.segments, this.order, this.crop, this.rotate, this.mirror, this.vflip, this.adjust]);
   }
 
   private snap(): EditSnap {
-    return $state.snapshot({ segments: this.segments, order: this.order, sel: this.sel, crop: this.crop }) as EditSnap;
+    const { segments, order, sel, crop, rotate, mirror, vflip, adjust } = this;
+    return $state.snapshot({ segments, order, sel, crop, rotate, mirror, vflip, adjust }) as EditSnap;
   }
 
   private static key(s: EditSnap): string {
-    return JSON.stringify([s.segments, s.order, s.crop]);
+    return JSON.stringify([s.segments, s.order, s.crop, s.rotate, s.mirror, s.vflip, s.adjust]);
   }
 
   /**
@@ -504,6 +514,10 @@ class AppState {
     this.order = s.order;
     this.sel = Math.min(s.sel, s.segments.length - 1);
     this.crop = s.crop;
+    this.rotate = s.rotate;
+    this.mirror = s.mirror;
+    this.vflip = s.vflip;
+    this.adjust = s.adjust;
     this.committed = s;
   }
 

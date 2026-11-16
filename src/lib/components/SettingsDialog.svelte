@@ -579,6 +579,17 @@
     flex: 1;
     height: var(--ctl-h);
   }
+  /* the rule above is for text fields; a checkbox keeps its own size, beside its label */
+  .line input[type="checkbox"] {
+    flex: none;
+    height: auto;
+    margin: 0;
+  }
+  .cacheline label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
   .line :global(.sel) {
     width: 140px;
     height: var(--ctl-h);

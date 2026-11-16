@@ -162,6 +162,9 @@ below under those numbers.
 
 ### Fixed
 
+- Settings: checkboxes were as tall as a text field and sat above their
+  labels.
+- Queue: the job summary showed "Â·" instead of "·".
 - The engine's contract test failed on Windows checkouts with CRLF line
   endings.
 - The webview could read any file on disk through the asset protocol

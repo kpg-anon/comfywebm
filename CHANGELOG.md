@@ -7,9 +7,38 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-Work toward 1.0.0, the first public release. Earlier builds were numbered
-1.0.0 to 1.2.0 before the version went back to 1.0.0; their notes are kept
-below under those numbers.
+The first public release.
+
+- **Fits the limit**: size mode works out the bitrate from the limit and the
+  length, encodes in two passes and tries again when the file is over.
+  Presets for 4chan, Discord and X, plus your own; quality (CRF) mode when
+  size does not matter.
+- **Edit on the timeline**: several ranges per file, thumbnails and the audio
+  waveform, scene cut detection, snapping, undo and redo.
+- **Picture**: crop with aspect presets and black bar detection, rotate,
+  mirror, speed from 0.25x to 4x with interpolation, reverse and boomerang,
+  fades, color adjustments and a curve, HDR to SDR tone mapping.
+- **On top**: captions in any installed font, anywhere on the picture; a
+  watermark in a corner, anywhere, or tiled and turned; burned-in subtitles.
+- **Formats**: WebM (VP9, VP8, AV1), MP4 (H.264, HEVC, AV1), GIF, animated
+  WebP, and sound only (Opus, MP3, AAC); cut-only stream copy.
+- **Many files**: a batch tab with per-file checks and one-click fixes,
+  joining files into one, and a queue that survives restarts.
+- **Web links** through yt-dlp, with a quality choice and partial downloads.
+- **Downloads for Windows** (installer and portable zip), **macOS** (Apple
+  silicon and Intel) and **Linux** (AppImage, .deb, .rpm), with in-app
+  updates for the installer, macOS and the AppImage. This is the first
+  release on macOS and Linux; the builds are made on GitHub and have not been
+  tried much on those systems yet, so please report what does not work.
+
+comfywebm uses your own ffmpeg (and yt-dlp for web links); see the README for
+how to install them on each system.
+
+## Development before 1.0.0
+
+Changes after build 1.2.0, made before the first public release. Earlier
+builds were numbered 1.0.0 to 1.2.0 before the version went back to 1.0.0;
+their notes are kept below under those numbers.
 
 ### Added
 

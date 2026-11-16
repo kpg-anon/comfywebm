@@ -1,4 +1,4 @@
-// Global keyboard shortcuts (PLAN.md "Keys", plus Amendments 1 and 2) and URL paste.
+// Global keyboard shortcuts (USAGE.md, "Keys") and URL paste.
 import { app } from "./state.svelte";
 
 const NOT_TEXT = new Set(["checkbox", "radio", "button", "submit", "reset", "color", "file"]);

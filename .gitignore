@@ -12,3 +12,6 @@ src-tauri/gen/
 
 # marketing video project (local-only; Remotion)
 /marketing/
+
+# development notes, plans and design drafts (local only)
+/docs/

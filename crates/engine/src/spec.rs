@@ -1,4 +1,4 @@
-//! The IPC contract types (PLAN.md, "Contract" and "Contract v2"). JSON field names are camelCase.
+//! The IPC contract types, shared with src/lib/types.ts. JSON field names are camelCase.
 
 use serde::{Deserialize, Serialize};
 

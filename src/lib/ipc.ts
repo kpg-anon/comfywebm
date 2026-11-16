@@ -1,4 +1,4 @@
-// Typed wrappers for every command and event in the PLAN.md contract (v2).
+// Typed wrappers for every command and event of the Rust side (src-tauri/src/lib.rs).
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {

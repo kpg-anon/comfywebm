@@ -1,5 +1,5 @@
-// The IPC contract from PLAN.md (Contract v2 in Amendment 2). Field names are
-// camelCase on both sides.
+// The IPC contract with the Rust side (crates/engine/src/spec.rs). Field names
+// are camelCase on both sides; src/lib/contract.check.ts checks them.
 
 // seconds on the source timeline; `id` is frontend-only (output order) and is not sent
 export type WatermarkPlace = "tl" | "tr" | "bl" | "br" | "custom" | "tile";

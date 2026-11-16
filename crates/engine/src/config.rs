@@ -157,7 +157,7 @@ fn fourchan(name: &str, order: i64, max_bytes: f64, audio: bool, max_duration: f
     )
 }
 
-/// The platform presets written on first start (PLAN.md "Built-in presets").
+/// The platform presets written on first start (USAGE.md, "Built-in presets").
 fn default_platform() -> Vec<(&'static str, i64, Preset)> {
     let discord = |name: &str, max_bytes: f64| Preset {
         name: name.into(),

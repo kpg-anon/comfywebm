@@ -7,6 +7,17 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- **Splits**: a tab that combines two or more clips into one output, even
+  when they differ in size, shape and frame rate. One after another, or at
+  the same time side by side, stacked or in a grid. Plain choices for the
+  final shape, the shape of each part, the size (shown in pixels), how each
+  clip fills its space (whole with bars, filled, or over a blurred copy), the
+  sizes of the parts, where the sound comes from, the length, and a gap. A
+  live preview plays the parts together. The size limit, format, caption,
+  watermark and the other sidebar settings apply to the result.
+
 ## [1.0.0] - 2026-11-16
 
 The first public release.

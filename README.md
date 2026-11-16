@@ -62,6 +62,10 @@ Windows, Linux and macOS.
 - **Formats**: WebM (VP9, VP8, AV1), MP4 (H.264, HEVC, AV1), GIF, animated
   WebP, and sound only (Opus, MP3, AAC). Cut-only stream copy when nothing
   else changes. Sound files with a picture become a video.
+- **Splits**: combine clips of any size, shape and frame rate into one, one
+  after another or at the same time side by side, stacked or in a grid. Pick
+  the final shape, the shape of each part and the size from plain buttons;
+  each clip fits its space whole, filled, or over a blurred copy.
 - **Many files**: a batch tab that checks every file against the settings and
   offers one-click fixes, joining files into one, and an encode queue that
   survives restarts.

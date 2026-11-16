@@ -22,6 +22,24 @@ building it yourself. For an overview and the downloads, see
   duration and thumbnail before downloading, a quality choice, and an optional
   "only download part" start and end. Dropping or opening several files adds
   one whole-file job each.
+- **Splits**: a tab for combining two or more clips into one output. Add
+  clips (button or drop), set each one's start and end, and reorder them.
+  How to combine: one after another, side by side, stacked, or a grid (as
+  square as possible; an empty place gets the gap color). The final shape
+  (Auto: the shape that wastes the least space; 16:9, 9:16, 1:1, 4:5); for a
+  split screen the shape of each part, which sets the final shape (two 9:16
+  parts side by side make 9:8). Size: Auto (as large as the size limit
+  allows) or Small, Medium, Large, each shown in pixels for the shape and
+  kept within the preset's largest size. Fill each space: the whole picture
+  with bars, fill it and cut the edges, or the picture over a blurred copy.
+  Split screen also has: sizes of the parts (fit each clip, equal, first clip
+  larger), sound from one clip, all mixed, or none, the length of the
+  shortest or the longest clip (the others hold their last frame), and a gap
+  with its color. The frame rate is the highest of the clips (at most 60),
+  within the sidebar's cap. The preview shows the parts where the engine puts
+  them and plays them together. The sidebar's settings (preset, size limit,
+  format, codec, caption, watermark, adjustments, speed) apply to the
+  result; crop, rotation, flips, subtitles and cut-only do not.
 - **Batch**: a tab for encoding many files with the same settings. Add files,
   a folder (optionally with subfolders) or drop them. Each file is planned with
   the current settings and checked: a picture too poor for the size limit,

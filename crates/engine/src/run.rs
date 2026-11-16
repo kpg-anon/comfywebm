@@ -367,11 +367,11 @@ pub fn sample(
     }
     let full = plan::build(&own, info, &Opts { display: true, zscale, ..Opts::new("", "") })?;
     let mut s = own.clone();
+    let secs = if secs.is_finite() && secs > 0.0 { secs.min(30.0) } else { SAMPLE_SECS };
     let mut start = at.max(0.0);
     if info.duration > 0.0 {
         start = start.min((info.duration - secs).max(0.0));
     }
-    let secs = if secs.is_finite() && secs > 0.0 { secs.min(30.0) } else { SAMPLE_SECS };
     let end = if info.duration > 0.0 { (start + secs).min(info.duration) } else { start + secs };
     s.segments = vec![Segment { start, end }];
     s.fade_in = 0.0;

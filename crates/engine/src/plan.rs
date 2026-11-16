@@ -710,7 +710,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         }
         Some(a) => {
             // with music replacing it, the source's sound is not read
-            let replaced = spec.music.as_ref().is_some_and(|m| !m.mix || info.audio.is_empty());
+            let replaced = spec.music.as_ref().filter(|m| !m.path.trim().is_empty()).is_some_and(|m| !m.mix || info.audio.is_empty());
             if !replaced && info.audio.get(a.track as usize).is_none() {
                 return Err(format!("Audio track {} does not exist.", a.track));
             }
@@ -837,6 +837,10 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
                         anamorphic: m.video.anamorphic,
                         crop: None,
                         subtitles: None,
+                        // rotation and flips were set for the first file's picture
+                        rotate: 0,
+                        mirror: false,
+                        vflip: false,
                         ..sf
                     },
                     *s,

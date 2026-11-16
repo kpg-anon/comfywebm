@@ -32,9 +32,6 @@ pub fn command(program: &Path) -> Command {
     cmd
 }
 
-/// Kills `child` and the processes it started. yt-dlp starts ffmpeg, and a
-/// scoop shim (`scoop\shims\ffmpeg.exe`) starts the real program, so killing
-/// only the direct child can leave the worker running.
 /// Runs `cmd` like `Command::output`, but kills the process tree when it has
 /// not finished after `limit` (a probe of a file on a stalled network share
 /// would otherwise block forever).
@@ -75,6 +72,9 @@ pub fn output_within(mut cmd: Command, limit: std::time::Duration, what: &str) -
     Ok(std::process::Output { status, stdout: t_out.join().unwrap_or_default(), stderr: t_err.join().unwrap_or_default() })
 }
 
+/// Kills `child` and the processes it started. yt-dlp starts ffmpeg, and a
+/// scoop shim (`scoop\shims\ffmpeg.exe`) starts the real program, so killing
+/// only the direct child can leave the worker running.
 pub fn kill_tree(child: &mut Child) {
     let pid = child.id().to_string();
     #[cfg(windows)]

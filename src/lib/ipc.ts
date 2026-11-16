@@ -39,6 +39,7 @@ export const queueState = () => invoke<QueueState>("queue_state");
 export const queueRetry = (id: number) => invoke<Job>("queue_retry", { id });
 /** Moves a job to list position `to`; returns the new list. */
 export const queueMove = (id: number, to: number) => invoke<Job[]>("queue_move", { id, to });
+export const queueRemoveWaiting = () => invoke<Job[]>("queue_remove_waiting");
 export const sampleCancel = () => invoke<void>("sample_cancel");
 /** Black bars as a crop in display pixels; null = none found. */
 export const detectCrop = (path: string) => invoke<Crop | null>("detect_crop", { path });

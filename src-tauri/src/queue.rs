@@ -238,6 +238,18 @@ impl Queue {
         Ok(())
     }
 
+    /// Removes every job that has not started, under one lock (a job the
+    /// worker takes meanwhile is not touched).
+    pub fn remove_waiting(&self) -> Vec<Job> {
+        let list = {
+            let mut g = self.inner.lock().unwrap();
+            g.jobs.retain(|j| j.status != JobStatus::Pending);
+            g.jobs.clone()
+        };
+        self.save();
+        list
+    }
+
     /// Removes a finished (done, failed or canceled) job from the list.
     pub fn remove(&self, id: u64) -> Result<(), String> {
         let mut g = self.inner.lock().unwrap();
@@ -350,7 +362,7 @@ fn verify(state: &AppState, out: &std::path::Path, spec: &EncodeSpec, size: (u32
         w.push(format!("The picture is {}x{}, planned {}x{}.", info.video.width, info.video.height, size.0, size.1));
     }
     // boomerang drops the sound on purpose
-    if spec.audio.is_some() && spec.playback != comfywebm_engine::Playback::Boomerang && info.audio.is_empty() {
+    if spec.audio.is_some() && spec.playback != comfywebm_engine::Playback::Boomerang && !spec.codec.is_image() && info.audio.is_empty() {
         w.push("Sound was selected, but the output has no audio stream.".to_string());
     }
     // a stream copy starts at a key frame, so its length differs by design
@@ -416,6 +428,8 @@ fn run_one(app: &AppHandle, queue: &Queue, job: Job, cancel: &Cancel) {
     };
     let out_s = out.to_string_lossy().into_owned();
     emit(app, queue.update(id, |j| j.output = Some(out_s)));
+    // saved now, so after a crash the partial files of this run can be found and removed
+    queue.save();
 
     let mut last_emit = Instant::now() - PROGRESS_INTERVAL;
     let sources = state.sources(&job.spec).unwrap_or_default();

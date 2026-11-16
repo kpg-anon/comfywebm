@@ -387,6 +387,12 @@ fn queue_retry(state: State<AppState>, id: u64) -> Result<Job, String> {
     state.queue.retry(id)
 }
 
+/// Removes every job that has not started; returns the new list.
+#[tauri::command]
+fn queue_remove_waiting(state: State<AppState>) -> Vec<Job> {
+    state.queue.remove_waiting()
+}
+
 /// Moves a job to position `to`; returns the new list.
 #[tauri::command]
 fn queue_move(state: State<AppState>, id: u64, to: usize) -> Result<Vec<Job>, String> {
@@ -767,6 +773,7 @@ pub fn run() {
             queue_state,
             queue_retry,
             queue_move,
+            queue_remove_waiting,
             sample_cancel,
             export_frame_processed,
             detect_crop,

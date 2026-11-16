@@ -1401,7 +1401,7 @@ class AppState {
     if (!s || !this.canEncode) return;
     const snap = $state.snapshot(s) as EncodeSpec;
     // a double click or a repeated Ctrl+Enter within a second adds the same job once
-    const key = JSON.stringify([snap, this.separate]);
+    const key = JSON.stringify([snap, this.separate, start]);
     const now = Date.now();
     if (this.lastEnqueue && this.lastEnqueue.key === key && now - this.lastEnqueue.t < 1000) return;
     this.lastEnqueue = { key, t: now };

@@ -121,6 +121,10 @@ Work on the `exp` branch.
 - The picture size shown for a resolution step could be 2 px narrower
   than the encode's (1920x1080 at 487 px high: shown 864, encoded 866);
   the app now rounds as the engine does.
+- Error text shown in the app (and copied with Copy error) could contain
+  web links with a user name and password or sign-in tokens in their query.
+  Those parts are now replaced by `***`; `v`, `list`, `t`, `index`, `p`,
+  `page` and `id` parameters are kept.
 - Closing the app left ffmpeg running when a job, sample or download was
   active; all child processes are now stopped on exit.
 - A finished output or saved frame could replace a file that appeared at

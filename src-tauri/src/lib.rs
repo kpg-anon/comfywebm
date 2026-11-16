@@ -190,13 +190,17 @@ struct Samples {
 
 /// Runs blocking work (ffprobe, ffmpeg, yt-dlp) off the main thread and the async workers.
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
-    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())?
+    // error text goes to the UI, where it can be copied: no sign-in tokens from links in it
+    match tauri::async_runtime::spawn_blocking(f).await {
+        Ok(r) => r.map_err(|e| comfywebm_engine::ytdl::redact_urls(&e)),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 fn run_err(e: RunError) -> String {
     match e {
         RunError::Canceled => "Canceled".into(),
-        RunError::Failed(s) => s,
+        RunError::Failed(s) => comfywebm_engine::ytdl::redact_urls(&s),
     }
 }
 

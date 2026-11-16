@@ -420,7 +420,7 @@ fn run_one(app: &AppHandle, queue: &Queue, job: Job, cancel: &Cancel) {
                 app,
                 queue.update(id, |j| {
                     j.status = JobStatus::Failed;
-                    j.error = Some(e);
+                    j.error = Some(comfywebm_engine::ytdl::redact_urls(&e));
                 }),
             );
             return;
@@ -459,7 +459,7 @@ fn run_one(app: &AppHandle, queue: &Queue, job: Job, cancel: &Cancel) {
         Err(RunError::Canceled) => j.status = JobStatus::Canceled,
         Err(RunError::Failed(e)) => {
             j.status = JobStatus::Failed;
-            j.error = Some(e);
+            j.error = Some(comfywebm_engine::ytdl::redact_urls(&e));
         }
     });
     emit(app, updated);

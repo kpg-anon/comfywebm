@@ -27,13 +27,65 @@ pub fn check_url(url: &str) -> Result<(), String> {
     }
 }
 
+/// Web links in `text` with their user name and password, and the values of query parameters
+/// other than a few harmless ones (`v`, `list`, `t`, `index`, `p`, `page`, `id`), replaced by
+/// `***`, so error text can be copied into a bug report without sign-in tokens.
+pub fn redact_urls(text: &str) -> String {
+    const KEEP: [&str; 7] = ["v", "list", "t", "index", "p", "page", "id"];
+    let lower = text.to_ascii_lowercase();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < text.len() {
+        let next = [lower[i..].find("http://"), lower[i..].find("https://")].into_iter().flatten().min();
+        let Some(off) = next else {
+            out.push_str(&text[i..]);
+            break;
+        };
+        let start = i + off;
+        out.push_str(&text[i..start]);
+        let len = text[start..].find(|c: char| c.is_whitespace() || "\"'<>`)]".contains(c)).unwrap_or(text.len() - start);
+        let url = &text[start..start + len];
+        let scheme_end = url.find("://").unwrap() + 3;
+        let (head, rest) = url.split_at(scheme_end);
+        out.push_str(head);
+        let auth_len = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+        let (auth, rest) = rest.split_at(auth_len);
+        match auth.rfind('@') {
+            Some(at) => {
+                out.push_str("***");
+                out.push_str(&auth[at..]);
+            }
+            None => out.push_str(auth),
+        }
+        let (before_frag, frag) = rest.split_at(rest.find('#').unwrap_or(rest.len()));
+        match before_frag.split_once('?') {
+            Some((path, query)) => {
+                out.push_str(path);
+                out.push('?');
+                let parts: Vec<String> = query
+                    .split('&')
+                    .map(|kv| match kv.split_once('=') {
+                        Some((k, v)) if !v.is_empty() && !KEEP.contains(&k.to_ascii_lowercase().as_str()) => format!("{k}=***"),
+                        _ => kv.to_string(),
+                    })
+                    .collect();
+                out.push_str(&parts.join("&"));
+            }
+            None => out.push_str(before_frag),
+        }
+        out.push_str(frag);
+        i = start + len;
+    }
+    out
+}
+
 fn last_error(lines: &[String], fallback: String) -> String {
     lines
         .iter()
         .rev()
         .find(|l| l.starts_with("ERROR"))
         .or(lines.last())
-        .map(|l| l.trim_start_matches("ERROR: ").to_string())
+        .map(|l| redact_urls(l.trim_start_matches("ERROR: ")))
         .unwrap_or(fallback)
 }
 
@@ -314,4 +366,21 @@ pub fn download(
         }));
     }
     Ok(file.expect("checked above"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redacts_url_secrets() {
+        let t = "ERROR: 403 at https://bob:hunter2@cdn.example.com/v/a.mp4?sig=ABC&v=xyz&expire=9#t=3 (see HTTPS://x.com/?token=q).";
+        assert_eq!(
+            redact_urls(t),
+            "ERROR: 403 at https://***@cdn.example.com/v/a.mp4?sig=***&v=xyz&expire=***#t=3 (see HTTPS://x.com/?token=***)."
+        );
+        assert_eq!(redact_urls("no links here"), "no links here");
+        assert_eq!(redact_urls("https://youtu.be/abc?t=12"), "https://youtu.be/abc?t=12");
+        assert_eq!(redact_urls("ünï https://a.b/c?k= done"), "ünï https://a.b/c?k= done");
+    }
 }

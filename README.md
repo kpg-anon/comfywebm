@@ -491,4 +491,4 @@ comfywebm takes ideas from these projects.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+**[MIT](LICENSE)** — © 2026 kpg-anon.

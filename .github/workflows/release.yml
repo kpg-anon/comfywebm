@@ -1,9 +1,14 @@
 name: release
 
-# A tag vX.Y.Z (pushed by scripts/release.ps1) builds every platform and puts
-# the installers and latest.json on a draft GitHub release, with the
-# CHANGELOG.md section of that version as its notes. Publishing the draft makes
-# it the latest release, which installed copies then offer as an update.
+# A tag vX.Y.Z (pushed by scripts/release.ps1):
+#   notes   checks the tag against the version, takes the CHANGELOG.md section
+#   draft   creates one draft release with those notes
+#   build   Windows, Linux, macOS (Apple silicon and Intel) upload into it;
+#           Windows also uploads the portable zip
+#   latest  writes latest.json for the in-app updater from the signatures on
+#           the draft, once every build is done
+# Publishing the draft (by hand) makes it the latest release, which installed
+# copies then offer as an update.
 # Started by hand (Actions > release > Run workflow) it only builds, and keeps
 # the bundles as workflow artifacts.
 on:
@@ -14,16 +19,21 @@ on:
 permissions:
   contents: write
 
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
   notes:
     runs-on: ubuntu-latest
     outputs:
-      body: ${{ steps.notes.outputs.body }}
+      version: ${{ steps.notes.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - id: notes
         name: Release notes from CHANGELOG.md
         shell: python
+        env:
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
         run: |
           import json, os, re, sys
           version = json.load(open("src-tauri/tauri.conf.json"))["version"]
@@ -31,27 +41,46 @@ jobs:
           if os.environ["GITHUB_REF_TYPE"] == "tag" and ref != f"v{version}":
               sys.exit(f"tag {ref} does not match the version {version} in tauri.conf.json")
           text = open("CHANGELOG.md", encoding="utf-8").read()
-          m = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## )", text, re.S | re.M)
+          m = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
           section = m.group(1).strip() if m else f"comfywebm {version}"
-          body = section + """
+          body = section + "\n\n---\nFull changelog: https://github.com/kpg-anon/comfywebm/blob/main/CHANGELOG.md\n"
+          open("notes.md", "w", encoding="utf-8").write(body)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"version={version}\n")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notes
+          path: notes.md
 
-          ---
-          Full changelog: https://github.com/kpg-anon/comfywebm/blob/main/CHANGELOG.md
-          """.replace("\n          ", "\n")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
-              f.write("body<<NOTES_END\n" + body.strip() + "\nNOTES_END\n")
-        env:
-          GITHUB_REF_TYPE: ${{ github.ref_type }}
+  draft:
+    if: github.ref_type == 'tag'
+    needs: notes
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.draft.outputs.id }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: notes
+      - id: draft
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
+            --title "comfywebm $GITHUB_REF_NAME" --notes-file notes.md --verify-tag
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq "map(select(.tag_name == \"$GITHUB_REF_NAME\" and .draft)) | .[0].id")
+          test -n "$id" && test "$id" != null
+          echo "id=$id" >> "$GITHUB_OUTPUT"
 
   build:
-    needs: notes
+    needs: [notes, draft]
+    # a run started by hand has no draft; it still builds
+    if: ${{ !cancelled() && needs.notes.result == 'success' && (needs.draft.result == 'success' || needs.draft.result == 'skipped') }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
             args: ""
-          # 22.04: the AppImage then runs on systems with an older glibc too
+          # 22.04: the AppImage then runs on systems with glibc 2.35 or newer
           - os: ubuntu-22.04
             args: ""
           - os: macos-latest
@@ -80,20 +109,39 @@ jobs:
           key: ${{ matrix.os }}-${{ matrix.rust_target }}
       - run: npm ci
       - uses: tauri-apps/tauri-action@v0
-        id: tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          # no tag (a run started by hand): build only, no release
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          releaseName: comfywebm v__VERSION__
-          releaseBody: ${{ needs.notes.outputs.body }}
-          releaseDraft: true
-          prerelease: false
-          includeUpdaterJson: true
+          # the draft from the draft job; empty when started by hand (build only)
+          releaseId: ${{ needs.draft.outputs.id }}
+          # latest.json is written once by the latest job, so parallel builds cannot overwrite each other's entry
+          includeUpdaterJson: false
           args: ${{ matrix.args }}
+      - name: Portable zip (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $v = '${{ needs.notes.outputs.version }}'
+          $dir = 'target/release/portable'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item target/release/comfywebm.exe $dir
+          # an MSVC build links the WebView2 loader in; a GNU build needs the DLL beside the exe
+          if (Test-Path target/release/WebView2Loader.dll) { Copy-Item target/release/WebView2Loader.dll $dir }
+          Set-Content -Encoding ascii "$dir/portable" @(
+            'This file makes comfywebm portable: while it is here, settings, presets, the queue,'
+            'the cache and the remembered options are kept in the "data" folder beside it.'
+          )
+          New-Item -ItemType Directory -Force target/release/bundle/portable | Out-Null
+          $zip = "target/release/bundle/portable/comfywebm_${v}_x64-portable.zip"
+          Compress-Archive -Path "$dir/*" -DestinationPath $zip -Force
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            $name = Split-Path $zip -Leaf
+            gh api --method POST -H 'Content-Type: application/zip' `
+              "https://uploads.github.com/repos/$env:GITHUB_REPOSITORY/releases/${{ needs.draft.outputs.id }}/assets?name=$name" `
+              --input $zip --jq .name
+          }
       - name: Keep the bundles (run started by hand)
         if: github.ref_type != 'tag'
         uses: actions/upload-artifact@v4
@@ -103,3 +151,53 @@ jobs:
             target/release/bundle/
             target/*/release/bundle/
           if-no-files-found: error
+
+  latest:
+    if: github.ref_type == 'tag'
+    needs: [notes, draft, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: notes
+      - name: latest.json from the signatures on the draft
+        shell: python
+        env:
+          RELEASE_ID: ${{ needs.draft.outputs.id }}
+          VERSION: ${{ needs.notes.outputs.version }}
+        run: |
+          import json, os, subprocess, sys, datetime
+          repo, rid, tag, version = os.environ["GITHUB_REPOSITORY"], os.environ["RELEASE_ID"], os.environ["GITHUB_REF_NAME"], os.environ["VERSION"]
+          def gh(*a, raw=False):
+              return subprocess.run(["gh", "api", *a], check=True, capture_output=True, text=not raw).stdout
+          assets = json.loads(gh(f"repos/{repo}/releases/{rid}/assets", "--paginate"))
+          names = {a["name"]: a for a in assets}
+          print("assets:", ", ".join(sorted(names)))
+          # the update file of each platform: the one with a .sig beside it
+          def pick(test):
+              hits = [n for n in names if test(n) and n + ".sig" in names]
+              return hits[0] if len(hits) == 1 else sys.exit(f"expected one update file, got {hits}")
+          files = {
+              "windows-x86_64": pick(lambda n: n.endswith("-setup.exe")),
+              "linux-x86_64": pick(lambda n: n.endswith(".AppImage")),
+              "darwin-aarch64": pick(lambda n: n.endswith(".app.tar.gz") and "aarch64" in n),
+              "darwin-x86_64": pick(lambda n: n.endswith(".app.tar.gz") and ("x64" in n or "x86_64" in n)),
+          }
+          platforms = {}
+          for plat, name in files.items():
+              sig = gh("-H", "Accept: application/octet-stream", f"repos/{repo}/releases/assets/{names[name + '.sig']['id']}")
+              # the URL it gets once the draft is published
+              platforms[plat] = {"signature": sig.strip(), "url": f"https://github.com/{repo}/releases/download/{tag}/{name}"}
+          latest = {
+              "version": version,
+              "notes": open("notes.md", encoding="utf-8").read().strip(),
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": platforms,
+          }
+          json.dump(latest, open("latest.json", "w", encoding="utf-8"), indent=2)
+          for p, v in platforms.items():
+              print(p, v["url"])
+          if "latest.json" in names:
+              gh("--method", "DELETE", f"repos/{repo}/releases/assets/{names['latest.json']['id']}")
+          gh("--method", "POST", "-H", "Content-Type: application/json",
+             f"https://uploads.github.com/repos/{repo}/releases/{rid}/assets?name=latest.json", "--input", "latest.json")

@@ -13,6 +13,18 @@ below under those numbers.
 
 ### Added
 
+- Caption font, text color, outline color and outline width (none, thin,
+  normal, thick). The font list holds the installed fonts; File picks a
+  .ttf/.otf that is not installed. The look is remembered between runs.
+- Watermark (was Logo) placement: Custom, by dragging the image on the
+  player, and Tile, the image repeated over the whole picture with tight,
+  normal, wide or sparse spacing.
+- Settings > Settings file: Import, Export, Show in folder, Open in editor
+  and Reload.
+- Batch: a checkbox in the header selects or deselects all files.
+- Drop-down lists jump to the option starting with the letters typed while
+  the list is open.
+- Hover text on the Forward, Reverse and Boomerang buttons.
 - Sound files open (MP3, M4A, Opus, FLAC and others). Format Audio cuts them
   with no picture; a video format makes a video of the sound with a still
   picture: Basic > Picture, or the file's embedded cover. The picture runs at
@@ -123,8 +135,16 @@ below under those numbers.
   the streams are copied into an MP4 at full resolution in seconds instead
   of a 480p transcode. If that copy does not play, the transcode follows.
 
+### Changed
+
+- New app icon (the sleeping man with the play-button pillow).
+- "Smooth slow motion" is called "Interpolation".
+- "Logo" is called "Watermark".
+
 ### Fixed
 
+- The engine's contract test failed on Windows checkouts with CRLF line
+  endings.
 - The webview could read any file on disk through the asset protocol
   (scope `**`). The scope now holds only the app's cache folder; a file is
   added when ffprobe reads it as media, when it is picked in a dialog or

@@ -10,6 +10,7 @@
     "dev": "vite dev",
     "build": "vite build",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test": "node --test \"tests/unit/*.test.ts\"",
     "tauri": "tauri"
   },
   "dependencies": {

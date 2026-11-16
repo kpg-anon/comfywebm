@@ -71,12 +71,31 @@
     return { warn, err };
   });
 
+  // the select-all box: checked when every readable file is included, a dash when some are
+  const readable = $derived(batch.items.filter((i) => i.info).length);
+  let allBox = $state<HTMLInputElement>();
+  $effect(() => {
+    if (allBox) allBox.indeterminate = batch.included.length > 0 && batch.included.length < readable;
+  });
+
   const range = (s: { start: number; end: number }[]) =>
     s.map((r) => `${fmtTime(r.start).replace(/\.000$/, "")}-${fmtTime(r.end).replace(/\.000$/, "")}`).join(", ");
 </script>
 
 <div class="batch">
   <div class="head">
+    {#if batch.items.length}
+      <input
+        type="checkbox"
+        class="all"
+        bind:this={allBox}
+        aria-label="Select or deselect all files"
+        title={batch.included.length === readable ? "Deselect all files" : "Select all files"}
+        checked={readable > 0 && batch.included.length === readable}
+        disabled={!readable}
+        onchange={() => batch.setAllIncluded(batch.included.length < readable)}
+      />
+    {/if}
     <span class="title head-text">Batch</span>
     <span class="muted small">
       {batch.items.length ? `${batch.included.length} of ${batch.items.length} files` : "empty"}
@@ -210,6 +229,10 @@
   }
   .head {
     border-bottom: 1px solid var(--border-muted);
+  }
+  /* lines up with the checkboxes of the files below */
+  .all {
+    margin-left: calc(10px + var(--bw));
   }
   .foot {
     border-top: 1px solid var(--border-muted);

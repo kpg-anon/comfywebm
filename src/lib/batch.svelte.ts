@@ -112,6 +112,11 @@ class Batch {
     if (i >= 0) this.items[i] = { ...this.items[i], ...patch };
   }
 
+  /** Include or leave out every readable item. */
+  setAllIncluded(on: boolean) {
+    this.items = this.items.map((i) => (i.info ? { ...i, include: on } : i));
+  }
+
   remove(id: number) {
     this.items = this.items.filter((i) => i.id !== id);
   }

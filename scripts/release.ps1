@@ -42,7 +42,7 @@ $repo = 'kpg-anon/comfywebm'
 $tag = "v$Version"
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $files = @('package.json', 'package-lock.json', 'src-tauri/tauri.conf.json', 'src-tauri/Cargo.toml',
-    'crates/engine/Cargo.toml', 'Cargo.lock', 'README.md', 'CHANGELOG.md')
+    'crates/engine/Cargo.toml', 'Cargo.lock', 'README.md', 'USAGE.md', 'CHANGELOG.md')
 
 function Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 function Run([string]$exe, [string[]]$argv) {

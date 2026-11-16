@@ -5,7 +5,7 @@
 .DESCRIPTION
     package.json, package-lock.json, src-tauri/tauri.conf.json, both Cargo.toml
     files, the two workspace packages in Cargo.lock, and the README (version
-    badge and installer file name). Running it twice with the same version
+    badge and installer file names) and USAGE.md. Running it twice with the same version
     changes nothing.
 
 .EXAMPLE
@@ -36,7 +36,9 @@ $targets = @(
     @{ Path = 'package-lock.json';         Pattern = '("name"\s*:\s*"comfywebm"\s*,\s*"version"\s*:\s*")\d+\.\d+\.\d+(")'; First = $false }
     @{ Path = 'README.md';                 Pattern = '(badge/version-)\d+\.\d+\.\d+(-)';                                       First = $false }
     @{ Path = 'README.md';                 Pattern = '(alt="Version )\d+\.\d+\.\d+(")';                                        First = $false }
-    @{ Path = 'README.md';                 Pattern = '(comfywebm_)\d+\.\d+\.\d+(_x64)';                                        First = $false }
+    # installer names: comfywebm_1.0.0_x64-setup.exe, _aarch64.dmg, _amd64.AppImage ...
+    @{ Path = 'README.md';                 Pattern = '(comfywebm_)\d+\.\d+\.\d+(_)';                                           First = $false }
+    @{ Path = 'USAGE.md';                  Pattern = '(comfywebm_)\d+\.\d+\.\d+(_)';                                           First = $false }
 )
 
 foreach ($t in $targets) {

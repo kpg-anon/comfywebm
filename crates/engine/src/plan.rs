@@ -86,6 +86,8 @@ const MIN_VIDEO_KBPS: f64 = 8.0;
 const STILL_VIDEO_KBPS: f64 = 40.0;
 /// The sound bitrate is not lowered below this for a still picture.
 const MIN_STILL_AUDIO_KBPS: f64 = 24.0;
+/// The same for Vorbis (VP8), which fails to open at 42 kbps stereo.
+const MIN_VORBIS_KBPS: f64 = 48.0;
 
 /// Size mode, first attempt: `(maxBytes * 8 / 1000 / durationOut - audioKbps) * 0.985`.
 /// The 1.5% margin covers container overhead and encoder overshoot; the
@@ -787,8 +789,12 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         let max_bytes = *max_bytes;
         let room = (max_bytes * 8.0 / 1000.0 / duration_out) * 0.985 - STILL_VIDEO_KBPS;
         if max_bytes > 0.0 && duration_out > 0.0 && a.bitrate_k > room {
-            let k = room.floor().max(MIN_STILL_AUDIO_KBPS);
-            warnings.push(if room < MIN_STILL_AUDIO_KBPS {
+            // libvorbis (VP8) will not open below about 45 kbps for stereo
+            let floor = if codec == Codec::Vp8 { MIN_VORBIS_KBPS } else { MIN_STILL_AUDIO_KBPS };
+            let k = room.floor().max(floor);
+            // too long only when the sound alone at the floor is over the limit
+            let total = (max_bytes * 8.0 / 1000.0 / duration_out) * 0.985;
+            warnings.push(if total < floor {
                 format!("The sound is too long for the size limit even at {k} kbps. Shorten it or raise the limit.")
             } else {
                 format!("The sound bitrate is lowered from {} to {k} kbps to fit the size limit.", a.bitrate_k)
@@ -1287,7 +1293,11 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         }
         a.extend(video_args(pass));
         if let (Some((fps, _)), false) = (&still_rate, image) {
-            push(&mut a, &["-g", &fmt_num((fps * STILL_GOP_SECS).round().max(1.0))]);
+            // in size mode every keyframe of the picture is paid in full and a lower bitrate
+            // does not shrink it, so there is one at the start only; the frames after it are
+            // empty, so seeking stays cheap
+            let gop = if size_mode { fps * duration_out + 1.0 } else { fps * STILL_GOP_SECS };
+            push(&mut a, &["-g", &fmt_num(gop.ceil().max(1.0))]);
         }
         if !image {
             push(&mut a, &["-colorspace", &color.0, "-color_primaries", &color.1, "-color_trc", &color.2]);
@@ -2005,6 +2015,16 @@ mod tests {
         assert!(p.warnings.iter().any(|w| w.contains("lowered from 96 to 42 kbps")), "{:?}", p.warnings);
         let s = strs(&p.passes[p.passes.len() - 1]).join(" ");
         assert!(s.contains("-b:a 42k"), "{s}");
+        // VP8's Vorbis does not go below 48 kbps; that still fits here
+        sp.container = Container::Webm;
+        sp.codec = Codec::Vp8;
+        let p = build(&sp, &m, &opts()).unwrap();
+        assert_eq!(p.audio_kbps, 48.0);
+        assert!(p.warnings.iter().any(|w| w.contains("lowered from 96 to 48 kbps")), "{:?}", p.warnings);
+        sp.codec = Codec::Vp9;
+        // a size-mode still picture has one keyframe, at the start
+        let s = strs(&build(&sp, &m, &opts()).unwrap().passes[1]).join(" ");
+        assert!(!s.contains("-g 10 "), "{s}");
         // a short one keeps its bitrate
         sp.segments = vec![Segment { start: 0.0, end: 60.0 }];
         m.duration = 60.0;

@@ -17,7 +17,10 @@ Work on the `exp` branch.
   about 1 frame per second, with a keyframe every 10 seconds, and in size mode
   a file under the limit is not encoded again to fill it. A long sound that
   would not fit the limit next to the picture gets a lower bitrate, with a
-  warning (400 s at 4 MiB: 96 kbps becomes 42 kbps).
+  warning (400 s at 4 MiB: 96 kbps becomes 42 kbps; 48 kbps with VP8, whose
+  Vorbis encoder does not open lower). In size mode the picture has one
+  keyframe instead of one every 10 s: a detailed 1920x1080 picture with a
+  400 s sound was 62 MB at 4 MiB before, 3.4 MB now.
 - Batch: a small picture of each file (from 10% in), made two at a time.
 - Batch: "Join into one file" makes one job from the included files in list
   order, each with its trim, at the first file's picture size and frame

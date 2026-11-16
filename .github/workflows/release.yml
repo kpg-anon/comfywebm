@@ -63,11 +63,14 @@ jobs:
         with:
           name: notes
       - id: draft
+        # the API returns the new release's id; listing releases right after
+        # creating one may not show the draft yet
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
-            --title "comfywebm $GITHUB_REF_NAME" --notes-file notes.md --verify-tag
-          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq "map(select(.tag_name == \"$GITHUB_REF_NAME\" and .draft)) | .[0].id")
-          test -n "$id" && test "$id" != null
+          id=$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
+            -f tag_name="$GITHUB_REF_NAME" -f name="comfywebm $GITHUB_REF_NAME" \
+            -F draft=true -F prerelease=false -F body=@notes.md --jq .id)
+          if [ -z "$id" ] || [ "$id" = null ]; then echo "no release id"; exit 1; fi
+          echo "draft release $id"
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
   build:
@@ -137,6 +140,7 @@ jobs:
           $zip = "target/release/bundle/portable/comfywebm_${v}_x64-portable.zip"
           Compress-Archive -Path "$dir/*" -DestinationPath $zip -Force
           if ('${{ github.ref_type }}' -eq 'tag') {
+            if (-not '${{ needs.draft.outputs.id }}') { throw 'no draft release id' }
             $name = Split-Path $zip -Leaf
             gh api --method POST -H 'Content-Type: application/zip' `
               "https://uploads.github.com/repos/$env:GITHUB_REPOSITORY/releases/${{ needs.draft.outputs.id }}/assets?name=$name" `

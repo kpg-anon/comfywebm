@@ -24,10 +24,7 @@
 
 </div>
 
-<div align="center">
-  <img src="docs/readme/demo.webp" alt="Marking a range on the timeline, drawing a crop, typing a caption and encoding the clip under 4 MiB" width="860">
-  <br><sub>Mark a range with I and O, draw a crop, type a caption, encode under 4 MiB. The sample clip is generated with ffmpeg.</sub>
-</div>
+https://github.com/user-attachments/assets/4a07b7f8-0a90-491b-8023-448d6392f4c6
 
 ## Why
 

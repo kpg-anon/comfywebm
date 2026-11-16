@@ -5,7 +5,6 @@
   // the files by hand, restore the platform presets.
   import { app } from "$lib/state.svelte";
   import { errText, openItem } from "$lib/ipc";
-  import { pickPresetsFile, savePresetsFile } from "$lib/dialogs";
   import Icon from "./Icon.svelte";
   import Select from "./Select.svelte";
 
@@ -47,8 +46,9 @@
     }
   }
 
-  async function act(f: () => Promise<string | null>, ok: string) {
+  async function act(f: () => Promise<string | null | undefined>, ok: string) {
     const err = await f();
+    if (err === undefined) return; // dialog canceled
     msg = err ? { text: err, bad: true } : { text: ok, bad: false };
   }
 
@@ -57,13 +57,11 @@
       msg = { text: "There are no saved presets to export.", bad: false };
       return;
     }
-    const path = await savePresetsFile();
-    if (path) await act(() => app.exportPresets(path), `Exported ${savedCount} presets.`);
+    await act(() => app.exportPresets(), `Exported ${savedCount} presets.`);
   }
 
   async function importFile() {
-    const path = await pickPresetsFile();
-    if (path) await act(() => app.importPresets(path), "Presets imported.");
+    await act(() => app.importPresets(), "Presets imported.");
   }
 </script>
 

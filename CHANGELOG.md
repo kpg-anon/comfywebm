@@ -121,6 +121,10 @@ Work on the `exp` branch.
   `open-path` with scope `**`; opening an executable runs it). The
   permission is removed; Play, Output folder and Open folder go through a
   new `open_item` command that opens only folders and media files.
+- Preset export wrote JSON to whatever path the webview named, so it could
+  replace any file. The export and import file dialogs now run in Rust (as
+  theme import and export do), and the webview's save-dialog permission is
+  removed. `open_item` also refuses macOS `.app` bundles.
 - A settings.json or queue.json that could not be read was replaced by
   defaults on the next save. It is now renamed to `<name>.bad-<time>`
   and a notice at start says so. Two settings saves at the same moment

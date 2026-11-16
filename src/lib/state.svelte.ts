@@ -643,8 +643,13 @@ class AppState {
   optionsSnapshot(): Record<string, unknown> {
     const o: Record<string, unknown> = {};
     for (const k of REMEMBERED) o[k] = this[k];
+    // sound turned on only because a sound file is open is not remembered
+    if (this.audioBeforeSound !== null) o.audioOn = this.audioBeforeSound;
     return o;
   }
+
+  /** the Audio switch before a sound file turned it on; null when it did not */
+  private audioBeforeSound: boolean | null = null;
 
   private restoreOptions() {
     const o = load<Record<string, unknown>>("options");
@@ -733,10 +738,15 @@ class AppState {
       this.deinterlace = info.video.interlaced;
       this.tonemap = info.video.hdr && !!this.tools?.filters.zscale;
       this.audioTrack = info.audio[0]?.track ?? 0;
+      if (this.audioBeforeSound !== null) this.audioOn = this.audioBeforeSound;
+      this.audioBeforeSound = null;
       if (!info.audio.length) this.audioOn = false;
       else if (this.preset) this.audioOn = this.preset.audioBitrateK !== null;
-      // a sound file is opened for its sound
-      if (info.audioOnly) this.audioOn = true;
+      // a sound file is opened for its sound; the switch goes back when another file opens
+      if (info.audioOnly && !this.audioOn) {
+        this.audioBeforeSound = false;
+        this.audioOn = true;
+      }
       this.subsTrack = info.subs.find((s) => s.textBased)?.track ?? 0;
       this.subsKind = "off";
       this.subsFile = null;
@@ -1250,22 +1260,24 @@ class AppState {
     }
   }
 
-  /** Export the saved presets (presets/saved) as one JSON file. */
-  async exportPresets(path: string): Promise<string | null> {
+  /** Export the saved presets (presets/saved) as one JSON file. Returns an error message,
+   *  null when done, or undefined when the dialog was canceled. */
+  async exportPresets(): Promise<string | null | undefined> {
     try {
       const saved = this.presetEntries.filter((e) => e.group === "saved").map((e) => e.preset);
-      await ipc.presetsExport(path, $state.snapshot(saved) as Preset[]);
-      return null;
+      return (await ipc.presetsExport($state.snapshot(saved) as Preset[])) === null ? undefined : null;
     } catch (e) {
       return ipc.errText(e);
     }
   }
 
   /** Import presets from a JSON file into presets/saved. A name in use gets " (imported)". */
-  async importPresets(path: string): Promise<string | null> {
+  async importPresets(): Promise<string | null | undefined> {
     let got: Preset[];
     try {
-      got = await ipc.presetsImport(path);
+      const r = await ipc.presetsImport();
+      if (!r) return undefined;
+      got = r;
     } catch (e) {
       return ipc.errText(e);
     }

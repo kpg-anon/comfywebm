@@ -252,7 +252,8 @@ fn open_item(app: AppHandle, path: String) -> Result<(), String> {
         ["webm", "mp4", "mkv", "mov", "gif", "webp", "opus", "mp3", "m4a", "ogg", "png", "jpg", "jpeg", "avi"];
     let p = std::path::Path::new(&path);
     let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    if !(p.is_dir() || p.is_file() && MEDIA.contains(&ext.as_str())) {
+    // a macOS .app bundle is a folder, and opening it starts the program
+    if !(p.is_dir() && ext != "app" || p.is_file() && MEDIA.contains(&ext.as_str())) {
         return Err(format!("Not opened: {path} is not a folder or a media file"));
     }
     app.opener().open_path(&path, None::<&str>).map_err(|e| e.to_string())
@@ -617,16 +618,41 @@ fn sample_cancel(samples: State<Samples>) {
     }
 }
 
+/// Preset export: the save dialog runs here, so the webview cannot name the file written.
+/// Returns the path written, or None when the dialog was canceled.
 #[tauri::command]
-fn presets_export(path: String, presets: Vec<Preset>) -> Result<(), String> {
+async fn presets_export(app: AppHandle, presets: Vec<Preset>) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
     let json = serde_json::to_vec_pretty(&presets).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| format!("Cannot write {path}: {e}"))
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("Export presets")
+        .add_filter("Presets", &["json"])
+        .set_file_name("comfywebm-presets.json")
+        .blocking_save_file();
+    let Some(fp) = picked else { return Ok(None) };
+    let path = fp.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| format!("Cannot write {}: {e}", path.display()))?;
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
-/// Reads a JSON array of presets (or `{ "presets": [...] }`, as in settings.json).
-/// Entries that are not valid presets are skipped.
+/// Preset import: the open dialog runs here. Reads a JSON array of presets (or
+/// `{ "presets": [...] }`, as in settings.json); entries that are not valid presets are
+/// skipped. None when the dialog was canceled.
 #[tauri::command]
-fn presets_import(path: String) -> Result<Vec<Preset>, String> {
+async fn presets_import(app: AppHandle) -> Result<Option<Vec<Preset>>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("Import presets")
+        .add_filter("Presets", &["json"])
+        .add_filter("All files", &["*"])
+        .blocking_pick_file();
+    let Some(fp) = picked else { return Ok(None) };
+    let path = fp.into_path().map_err(|e| e.to_string())?;
+    let path = path.to_string_lossy().into_owned();
     // a presets file is a few KB; anything far larger is not one
     let len = std::fs::metadata(&path).map_err(|e| format!("Cannot read {path}: {e}"))?.len();
     if len > 1024 * 1024 {
@@ -646,7 +672,7 @@ fn presets_import(path: String) -> Result<Vec<Preset>, String> {
     if presets.is_empty() {
         return Err(format!("{path} contains no presets."));
     }
-    Ok(presets)
+    Ok(Some(presets))
 }
 
 /// config.toml lists and every preset file.

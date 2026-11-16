@@ -10,9 +10,7 @@
     "core:window:allow-set-progress-bar",
     "core:window:allow-request-user-attention",
     "core:window:allow-set-title",
-    "dialog:default",
     "dialog:allow-open",
-    "dialog:allow-save",
     "opener:default",
     {
       "identifier": "opener:allow-open-url",

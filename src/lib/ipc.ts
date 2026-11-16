@@ -68,8 +68,9 @@ export const urlCancel = (url: string) => invoke<void>("url_cancel", { url });
 export const exportFrame = (path: string, time: number, crop: Crop | null) =>
   invoke<string>("export_frame", { path, time, crop });
 export const previewSample = (spec: EncodeSpec, at: number, secs = 3) => invoke<string>("preview_sample", { spec, at, secs });
-export const presetsExport = (path: string, presets: Preset[]) => invoke<void>("presets_export", { path, presets });
-export const presetsImport = (path: string) => invoke<Preset[]>("presets_import", { path });
+// the file dialogs run in Rust; null = canceled
+export const presetsExport = (presets: Preset[]) => invoke<string | null>("presets_export", { presets });
+export const presetsImport = () => invoke<Preset[] | null>("presets_import");
 
 export const configGet = () => invoke<ConfigInfo>("config_get");
 export const presetSave = (preset: Preset, file: string | null) => invoke<string>("preset_save", { preset, file });

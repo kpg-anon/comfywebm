@@ -1,5 +1,5 @@
 // Native file and folder pickers (@tauri-apps/plugin-dialog).
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 
 const AUDIO_EXT = ["mp3", "m4a", "aac", "opus", "ogg", "wav", "flac", "wma"];
 const VIDEO_EXT = ["mp4", "mkv", "webm", "mov", "avi", "m4v", "ts", "m2ts", "mts", "flv", "wmv", "mpg", "mpeg", "ogv", "3gp", "gif"];
@@ -35,8 +35,3 @@ export const pickVideos = async (): Promise<string[]> => {
   return Array.isArray(r) ? r : [r];
 };
 
-export const pickPresetsFile = () =>
-  pick({ title: "Import presets", filters: [{ name: "Presets", extensions: ["json"] }, { name: "All files", extensions: ["*"] }] });
-
-export const savePresetsFile = async (): Promise<string | null> =>
-  (await save({ title: "Export presets", defaultPath: "comfywebm-presets.json", filters: [{ name: "Presets", extensions: ["json"] }] })) ?? null;

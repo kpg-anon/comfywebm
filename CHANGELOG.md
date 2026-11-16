@@ -71,6 +71,8 @@ Work on the `exp` branch.
   files); Ctrl+Z removes the restored edit.
 - Settings: cache size with Clear and Clear downloads; Search again for
   ffmpeg, ffprobe and yt-dlp.
+- Settings > Tools says when a saved ffmpeg or yt-dlp location does not
+  hold the tool and another copy (beside the app or on PATH) is used.
 - The sidebar can be resized by dragging its edge; double-click resets.
 - The size field takes units: MB, KB, GB are decimal, MiB, KiB, GiB (or a
   bare number) binary. Up and Down step 0.5 MiB (Shift: 5 MiB).

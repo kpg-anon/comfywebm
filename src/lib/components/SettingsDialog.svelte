@@ -71,6 +71,17 @@
   let outputDir = $state(app.settings.outputDir ?? "");
   let outputMode = $state<"desktop" | "beside" | "folder">(app.settings.outputMode ?? (app.settings.outputDir ? "folder" : "desktop"));
   let ytdlpPath = $state(app.settings.ytdlpPath ?? "");
+  // a saved location that does not hold the tool falls through to beside the app and PATH;
+  // say so instead of showing the other copy as if it came from the setting
+  const norm = (x: string) => x.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  function notFromSetting(found: string | null | undefined, set: string | null | undefined): boolean {
+    if (!found || !set?.trim()) return false;
+    const f = norm(found), s = norm(set.trim());
+    if (f === s || f.startsWith(s + "/")) return false;
+    // a file was set (the tool itself, or a file in the tool's folder)
+    const slash = s.lastIndexOf("/");
+    return !(/\.[a-z0-9]+$|ffmpeg$|yt-dlp$/.test(s.slice(slash + 1)) && f.startsWith(s.slice(0, slash + 1)));
+  }
   let ytdlpArgs = $state(app.settings.ytdlpArgs.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" "));
   let downloadDir = $state(app.settings.downloadDir ?? "");
   let keepDir = $state(app.settings.keepDir ?? "");
@@ -277,6 +288,9 @@
       {#if app.tools}
         <div><span class="k">ffmpeg</span> <span class="mono" class:err={!app.tools.ffmpeg}>{app.tools.ffmpeg ?? "not found"}</span></div>
         <div><span class="k">ffprobe</span> <span class="mono" class:err={!app.tools.ffprobe}>{app.tools.ffprobe ?? "not found"}</span></div>
+        {#if notFromSetting(app.tools.ffmpeg, app.settings.ffmpegPath) || notFromSetting(app.tools.ffprobe, app.settings.ffmpegPath)}
+          <div class="err">Not found at the saved ffmpeg location; the copy shown above is used instead.</div>
+        {/if}
         {#if app.tools.version}<div><span class="k">version</span> <span class="mono">{app.tools.version}</span></div>{/if}
         <div>
           <span class="k">encoders</span>
@@ -291,6 +305,9 @@
           {/each}
         </div>
         <div><span class="k">yt-dlp</span> <span class="mono" class:err={!app.tools.ytdlp}>{app.tools.ytdlp ?? "not found"}</span>{#if app.tools.ytdlpVersion} <span class="mono muted">{app.tools.ytdlpVersion}</span>{/if}</div>
+        {#if notFromSetting(app.tools.ytdlp, app.settings.ytdlpPath)}
+          <div class="err">Not found at the saved yt-dlp location; the copy shown above is used instead.</div>
+        {/if}
         <div><button class="btn small" disabled={rescanning} title="Search for ffmpeg, ffprobe and yt-dlp again, for example after installing or updating them" onclick={rescan}>{rescanning ? "Searching..." : "Search again"}</button></div>
       {:else}
         <div class="muted">Tool status not loaded.</div>

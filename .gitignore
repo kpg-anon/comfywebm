@@ -9,3 +9,6 @@ src-tauri/gen/
 .tauri-updater.key
 .tauri-updater.pass
 .tauri-updater.key.pub
+
+# marketing video project (local-only; Remotion)
+/marketing/

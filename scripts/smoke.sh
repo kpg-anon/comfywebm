@@ -168,7 +168,8 @@ spec speed2 '{"speed":2,"audio":{"track":0,"bitrateK":64,"volumeDb":0,"normalize
 if run speed2 webm; then
   d=$(val "$info" duration)
   # every frame kept: 3 s of 30 fps at 2x is about 90 frames at 60 fps (1.0 kept 30 fps and dropped half)
-  frames=$(ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames -of csv=p=0 "$out" | tr -d ' ')
+  frames=$(ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames -of csv=p=0 "$out" | tr -d '
+ ')
   ok=0; near "$d" 1.5 0.15 && near "${frames:-0}" 90 3 && [ "$(probe "$out" | grep -c 'codec_type=audio')" = 1 ] && ok=1
   report speed_2x_audio $ok "duration=$d frames=$frames"
 else fail_run speed_2x_audio; fi
@@ -181,7 +182,36 @@ if run tonemap webm; then
   report tonemap_hdr $ok "color_transfer=$t"
 else fail_run tonemap_hdr; fi
 
-# 13. cancel during pass 1: nothing may be left behind
+# 13-15. a sound file with a still picture (cover-art mode)
+gen -f lavfi -i sine=frequency=440:sample_rate=48000:duration=6 -c:a libmp3lame "$work/sound.mp3"
+gen -f lavfi -i testsrc2=size=320x180 -frames:v 1 "$work/pic.png"
+gen -i "$work/sound.mp3" -i "$work/pic.png" -map 0 -map 1 -c copy -disposition:v:0 attached_pic "$work/covered.mp3"
+gen -f lavfi -i anoisesrc=d=120:c=pink:a=0.3 -ac 2 -c:a libmp3lame -b:a 128k "$work/song.mp3"
+snd='"audio":{"track":0,"bitrateK":96,"volumeDb":0,"normalize":false}'
+spec cover_png "{\"input\":\"$(native "$work/sound.mp3")\",\"cover\":\"$(native "$work/pic.png")\",\"coverSize\":[320,180],$snd}"
+if run cover_png webm; then
+  d=$(val "$info" duration)
+  ok=0; [ "$(val "$info" width)" = 320 ] && [ "$(probe "$out" | grep -c 'codec_type=audio')" = 1 ] && near "$d" 6 0.1 && ok=1
+  report cover_png $ok "$(val "$info" width)x$(val "$info" height) duration=$d"
+else fail_run cover_png; fi
+
+spec cover_embedded "{\"input\":\"$(native "$work/covered.mp3")\",$snd}"
+if run cover_embedded webm; then
+  d=$(val "$info" duration)
+  ok=0; [ "$(val "$info" width)" = 320 ] && near "$d" 6 0.1 && ok=1
+  report cover_embedded $ok "$(val "$info" width)x$(val "$info" height) duration=$d"
+else fail_run cover_embedded; fi
+
+# 120 s at 96 kbps is 1.44 MB of sound alone: the sound bitrate is lowered to fit 1 MiB
+# (without that, the file is over the limit: the retries change only the video bitrate)
+spec cover_long_size "{\"input\":\"$(native "$work/song.mp3")\",\"cover\":\"$(native "$work/pic.png")\",\"coverSize\":[320,180],\"rate\":{\"mode\":\"size\",\"maxBytes\":1048576},$snd}"
+if run cover_long_size webm; then
+  s=$(val "$info" size)
+  ok=0; [ "$s" -le 1048576 ] && near "$(val "$info" duration)" 120 0.2 && ok=1
+  report cover_long_size $ok "size=$s limit=1048576 $(res)"
+else fail_run cover_long_size; fi
+
+# 16. cancel during pass 1: nothing may be left behind
 spec cancel "{\"input\":\"$(native "$work/long.mp4")\",\"effort\":\"best\",\"rate\":{\"mode\":\"size\",\"maxBytes\":4194304}}"
 log=$("$bin" "$work/cancel.json" "$(native "$work/cancel.webm")" --cancel-after 1.5 2>&1)
 left=$(printf '%s\n' "$log" | grep -c '^leftover:')

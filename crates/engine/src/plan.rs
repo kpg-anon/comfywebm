@@ -77,6 +77,8 @@ pub fn cpu_threads() -> usize {
     std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
 }
 
+/// Reverse and boomerang warn above this estimate of the frames held in memory.
+const REVERSE_WARN_BYTES: f64 = 1.0e9;
 /// Lowest video bitrate ever passed to the encoder.
 const MIN_VIDEO_KBPS: f64 = 8.0;
 /// Share of a size limit (as kbps) kept for a still picture when the sound would
@@ -723,12 +725,6 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         warnings.push("Boomerang applies to the picture only; the sound plays forward.".into());
     }
     let duration_out = clip / speed * if boomerang { 2.0 } else { 1.0 };
-    if spec.playback != Playback::Forward && duration_out > 30.0 {
-        warnings.push(format!(
-            "Reverse and boomerang hold every frame in memory. A {} s clip can need several GB.",
-            duration_out.round()
-        ));
-    }
 
     let src_fps_out = v.fps * speed;
     let fps_cap = spec
@@ -844,6 +840,20 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             "{} has no bitrate setting: the size limit can only be met by the picture size. Choose Auto resolution, or the file may end over the limit.",
             codec_label(codec)
         ));
+    }
+    // ffmpeg's reverse keeps every frame it has been given, after the scale and the frame
+    // rate change: output size x frames x 1.5 bytes (8-bit 4:2:0; more for 10-bit sources)
+    if spec.playback != Playback::Forward && still.is_none() {
+        let frames = (clip / speed * out_fps).ceil();
+        let bytes = g.out_w as f64 * g.out_h as f64 * 1.5 * frames;
+        if bytes > REVERSE_WARN_BYTES {
+            warnings.push(format!(
+                "Reverse and boomerang keep every frame in memory: about {:.1} GB here ({frames} frames at {}x{}). Shorten the clip or lower the resolution or frame rate.",
+                bytes / 1e9,
+                g.out_w,
+                g.out_h
+            ));
+        }
     }
     let bpp = video_kbps.map(|k| bits_per_pixel(k, g.out_w, g.out_h, out_fps));
     let qual = bpp.map(|b| quality(b, codec));
@@ -1959,6 +1969,26 @@ mod tests {
         assert!(s.contains("-i m.mp3 -i in.mp3"), "{s}");
         assert!(s.contains("[2:1]loop="), "{s}");
         assert!(!s.contains("concat"), "music replaces the sound: {s}");
+    }
+
+    #[test]
+    fn reverse_memory_warning() {
+        let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
+        sp.playback = Playback::Reverse;
+        let mut m = media();
+        m.video.fps = 30.0;
+        // 4 s of 1280x720 at 30 fps: 120 frames x 1.4 MB = 0.17 GB, no warning
+        let p = build(&sp, &m, &opts()).unwrap();
+        assert!(!p.warnings.iter().any(|w| w.contains("in memory")), "{:?}", p.warnings);
+        // 40 s: 1200 frames, 1.7 GB
+        sp.segments = vec![Segment { start: 0.0, end: 40.0 }];
+        let p = build(&sp, &m, &opts()).unwrap();
+        assert!(p.warnings.iter().any(|w| w.contains("about 1.7 GB here (1200 frames at 1280x720)")), "{:?}", p.warnings);
+        // the same 40 s at a 640 px box (640x360): 0.4 GB, no warning
+        sp.max_width = Some(640);
+        sp.max_height = Some(640);
+        let p = build(&sp, &m, &opts()).unwrap();
+        assert!(!p.warnings.iter().any(|w| w.contains("in memory")), "{:?}", p.warnings);
     }
 
     #[test]

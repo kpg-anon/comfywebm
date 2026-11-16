@@ -122,6 +122,10 @@ Work on the `exp` branch.
 - ffprobe reads some text files (.nfo, .ans and similar) as video, so they
   could be opened and passed that check. Streams from ffmpeg's text-art
   decoders no longer count as video.
+- The reverse and boomerang memory warning came at any output over 30 s,
+  whatever the picture size. It now estimates the frames held (output size x
+  frame count) and warns above about 1 GB, with the number: 40 s at 1280x720
+  and 30 fps is 1.7 GB; the same at 640x360 does not warn.
 - The webview could open any path in its default program (permission
   `open-path` with scope `**`; opening an executable runs it). The
   permission is removed; Play, Output folder and Open folder go through a

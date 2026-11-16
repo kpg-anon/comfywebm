@@ -735,6 +735,8 @@ class AppState {
       this.audioTrack = info.audio[0]?.track ?? 0;
       if (!info.audio.length) this.audioOn = false;
       else if (this.preset) this.audioOn = this.preset.audioBitrateK !== null;
+      // a sound file is opened for its sound
+      if (info.audioOnly) this.audioOn = true;
       this.subsTrack = info.subs.find((s) => s.textBased)?.track ?? 0;
       this.subsKind = "off";
       this.subsFile = null;

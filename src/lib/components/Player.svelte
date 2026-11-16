@@ -108,7 +108,8 @@
   function onMeta() {
     const v = video;
     if (!v) return;
-    if (v.videoWidth === 0) {
+    // no picture: the webview cannot decode the video (a sound file has none)
+    if (v.videoWidth === 0 && !app.audioOnly) {
       void app.useProxy();
       return;
     }

@@ -81,9 +81,13 @@ pub fn cpu_threads() -> usize {
 const REVERSE_WARN_BYTES: f64 = 1.0e9;
 /// Lowest video bitrate ever passed to the encoder.
 const MIN_VIDEO_KBPS: f64 = 8.0;
-/// Share of a size limit (as kbps) kept for a still picture when the sound would
-/// otherwise fill it: a 640x360 keyframe every 10 s is about 20-50 KB.
-const STILL_VIDEO_KBPS: f64 = 40.0;
+/// Bytes kept for a still picture (one keyframe in size mode) per pixel of the picture,
+/// when the sound would otherwise fill the limit. Measured with VP9 at its lowest
+/// quality: a 1920x1080 picture of pure noise took 0.82 bytes per pixel (1,651 KiB), a
+/// plain 640x360 test pattern 0.19 (42 KiB). Real pictures fall between.
+const STILL_BYTES_PER_PIXEL: f64 = 0.9;
+/// Plus this for the empty frames after the keyframe and the container.
+const STILL_MARGIN_BYTES: f64 = 32768.0;
 /// The sound bitrate is not lowered below this for a still picture.
 const MIN_STILL_AUDIO_KBPS: f64 = 24.0;
 /// The same for Vorbis (VP8), which fails to open at 42 kbps stereo.
@@ -781,13 +785,14 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         }
         None => None,
     };
-    // a still picture needs little of the budget, but a long song at the chosen bitrate can
-    // be larger than the limit on its own: the sound bitrate is lowered to leave the picture
-    // STILL_VIDEO_KBPS
+    // a long sound at the chosen bitrate can be larger than the limit on its own: the sound
+    // bitrate is lowered to leave room for the picture's one keyframe, sized from the picture
+    // itself (the output can only be that size or smaller)
     let mut audio = audio;
     if let (Some(_), Rate::Size { max_bytes }, Some(a)) = (still, &spec.rate, audio.as_mut()) {
         let max_bytes = *max_bytes;
-        let room = (max_bytes * 8.0 / 1000.0 / duration_out) * 0.985 - STILL_VIDEO_KBPS;
+        let picture = v.width as f64 * v.height as f64 * STILL_BYTES_PER_PIXEL + STILL_MARGIN_BYTES;
+        let room = (max_bytes * 0.985 - picture) * 8.0 / 1000.0 / duration_out;
         if max_bytes > 0.0 && duration_out > 0.0 && a.bitrate_k > room {
             // libvorbis (VP8) will not open below about 45 kbps for stereo
             let floor = if codec == Codec::Vp8 { MIN_VORBIS_KBPS } else { MIN_STILL_AUDIO_KBPS };
@@ -812,7 +817,8 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
                 return Err("The size limit must be greater than 0.".into());
             }
             let computed = size_video_kbps(max_bytes, duration_out, audio_kbps);
-            if computed < MIN_VIDEO_KBPS {
+            // a still picture is one keyframe whatever the bitrate, so these do not apply
+            if computed < MIN_VIDEO_KBPS && still.is_none() {
                 warnings.push(
                     "The size limit leaves almost no room for video. Shorten the clip, turn audio off, or raise the limit."
                         .into(),
@@ -863,7 +869,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     }
     let bpp = video_kbps.map(|k| bits_per_pixel(k, g.out_w, g.out_h, out_fps));
     let qual = bpp.map(|b| quality(b, codec));
-    if let (true, Some(k), Some(b), Some(Quality::Poor)) = (size_mode, video_kbps, bpp, qual) {
+    if let (true, Some(k), Some(b), Some(Quality::Poor), None) = (size_mode, video_kbps, bpp, qual, still) {
         warnings.push(format!("Video bitrate is {} kbps ({b:.3} bits per pixel). Expect a blurry picture.", k.round()));
     }
 
@@ -2040,12 +2046,18 @@ mod tests {
         let mut m = sound(true);
         m.duration = 400.0;
         let p = build(&sp, &m, &opts()).unwrap();
-        // 4 MiB over 400 s is 83.9 kbps in all; 96k sound alone would be 4.6 MiB
-        assert_eq!(p.audio_kbps, 42.0, "{:?}", p.warnings);
-        assert!(p.warnings.iter().any(|w| w.contains("lowered from 96 to 42 kbps")), "{:?}", p.warnings);
+        // 4 MiB over 400 s is 83.9 kbps in all; 96k sound alone would be 4.6 MiB. The 600x600
+        // cover keeps 0.9 x 360000 + 32768 bytes, leaving 75 kbps
+        assert_eq!(p.audio_kbps, 75.0, "{:?}", p.warnings);
+        assert!(p.warnings.iter().any(|w| w.contains("lowered from 96 to 75 kbps")), "{:?}", p.warnings);
         let s = strs(&p.passes[p.passes.len() - 1]).join(" ");
-        assert!(s.contains("-b:a 42k"), "{s}");
-        // VP8's Vorbis does not go below 48 kbps; that still fits here
+        assert!(s.contains("-b:a 75k"), "{s}");
+        // 650 s leaves 46 kbps; VP8's Vorbis does not go below 48, which still fits
+        sp.segments = vec![Segment { start: 0.0, end: 650.0 }];
+        m.duration = 650.0;
+        let p = build(&sp, &m, &opts()).unwrap();
+        assert_eq!(p.audio_kbps, 46.0);
+        assert_eq!(p.warnings.len(), 1, "{:?}", p.warnings);
         sp.container = Container::Webm;
         sp.codec = Codec::Vp8;
         let p = build(&sp, &m, &opts()).unwrap();

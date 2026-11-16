@@ -329,7 +329,7 @@ async fn plan(app: AppHandle, spec: EncodeSpec) -> Result<PlanInfo, String> {
         for path in spec.overlay.as_ref().map(|o| &o.path).into_iter().chain(spec.cover.as_ref()) {
             let p = std::path::Path::new(path);
             let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-            if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp") && p.is_file() {
+            if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "bmp") && p.is_file() {
                 let _ = app.asset_protocol_scope().allow_file(p);
             }
         }

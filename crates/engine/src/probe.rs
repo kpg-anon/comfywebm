@@ -69,6 +69,9 @@ fn rotation(stream: &Value) -> f64 {
     tag(stream, "rotate").and_then(|s| s.parse().ok()).unwrap_or(0.0)
 }
 
+/// ffmpeg decoders that render text files as video.
+const TEXT_ART: [&str; 4] = ["ansi", "bintext", "xbin", "idf"];
+
 pub fn parse(json: &Value) -> Result<MediaInfo, String> {
     let streams = json.get("streams").and_then(Value::as_array).cloned().unwrap_or_default();
     let mut info = MediaInfo::default();
@@ -79,6 +82,11 @@ pub fn parse(json: &Value) -> Result<MediaInfo, String> {
     for s in &streams {
         let kind = s.get("codec_type").and_then(Value::as_str).unwrap_or("");
         let codec = s.get("codec_name").and_then(Value::as_str).unwrap_or("unknown").to_string();
+        // text files that ffmpeg draws as pictures (.nfo, .ans, .diz, ...) are not media: the
+        // app adds a probed file to what the webview may read, so these must not pass
+        if kind == "video" && TEXT_ART.contains(&codec.as_str()) {
+            continue;
+        }
         match kind {
             "video" if video.is_none() => {
                 let attached = s.pointer("/disposition/attached_pic").and_then(num).unwrap_or(0.0) > 0.0;
@@ -211,5 +219,15 @@ mod tests {
         assert_eq!(info.duration, 8.0);
         let none: Value = serde_json::from_str(r#"{"streams":[],"format":{"duration":"8.0"}}"#).unwrap();
         assert!(parse(&none).is_err());
+    }
+
+    #[test]
+    fn text_art_is_not_video() {
+        let j: Value = serde_json::from_str(
+            r#"{"streams":[{"index":0,"codec_type":"video","codec_name":"ansi","width":640,"height":400}],
+                "format":{"format_name":"tty","duration":"1.0"}}"#,
+        )
+        .unwrap();
+        assert!(parse(&j).is_err());
     }
 }

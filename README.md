@@ -308,9 +308,11 @@ The longest clip is advisory: the app warns when the output is longer.
   presets, themes or the queue.
 - Error text shown in the app replaces passwords and sign-in tokens in links
   with `***`, so it can be pasted into a bug report.
-- The webview can only read the app's cache folder and the files you open,
-  pick or drop; it can open folders and media files in their programs, nothing
-  else.
+- The app's web page (the webview) reads files only from the app's cache
+  folder and the media files you open, pick or drop, and it opens only folders
+  and media files in other programs. It still controls settings that run
+  programs: the ffmpeg and yt-dlp locations and the extra ffmpeg and yt-dlp
+  arguments.
 - Settings > Files: Clear deletes preview copies, samples and timeline
   pictures; Clear downloads also deletes the cache's download folder ("Download
   and edit" files, unless the download folder was changed). "Download only"

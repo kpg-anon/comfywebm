@@ -117,6 +117,9 @@ Work on the `exp` branch.
   dropped, and a logo image when a plan uses it. The release build's
   content security policy no longer allows the dev server's localhost
   addresses.
+- ffprobe reads some text files (.nfo, .ans and similar) as video, so they
+  could be opened and passed that check. Streams from ffmpeg's text-art
+  decoders no longer count as video.
 - The webview could open any path in its default program (permission
   `open-path` with scope `**`; opening an executable runs it). The
   permission is removed; Play, Output folder and Open folder go through a

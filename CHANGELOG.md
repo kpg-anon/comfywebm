@@ -113,6 +113,10 @@ Work on the `exp` branch.
   `open-path` with scope `**`; opening an executable runs it). The
   permission is removed; Play, Output folder and Open folder go through a
   new `open_item` command that opens only folders and media files.
+- A settings.json or queue.json that could not be read was replaced by
+  defaults on the next save. It is now renamed to `<name>.bad-<time>`
+  and a notice at start says so. Two settings saves at the same moment
+  can no longer interleave on the temp file.
 - Closing the app left ffmpeg running when a job, sample or download was
   active; all child processes are now stopped on exit.
 - A finished output or saved frame could replace a file that appeared at

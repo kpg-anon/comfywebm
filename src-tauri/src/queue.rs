@@ -58,14 +58,14 @@ pub struct QueueState {
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
 
 impl Queue {
-    /// Reads `path` (a missing or unreadable file gives an empty queue).
-    pub fn load(path: PathBuf) -> Self {
-        let mut jobs: Vec<Job> = std::fs::read(&path)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Saved>(&b).ok())
-            .filter(|s| s.version == 1)
-            .map(|s| s.jobs)
-            .unwrap_or_default();
+    /// Reads `path`. A missing file gives an empty queue; an unreadable one is set aside
+    /// (`config::read_json`) and also gives an empty queue.
+    pub fn load(path: PathBuf, errors: &mut Vec<String>) -> Self {
+        let ok = |s: &Saved| match s.version {
+            1 => Ok(()),
+            v => Err(format!("queue format {v}, from a newer comfywebm")),
+        };
+        let mut jobs: Vec<Job> = comfywebm_engine::config::read_json(&path, ok, errors).map(|s| s.jobs).unwrap_or_default();
         for j in &mut jobs {
             if j.status == JobStatus::Running {
                 j.status = JobStatus::Failed;

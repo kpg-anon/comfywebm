@@ -1,6 +1,6 @@
 //! App state: settings file, located tools, probe cache.
 
-use comfywebm_engine::config::Config;
+use comfywebm_engine::config::{read_json, Config};
 use crate::queue::Queue;
 use comfywebm_engine::tools::{self, Tools};
 use comfywebm_engine::{probe, MediaInfo, Settings, ToolsStatus};
@@ -32,16 +32,17 @@ pub struct AppState {
     pub config: Config,
     /// the user's Desktop, the default output folder
     pub desktop_dir: Option<PathBuf>,
+    /// problems reading settings.json or queue.json at start, shown once through `config_get`
+    pub load_errors: Mutex<Vec<String>>,
 }
 
 impl AppState {
     pub fn new(config_dir: PathBuf, cache_dir: PathBuf, desktop_dir: Option<PathBuf>) -> Self {
         let settings_path = config_dir.join("settings.json");
-        let settings = std::fs::read(&settings_path)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Settings>(&b).ok())
-            .unwrap_or_default();
+        let mut errors = Vec::new();
+        let settings = read_json::<Settings>(&settings_path, |_| Ok(()), &mut errors).unwrap_or_default();
         let queue_path = config_dir.join("queue.json");
+        let queue = Queue::load(queue_path, &mut errors);
         let config = Config::new(config_dir);
         let moved = config.ensure(&settings.presets);
         let state = AppState {
@@ -50,9 +51,10 @@ impl AppState {
             cache_dir,
             tools: Mutex::new(None),
             probes: Mutex::new(HashMap::new()),
-            queue: Arc::new(Queue::load(queue_path)),
+            queue: Arc::new(queue),
             config,
             desktop_dir,
+            load_errors: Mutex::new(errors),
         };
         if moved {
             // the presets now live in presets/saved/*.toml
@@ -95,13 +97,14 @@ impl AppState {
         if let Some(dir) = self.settings_path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
         }
-        // write a temp file and rename it, so a crash never leaves half a file
-        let tmp = self.settings_path.with_extension("json.tmp");
-        std::fs::write(&tmp, json).map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
-        std::fs::rename(&tmp, &self.settings_path)
-            .map_err(|e| format!("Cannot write {}: {e}", self.settings_path.display()))?;
         let changed = {
+            // held through the write, so two saves cannot interleave on the temp file
             let mut cur = self.settings.lock().unwrap();
+            // write a temp file and rename it, so a crash never leaves half a file
+            let tmp = self.settings_path.with_extension("json.tmp");
+            std::fs::write(&tmp, json).map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
+            std::fs::rename(&tmp, &self.settings_path)
+                .map_err(|e| format!("Cannot write {}: {e}", self.settings_path.display()))?;
             let changed = cur.ffmpeg_path != new.ffmpeg_path || cur.ytdlp_path != new.ytdlp_path;
             *cur = new;
             changed
@@ -190,3 +193,4 @@ impl AppState {
         self.probe(path)
     }
 }
+

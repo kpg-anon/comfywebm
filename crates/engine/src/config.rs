@@ -511,6 +511,33 @@ fn write_atomic(path: &Path, text: &str) -> Result<(), String> {
     std::fs::rename(&tmp, path).map_err(|e| format!("Cannot write {}: {e}", path.display()))
 }
 
+/// Reads a JSON file. A file that exists but cannot be read as `T` (or that `ok` rejects) is
+/// renamed to `<name>.bad-<unix seconds>` so the next save cannot overwrite it, and a message
+/// saying where it went is added to `errors`. A missing file gives None without a message.
+pub fn read_json<T: serde::de::DeserializeOwned>(
+    path: &std::path::Path,
+    ok: impl Fn(&T) -> Result<(), String>,
+    errors: &mut Vec<String>,
+) -> Option<T> {
+    let bytes = std::fs::read(path).ok()?;
+    let why = match serde_json::from_slice::<T>(&bytes) {
+        Ok(v) => match ok(&v) {
+            Ok(()) => return Some(v),
+            Err(why) => why,
+        },
+        Err(e) => e.to_string(),
+    };
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let name = path.file_name().map_or("file".into(), |n| n.to_string_lossy().into_owned());
+    let bad = path.with_file_name(format!("{name}.bad-{secs}"));
+    let kept = match std::fs::rename(path, &bad) {
+        Ok(()) => format!("it was renamed to {}", bad.display()),
+        Err(e) => format!("it could not be renamed ({e}) and will be replaced on the next save"),
+    };
+    errors.push(format!("{} could not be read ({why}); defaults are used and {kept}.", path.display()));
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -540,5 +567,26 @@ mod tests {
         assert!(c.resolve("../a.toml").is_err());
         assert!(c.resolve("saved/../../a.toml").is_err());
         assert!(c.resolve("other/a.toml").is_err());
+    }
+
+    #[test]
+    fn unreadable_json_is_set_aside() {
+        let dir = std::env::temp_dir().join(format!("cwm-readjson-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("settings.json");
+        let mut errors = Vec::new();
+        assert!(read_json::<Vec<u32>>(&p, |_| Ok(()), &mut errors).is_none());
+        assert!(errors.is_empty(), "a missing file is not an error");
+        std::fs::write(&p, b"{ not json").unwrap();
+        assert!(read_json::<Vec<u32>>(&p, |_| Ok(()), &mut errors).is_none());
+        assert_eq!(errors.len(), 1);
+        assert!(!p.exists());
+        let kept: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().into_string().unwrap()).collect();
+        assert!(kept.iter().any(|n| n.starts_with("settings.json.bad-")), "{kept:?}");
+        std::fs::write(&p, b"[1,2]").unwrap();
+        assert_eq!(read_json::<Vec<u32>>(&p, |_| Ok(()), &mut errors), Some(vec![1, 2]));
+        assert!(read_json::<Vec<u32>>(&p, |v| if v.len() > 1 { Err("too new".into()) } else { Ok(()) }, &mut errors).is_none());
+        assert!(errors[1].contains("too new"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -635,7 +635,10 @@ fn presets_import(path: String) -> Result<Vec<Preset>, String> {
 /// config.toml lists and every preset file.
 #[tauri::command]
 fn config_get(state: State<AppState>) -> config::ConfigInfo {
-    state.config.load()
+    let mut info = state.config.load();
+    // reported once: a later reload does not repeat them
+    info.errors.extend(std::mem::take(&mut *state.load_errors.lock().unwrap()));
+    info
 }
 
 /// Writes a preset; `file` replaces that preset file, None makes a new one in saved/.

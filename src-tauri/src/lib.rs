@@ -891,12 +891,29 @@ fn settings_open(app: AppHandle, target: String) -> Result<(), String> {
     }
 }
 
-/// Whether the updater can replace this copy: on Linux only an AppImage (the
-/// AppImage runtime sets APPIMAGE); a .deb or .rpm install is updated by
-/// downloading the new package. Windows and macOS installs can.
+/// Portable mode: a file named `portable` beside the executable (the portable
+/// zip has one). Everything the app keeps then lives in `data` beside it:
+/// `data/config` (settings, presets, queue), `data/cache` and `data/webview`
+/// (the webview's own storage: remembered options, theme, recent files).
+fn portable_dir() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    dir.join("portable").is_file().then(|| dir.join("data"))
+}
+
+/// How this copy gets updates: "self" (the updater installs them: the Windows
+/// installer, macOS, a Linux AppImage, which the AppImage runtime marks with
+/// APPIMAGE), "package" (a Linux .deb or .rpm) or "portable" (the Windows
+/// portable zip). The last two get a link to the release page instead.
 #[tauri::command]
-fn can_self_update() -> bool {
-    !cfg!(target_os = "linux") || std::env::var_os("APPIMAGE").is_some()
+fn update_mode() -> &'static str {
+    if portable_dir().is_some() {
+        "portable"
+    } else if cfg!(target_os = "linux") && std::env::var_os("APPIMAGE").is_none() {
+        "package"
+    } else {
+        "self"
+    }
 }
 
 /// Reads settings.json again after it was edited outside the app.
@@ -942,6 +959,11 @@ fn trim_cache(dir: &std::path::Path) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let portable = portable_dir();
+    if let Some(d) = &portable {
+        // read by WebView2 when it starts; overrides its default folder in %LOCALAPPDATA%
+        std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", d.join("webview"));
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -951,9 +973,17 @@ pub fn run() {
         .manage(Downloads::default())
         .manage(Samples::default())
         .manage(Strips::default())
-        .setup(|app| {
-            let config_dir = app.path().app_config_dir()?;
-            let cache_dir = app.path().app_cache_dir()?;
+        .setup(move |app| {
+            let (config_dir, cache_dir) = match &portable {
+                Some(d) => {
+                    let cache = d.join("cache");
+                    std::fs::create_dir_all(&cache)?;
+                    // the asset scope in tauri.conf.json names $APPCACHE; the portable cache is elsewhere
+                    let _ = app.asset_protocol_scope().allow_directory(&cache, true);
+                    (d.join("config"), cache)
+                }
+                None => (app.path().app_config_dir()?, app.path().app_cache_dir()?),
+            };
             if let Some(win) = app.get_webview_window("main") {
                 winstate::install(&win, config_dir.join("window.json"));
             }
@@ -1015,7 +1045,7 @@ pub fn run() {
             settings_import,
             settings_open,
             settings_reload,
-            can_self_update,
+            update_mode,
         ])
         .build(tauri::generate_context!())
         .expect("error while building comfywebm")

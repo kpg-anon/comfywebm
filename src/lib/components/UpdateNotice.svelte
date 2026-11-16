@@ -70,7 +70,7 @@ Full changelog: https://github.com/kpg-anon/comfywebm/blob/main/CHANGELOG.md`;
       {#if parsed.changelogUrl}
         <button class="link" onclick={() => open(parsed.changelogUrl)}>Full changelog ↗</button>
       {/if}
-      {#if updater.selfUpdate}
+      {#if updater.mode === "self"}
         <div class="row">
           <button class="btn primary grow" onclick={() => updater.install()}>Update now</button>
           <button class="btn" onclick={() => (updater.dismissed = true)}>Later</button>
@@ -84,7 +84,13 @@ Full changelog: https://github.com/kpg-anon/comfywebm/blob/main/CHANGELOG.md`;
           <button class="btn primary grow" onclick={() => open(RELEASES_URL)}>Open the release page</button>
           <button class="btn" onclick={() => (updater.dismissed = true)}>Later</button>
         </div>
-        <div class="hint">This copy was installed from a package (.deb or .rpm), which the app cannot replace itself. Download the new package from the release page.</div>
+        <div class="hint">
+          {#if updater.mode === "portable"}
+            This is the portable copy. Download the new portable zip from the release page and unpack it over this folder; the data folder (your settings) stays.
+          {:else}
+            This copy was installed from a package (.deb or .rpm), which the app cannot replace itself. Download the new package from the release page.
+          {/if}
+        </div>
       {/if}
     {:else if updater.phase === "downloading"}
       <div class="head"><span class="title">Downloading v{updater.version}...</span></div>

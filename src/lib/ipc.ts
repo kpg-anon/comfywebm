@@ -93,7 +93,8 @@ export const settingsExport = (look: unknown) => invoke<string | null>("settings
 export const settingsImport = () => invoke<{ path: string; settings: Settings; look: unknown } | null>("settings_import");
 export const settingsOpen = (target: "folder" | "editor") => invoke<void>("settings_open", { target });
 export const settingsReload = () => invoke<Settings>("settings_reload");
-export const canSelfUpdate = () => invoke<boolean>("can_self_update");
+export type UpdateMode = "self" | "package" | "portable";
+export const updateMode = () => invoke<UpdateMode>("update_mode");
 
 export const onJobUpdate = (cb: (job: Job) => void): Promise<UnlistenFn> =>
   listen<Job>("job-update", (e) => cb(e.payload));

@@ -418,10 +418,16 @@ The longest clip is advisory: the app warns when the output is longer.
 
 ## Privacy
 
-- The app sends nothing anywhere by itself: no account, no analytics, no
-  update check. The only network use is yt-dlp for a link you enter (and the
-  thumbnail the site gives for it in the Open URL dialog), and the links in the
-  "ffmpeg not found" screen, which open in your browser.
+- No account and no analytics. The app's own network use:
+  - **Update check**: at start (unless turned off in Settings > Look >
+    Updates) and when you press Check now, it downloads `latest.json` from
+    this repository's latest GitHub release. GitHub sees your IP address and
+    the request; nothing about you, your files or your settings is sent. When
+    you press Update now, it downloads the installer from the same release.
+  - **yt-dlp** for a link you enter, and the thumbnail the site gives for it
+    in the Open URL dialog.
+  - The links in the "ffmpeg not found" screen and "Full changelog" in the
+    update notice open in your browser.
 - "Cookies from browser" in Settings passes `--cookies-from-browser` to
   yt-dlp, which then reads that browser's cookies for the sites you download
   from. comfywebm does not read or keep them, and they are never written into

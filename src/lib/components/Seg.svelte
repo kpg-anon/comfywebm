@@ -3,6 +3,8 @@
     value: T;
     label: string;
     disabled?: boolean;
+    /** hover text for this option */
+    title?: string;
   }
 
   interface Props {
@@ -28,6 +30,7 @@
       role="radio"
       aria-checked={value === o.value}
       disabled={o.disabled}
+      title={o.title}
       onclick={() => pick(o.value)}>{o.label}</button
     >
   {/each}

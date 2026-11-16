@@ -387,9 +387,13 @@
             label="Playback direction"
             bind:value={app.playback}
             options={[
-              { value: "forward", label: "Forward" },
-              { value: "reverse", label: "Reverse" },
-              { value: "boomerang", label: "Boomerang" },
+              { value: "forward", label: "Forward", title: "Plays the clip as recorded." },
+              { value: "reverse", label: "Reverse", title: "Plays the clip backwards, last frame first. Holds every frame in memory, so keep it short." },
+              {
+                value: "boomerang",
+                label: "Boomerang",
+                title: "Plays the clip forward and then backwards, so it ends where it started and loops without a jump. The output is twice as long and has no sound. Holds every frame in memory, so keep it short.",
+              },
             ]}
           />
         </div>

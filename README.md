@@ -296,6 +296,28 @@ The longest clip is advisory: the app warns when the output is longer.
   Settings; the tokens are `{name}`, `{start}`, `{end}`, `{codec}`, `{height}`
   and `{date}`.
 
+## Privacy
+
+- The app sends nothing anywhere by itself: no account, no analytics, no
+  update check. The only network use is yt-dlp for a link you enter (and the
+  thumbnail the site gives for it in the Open URL dialog), and the links in the
+  "ffmpeg not found" screen, which open in your browser.
+- "Cookies from browser" in Settings passes `--cookies-from-browser` to
+  yt-dlp, which then reads that browser's cookies for the sites you download
+  from. comfywebm does not read or keep them, and they are never written into
+  presets, themes or the queue.
+- Error text shown in the app replaces passwords and sign-in tokens in links
+  with `***`, so it can be pasted into a bug report.
+- The webview can only read the app's cache folder and the files you open,
+  pick or drop; it can open folders and media files in their programs, nothing
+  else.
+- Settings > Files: Clear deletes preview copies, samples and timeline
+  pictures; Clear downloads also deletes the cache's download folder ("Download
+  and edit" files, unless the download folder was changed). "Download only"
+  files and your outputs are never deleted by the app.
+- A settings.json or queue.json the app cannot read is renamed to
+  `<name>.bad-<time>` and kept, and the app says so at start.
+
 ## Questions
 
 **The preview looks different from the encoded file.** The player shows the

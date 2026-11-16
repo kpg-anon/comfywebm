@@ -15,6 +15,53 @@
     void app.logoPath;
     logoTry = 0;
   });
+  // height / width of the watermark image, for placing and dragging it
+  let logoAspect = $state(1);
+
+  type Rect = { x: number; y: number; w: number; h: number };
+  /** The watermark's top-left inside `r` (the output picture on screen). */
+  function logoPos(r: Rect, lw: number, lh: number) {
+    const m = Math.min(r.w, r.h) * 0.03;
+    const c = app.logoCorner;
+    if (c === "custom") return { x: (r.w - lw) * app.logoX, y: (r.h - lh) * app.logoY };
+    return { x: c.endsWith("l") ? m : r.w - lw - m, y: c.startsWith("t") ? m : r.h - lh - m };
+  }
+
+  // Dragging the watermark places it anywhere (switches to Custom).
+  function dragLogo(e: PointerEvent, r: Rect, lw: number, lh: number) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const start = logoPos(r, lw, lh);
+    const room = { w: r.w - lw, h: r.h - lh };
+    const set = (x: number, y: number) => {
+      app.logoX = room.w > 0 ? Math.min(1, Math.max(0, x / room.w)) : 0.5;
+      app.logoY = room.h > 0 ? Math.min(1, Math.max(0, y / room.h)) : 0.5;
+    };
+    set(start.x, start.y);
+    app.logoCorner = "custom";
+    const [px, py] = [e.clientX, e.clientY];
+    const move = (ev: PointerEvent) => set(start.x + ev.clientX - px, start.y + ev.clientY - py);
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  }
+
+  /** The tile grid in output pixels, as the engine lays it out (plan.rs overlay_chain). */
+  function tileGrid(outW: number, outH: number) {
+    const w = Math.max(2, Math.round((outW * Math.min(100, Math.max(2, app.logoSize))) / 100 / 2) * 2);
+    const cell = Math.max(w, 2, Math.round(w * (1 + Math.min(3, Math.max(0, app.logoSpacing)))));
+    const cols = Math.ceil(outW / cell) + 1;
+    const rows = Math.ceil(outH / cell) + 1;
+    return { w, cell, cols, rows, x: Math.trunc((outW - cols * cell) / 2), y: Math.trunc((outH - rows * cell) / 2) };
+  }
 
   // Caption font for the preview: an installed font by its family name; a font
   // file that is not installed is loaded through the asset protocol once the
@@ -200,21 +247,44 @@
     {#if app.logoPath && app.plan && !app.cropMode && app.container !== "audio"}
       {@const c = app.crop && !turned ? app.crop : null}
       {@const r = c && app.srcW ? { x: box.x + (c.x / app.srcW) * box.w, y: box.y + (c.y / app.srcH) * box.h, w: (c.w / app.srcW) * box.w, h: (c.h / app.srcH) * box.h } : { x: box.x, y: box.y, w: box.w, h: box.h }}
-      {@const m = Math.min(r.w, r.h) * 0.03}
+      {@const src = convertFileSrc(app.logoPath)}
+      {@const retry = () => logoTry < 5 && setTimeout(() => logoTry++, 400)}
       {#key logoTry}
-      <img
-        class="logo"
-        onerror={() => logoTry < 5 && setTimeout(() => logoTry++, 400)}
-        src={convertFileSrc(app.logoPath)}
-        alt=""
-        draggable="false"
-        style:width="{(r.w * app.logoSize) / 100}px"
-        style:opacity={app.logoOpacity}
-        style:left={app.logoCorner.endsWith("l") ? `${r.x + m}px` : null}
-        style:right={app.logoCorner.endsWith("r") ? `${sw - (r.x + r.w) + m}px` : null}
-        style:top={app.logoCorner.startsWith("t") ? `${r.y + m}px` : null}
-        style:bottom={app.logoCorner.startsWith("b") ? `${sh - (r.y + r.h) + m}px` : null}
-      />
+        {#if app.logoCorner === "tile" && app.plan.outWidth > 0}
+          {@const t = tileGrid(app.plan.outWidth, app.plan.outHeight)}
+          {@const k = r.w / app.plan.outWidth}
+          <div class="tiles" style:left="{r.x}px" style:top="{r.y}px" style:width="{r.w}px" style:height="{r.h}px" style:opacity={app.logoOpacity}>
+            {#each { length: t.rows } as _, j (j)}
+              {#each { length: t.cols } as _, i (i)}
+                <span class="cell" style:left="{(t.x + i * t.cell) * k}px" style:top="{(t.y + j * t.cell) * k}px" style:width="{t.cell * k}px" style:height="{t.cell * k}px">
+                  <img {src} alt="" draggable="false" onerror={i + j === 0 ? retry : null} style:max-width="{t.w * k}px" style:max-height="{t.w * k}px" />
+                </span>
+              {/each}
+            {/each}
+          </div>
+        {:else}
+          {@const lw = (r.w * app.logoSize) / 100}
+          {@const lh = lw * logoAspect}
+          {@const p = logoPos(r, lw, lh)}
+          <img
+            class="logo"
+            class:custom={app.logoCorner === "custom"}
+            title="Drag to move the watermark"
+            onerror={retry}
+            onload={(e) => {
+              const im = e.currentTarget as HTMLImageElement;
+              if (im.naturalWidth) logoAspect = im.naturalHeight / im.naturalWidth;
+            }}
+            onpointerdown={(e) => dragLogo(e, r, lw, lh)}
+            {src}
+            alt=""
+            draggable="false"
+            style:width="{lw}px"
+            style:opacity={app.logoOpacity}
+            style:left="{r.x + p.x}px"
+            style:top="{r.y + p.y}px"
+          />
+        {/if}
       {/key}
     {/if}
     {#if app.captionText.trim() && !app.cropMode && app.container !== "audio"}
@@ -274,7 +344,23 @@
 <style>
   .logo {
     position: absolute;
+    cursor: move;
+    touch-action: none;
+  }
+  .logo.custom {
+    outline: 1px dashed rgb(255 255 255 / 0.6);
+    outline-offset: 2px;
+  }
+  .tiles {
+    position: absolute;
+    overflow: hidden;
     pointer-events: none;
+  }
+  .tiles .cell {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   .fade {
     position: absolute;

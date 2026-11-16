@@ -122,7 +122,7 @@
       app.subsKind !== "off" && "subtitles",
       app.title.trim() && "title",
       app.captionText.trim() && "caption",
-      app.logoPath && "logo",
+      app.logoPath && "watermark",
       app.extraArgs.trim() && "extra args",
       app.effort !== "balanced" && `${app.effort} effort`,
       app.rateMode === "crf" && app.maxBitrateK && "bitrate cap",
@@ -470,7 +470,7 @@
         <CaptionStyle />
       </Group>
 
-      <Group id="logo" title="Logo" note={app.logoPath ? baseName(app.logoPath) : "none"}>
+      <Group id="logo" title="Watermark" note={app.logoPath ? baseName(app.logoPath) : "none"}>
         <div class="row">
           <span class="path small" class:muted={!app.logoPath} title={app.logoPath ?? ""}>{app.logoPath ? baseName(app.logoPath) : "No image"}</span>
           <button class="btn small" onclick={async () => { const f = await pickImage(); if (f) app.logoPath = f; }}>Choose</button>
@@ -478,16 +478,44 @@
         </div>
         {#if app.logoPath}
           <div class="row">
-            <span>Corner</span>
-            <Seg label="Logo corner" value={app.logoCorner} onchange={(v) => (app.logoCorner = v)} options={[{ value: "tl", label: "↖" }, { value: "tr", label: "↗" }, { value: "bl", label: "↙" }, { value: "br", label: "↘" }]} />
+            <span title="A corner; Custom: drag the image on the player to put it anywhere (dragging it also switches to Custom); Tile: the image repeated over the whole picture.">Place</span>
+            <Seg
+              label="Watermark placement"
+              value={app.logoCorner}
+              onchange={(v) => (app.logoCorner = v)}
+              options={[
+                { value: "tl", label: "↖", title: "Top left" },
+                { value: "tr", label: "↗", title: "Top right" },
+                { value: "bl", label: "↙", title: "Bottom left" },
+                { value: "br", label: "↘", title: "Bottom right" },
+                { value: "custom", label: "Custom", title: "Where you drag it on the player" },
+                { value: "tile", label: "Tile", title: "Repeated over the whole picture" },
+              ]}
+            />
           </div>
+          {#if app.logoCorner === "custom"}<div class="muted small">Drag the image on the player to move it.</div>{/if}
           <div class="row">
             <span title="Width of the image as a share of the output picture's width.">Size</span>
-            <Select label="Logo size" bind:value={app.logoSize} options={[5, 8, 10, 15, 20, 25, 33, 50].map((v) => ({ value: v, label: `${v}%` }))} />
+            <Select label="Watermark size" bind:value={app.logoSize} options={[5, 8, 10, 15, 20, 25, 33, 50].map((v) => ({ value: v, label: `${v}%` }))} />
           </div>
+          {#if app.logoCorner === "tile"}
+            <div class="row">
+              <span title="Space between the copies, as a share of the image width.">Spacing</span>
+              <Select
+                label="Watermark tile spacing"
+                bind:value={app.logoSpacing}
+                options={[
+                  { value: 0.25, label: "Tight" },
+                  { value: 0.5, label: "Normal" },
+                  { value: 1, label: "Wide" },
+                  { value: 2, label: "Sparse" },
+                ]}
+              />
+            </div>
+          {/if}
           <div class="row">
             <span>Opacity</span>
-            <input type="range" min="0.1" max="1" step="0.05" bind:value={app.logoOpacity} aria-label="Logo opacity" />
+            <input type="range" min="0.1" max="1" step="0.05" bind:value={app.logoOpacity} aria-label="Watermark opacity" />
             <span class="mono small">{Math.round(app.logoOpacity * 100)}%</span>
           </div>
         {/if}

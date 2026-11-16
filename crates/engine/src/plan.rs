@@ -309,6 +309,46 @@ fn caption_font() -> Option<String> {
     .map(|p| escape_filter_value(p))
 }
 
+/// The filter for the watermark input and the overlay that places it, on an
+/// output `out_w` x `out_h`.
+/// - a corner ("tl", "tr", "bl", "br"): inset by 3% of the shorter side
+/// - "custom": `x`, `y` (0..1) of the room left beside and below the image
+/// - "tile": the image fitted into square cells (width x width), with `spacing`
+///   times the width between them, repeated over the whole picture and centered
+pub fn overlay_chain(o: &crate::spec::Overlay, out_w: u32, out_h: u32) -> (String, String) {
+    let w = ((out_w as f64 * o.size.clamp(2.0, 100.0) / 100.0 / 2.0).round() as u32 * 2).max(2);
+    let a = o.opacity.clamp(0.0, 1.0);
+    let fade = if a < 1.0 { format!(",colorchannelmixer=aa={}", fmt_num((a * 100.0).round() / 100.0)) } else { String::new() };
+    match o.corner.as_str() {
+        "tile" => {
+            let cell = ((w as f64 * (1.0 + o.spacing.clamp(0.0, 3.0))).round() as u32).max(w).max(2);
+            let cols = out_w.div_ceil(cell) + 1;
+            let rows = out_h.div_ceil(cell) + 1;
+            let x = (out_w as i64 - (cols * cell) as i64) / 2;
+            let y = (out_h as i64 - (rows * cell) as i64) / 2;
+            // one picture made of cols x rows copies: loop repeats the single frame, tile lays them out
+            (
+                format!(
+                    "scale={w}:{w}:force_original_aspect_ratio=decrease,format=rgba{fade},pad={cell}:{cell}:(ow-iw)/2:(oh-ih)/2:color=black@0,loop=loop={}:size=1,tile=layout={cols}x{rows},setpts=0",
+                    cols * rows - 1
+                ),
+                format!("overlay=x={x}:y={y}:format=auto"),
+            )
+        }
+        "custom" => {
+            let fx = fmt_num((o.x.clamp(0.0, 1.0) * 1000.0).round() / 1000.0);
+            let fy = fmt_num((o.y.clamp(0.0, 1.0) * 1000.0).round() / 1000.0);
+            (format!("scale={w}:-2,format=rgba{fade}"), format!("overlay=x=(W-w)*{fx}:y=(H-h)*{fy}:format=auto"))
+        }
+        c => {
+            let m = (out_w.min(out_h) as f64 * 0.03).round();
+            let x = if c.ends_with('l') { format!("{m}") } else { format!("W-w-{m}") };
+            let y = if c.starts_with('t') { format!("{m}") } else { format!("H-h-{m}") };
+            (format!("scale={w}:-2,format=rgba{fade}"), format!("overlay=x={x}:y={y}:format=auto"))
+        }
+    }
+}
+
 /// The caption's own font file when it is a font file that exists.
 fn caption_own_font(c: &Caption) -> Option<&str> {
     c.font
@@ -1040,16 +1080,11 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     let reuse_pass1 = matches!(codec, Codec::Vp9 | Codec::Vp8 | Codec::H264);
     // GIF: one palette per clip from the frames' differences, then dithered
     let palette = "split[gs0][gs1];[gs0]palettegen=stats_mode=diff[gpal];[gs1][gpal]paletteuse=dither=sierra2_4a:diff_mode=rectangle";
-    // logo: an extra input after the ranges, scaled to a share of the output
-    // width, placed in a corner; drawn after everything else (before the GIF palette)
+    // watermark: an extra input after the ranges, scaled to a share of the output
+    // width; drawn after everything else (before the GIF palette)
     let overlay = spec.overlay.as_ref().filter(|o| !o.path.trim().is_empty()).map(|o| {
-        let w = ((g.out_w as f64 * o.size.clamp(2.0, 100.0) / 100.0 / 2.0).round() as u32 * 2).max(2);
-        let m = (g.out_w.min(g.out_h) as f64 * 0.03).round();
-        let x = if o.corner.ends_with('l') { format!("{m}") } else { format!("W-w-{m}") };
-        let y = if o.corner.starts_with('t') { format!("{m}") } else { format!("H-h-{m}") };
-        let a = o.opacity.clamp(0.0, 1.0);
-        let fade = if a < 1.0 { format!(",colorchannelmixer=aa={}", fmt_num((a * 100.0).round() / 100.0)) } else { String::new() };
-        (o.path.clone(), format!("scale={w}:-2,format=rgba{fade}"), format!("overlay=x={x}:y={y}:format=auto"))
+        let (lg, place) = overlay_chain(o, g.out_w, g.out_h);
+        (o.path.clone(), lg, place)
     });
     let vpost = if gif && overlay.is_none() {
         let base = if vpost.is_empty() { String::new() } else { format!("{vpost},") };
@@ -2019,6 +2054,23 @@ mod tests {
         assert!(s.contains("-i m.mp3 -i in.mp3"), "{s}");
         assert!(s.contains("[2:1]loop="), "{s}");
         assert!(!s.contains("concat"), "music replaces the sound: {s}");
+    }
+
+    #[test]
+    fn watermark_placement() {
+        let mut o = crate::spec::Overlay { path: "w.png".into(), corner: "tl".into(), size: 10.0, opacity: 1.0, x: 0.25, y: 0.75, spacing: 0.5 };
+        let (lg, place) = overlay_chain(&o, 1000, 500);
+        assert_eq!(lg, "scale=100:-2,format=rgba");
+        assert_eq!(place, "overlay=x=15:y=15:format=auto");
+        o.corner = "custom".into();
+        assert_eq!(overlay_chain(&o, 1000, 500).1, "overlay=x=(W-w)*0.25:y=(H-h)*0.75:format=auto");
+        // tile: cells of 150 px, 8 x 5 of them (1200 x 750) centered on 1000 x 500
+        o.corner = "tile".into();
+        o.opacity = 0.5;
+        let (lg, place) = overlay_chain(&o, 1000, 500);
+        assert!(lg.contains("colorchannelmixer=aa=0.5,pad=150:150:"), "{lg}");
+        assert!(lg.contains("loop=loop=39:size=1,tile=layout=8x5,setpts=0"), "{lg}");
+        assert_eq!(place, "overlay=x=-100:y=-125:format=auto");
     }
 
     #[test]

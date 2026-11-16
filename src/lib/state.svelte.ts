@@ -26,6 +26,7 @@ import type {
   Segment,
   Settings,
   ToolsStatus,
+  WatermarkPlace,
 } from "./types";
 
 export type SubsKind = "off" | "embedded" | "file";
@@ -68,7 +69,7 @@ const REMEMBERED = [
   "maxWidth", "maxHeight", "fps", "speed", "playback", "denoise", "stabilize", "smoothSlowmo", "fadeIn", "fadeOut", "effort",
   "twoPass", "audioOn", "audioBitrateK", "volumeDb", "normalize", "separate", "aspect",
   "resMode", "resStep", "resPct", "exactEdge", "exactVal", "stepBy", "adjustPreview",
-  "logoPath", "logoCorner", "logoSize", "logoOpacity",
+  "logoPath", "logoCorner", "logoSize", "logoOpacity", "logoX", "logoY", "logoSpacing",
   "captionFont", "captionColor", "captionOutlineColor", "captionOutline",
 ] as const;
 
@@ -280,9 +281,14 @@ class AppState {
   musicVolume = $state(0);
   musicOffset = $state(0);
 
-  /** Logo or watermark image; remembered, and used for batch items too. */
+  /** Watermark image; remembered, and used for batch items too. */
   logoPath = $state<string | null>(null);
-  logoCorner = $state<"tl" | "tr" | "bl" | "br">("br");
+  logoCorner = $state<WatermarkPlace>("br");
+  /** "custom" placement: 0..1 of the room beside and below the image (dragged on the player) */
+  logoX = $state(1);
+  logoY = $state(1);
+  /** "tile": space between copies, as a multiple of the image width */
+  logoSpacing = $state(0.5);
   logoSize = $state(15);
   logoOpacity = $state(1);
   /** A sound file is encoded as a video with a still picture: this image, else
@@ -475,7 +481,15 @@ class AppState {
       subs,
       title: own ? this.title.trim() || null : null,
       music,
-      overlay: this.logoPath && this.container !== "audio" ? { path: this.logoPath, corner: this.logoCorner, size: this.logoSize, opacity: this.logoOpacity } : null,
+      overlay: this.logoPath && this.container !== "audio" ? {
+              path: this.logoPath,
+              corner: this.logoCorner,
+              size: this.logoSize,
+              opacity: this.logoOpacity,
+              x: this.logoX,
+              y: this.logoY,
+              spacing: this.logoSpacing,
+            } : null,
       subsDelay: Number(this.subsDelay) || 0,
       subsFontSize: this.subsFontSize,
       caption: own && this.captionText.trim() && this.container !== "audio" ? {

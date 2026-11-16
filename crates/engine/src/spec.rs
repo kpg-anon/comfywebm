@@ -215,12 +215,13 @@ pub struct Music {
     pub offset: f64,
 }
 
-/// An image placed in a corner of the output picture.
+/// A watermark image over the output picture.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Overlay {
     pub path: String,
-    /// "tl", "tr", "bl" or "br"
+    /// placement: a corner ("tl", "tr", "bl", "br"), "custom" (at `x`, `y`)
+    /// or "tile" (repeated over the picture)
     #[serde(default = "corner_br")]
     pub corner: String,
     /// width in percent of the output picture width
@@ -229,6 +230,18 @@ pub struct Overlay {
     /// 0..1
     #[serde(default = "one_f")]
     pub opacity: f64,
+    /// "custom": 0..1 of the room beside (x) and below (y) the image; 0,0 = top left
+    #[serde(default = "one_f")]
+    pub x: f64,
+    #[serde(default = "one_f")]
+    pub y: f64,
+    /// "tile": space between copies, as a multiple of the image width
+    #[serde(default = "half")]
+    pub spacing: f64,
+}
+
+fn half() -> f64 {
+    0.5
 }
 
 fn corner_br() -> String {

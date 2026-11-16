@@ -2,6 +2,8 @@
 // camelCase on both sides.
 
 // seconds on the source timeline; `id` is frontend-only (output order) and is not sent
+export type WatermarkPlace = "tl" | "tr" | "bl" | "br" | "custom" | "tile";
+
 export type Segment = { start: number; end: number; id?: number };
 
 export type MediaInfo = {
@@ -120,7 +122,18 @@ export type EncodeSpec = {
   /** a sound file that replaces (mix false) or is mixed under the source's sound */
   music?: { path: string; mix: boolean; volumeDb: number; offset: number } | null;
   /** an image in a corner; size = % of the output width */
-  overlay?: { path: string; corner: "tl" | "tr" | "bl" | "br"; size: number; opacity: number } | null;
+  overlay?: {
+    path: string;
+    /** a corner, "custom" (at x, y) or "tile" (repeated over the picture) */
+    corner: WatermarkPlace;
+    size: number;
+    opacity: number;
+    /** "custom": 0..1 of the room beside and below the image */
+    x: number;
+    y: number;
+    /** "tile": space between copies, as a multiple of the image width */
+    spacing: number;
+  } | null;
   /** seconds the subtitles are shown later (negative: earlier) */
   subsDelay?: number;
   /** subtitle font size (18 = SRT default); null = the file's own */

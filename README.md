@@ -91,9 +91,11 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   default is white bold sans with a black outline. The look is remembered
   between runs; the text is cleared when another file opens. Shown on the
   player while editing.
-- **Logo**: an image in a corner of the picture (a watermark), sized as a
-  share of the output width, with opacity; remembered between runs and used
-  for batch files too.
+- **Watermark**: an image over the picture, sized as a share of the output
+  width, with opacity. Placed in a corner, anywhere (Custom: drag it on the
+  player; dragging it in corner mode also switches to Custom), or tiled over
+  the whole picture with tight, normal, wide or sparse spacing. Remembered
+  between runs and used for batch files too.
 - **Adjustments**: brightness, contrast, saturation, gamma, hue, and a master
   curve with draggable points (ffmpeg `eq`, `hue` and `curves`). They show on
   the picture while editing; the preview is close to but not exactly the

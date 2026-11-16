@@ -309,7 +309,8 @@ The longest clip is advisory: the app warns when the output is longer.
 - Error text shown in the app replaces passwords and sign-in tokens in links
   with `***`, so it can be pasted into a bug report.
 - The app's web page (the webview) reads files only from the app's cache
-  folder and the media files you open, pick or drop, and it opens only folders
+  folder, files you pick in a dialog or drop, and media files the app opens
+  (for example from recent files or the queue), and it opens only folders
   and media files in other programs. It still controls settings that run
   programs: the ffmpeg and yt-dlp locations and the extra ffmpeg and yt-dlp
   arguments.

@@ -609,6 +609,35 @@ fn push(args: &mut Vec<String>, items: &[&str]) {
     args.extend(items.iter().map(|s| s.to_string()));
 }
 
+/// The picture of a video made from a sound file: an extra input, repeated
+/// for the output's length.
+struct Still {
+    /// the chosen image, or the sound file itself for its embedded cover
+    path: String,
+    /// stream of that input (0 for an image file, the attached picture's index otherwise)
+    stream: u32,
+}
+
+/// Frame rate of a still picture, as a number and as an ffmpeg rate. The
+/// picture never changes, so about 1 frame per second is enough; with a fade
+/// about 10, so the fade has steps. The rate is set so whole frames end with
+/// the sound: at exactly 1 fps a 4.5 s clip would get a 5 s picture.
+fn still_rate(duration_out: f64, fade: bool) -> (f64, String) {
+    let base = if fade { 10.0 } else { 1.0 };
+    let n = (duration_out * base - 1e-6).ceil().max(1.0);
+    if duration_out <= 0.0 || (n / duration_out - base).abs() < 1e-6 {
+        (base, fmt_num(base))
+    } else {
+        (n / duration_out, format!("{}/{}", fmt_num(n), fmt_num(duration_out)))
+    }
+}
+
+/// Seconds between keyframes of a still picture. At 1 fps the encoders' own
+/// defaults are 12 frames (libvpx) to 250 frames (x264), so a seek could
+/// start minutes back. Each keyframe repeats the whole picture, so they are
+/// not made more often.
+const STILL_GOP_SECS: f64 = 10.0;
+
 pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned, String> {
     if spec.container == Container::Audio {
         return build_audio(spec, info, opts);
@@ -617,7 +646,23 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         return build_copy(spec, info, opts);
     }
     let mut warnings = Vec::new();
-    let v = &info.video;
+    // a sound file becomes a video with a still picture: the chosen one, else the embedded cover
+    let still = if info.audio_only {
+        let chosen = spec.cover.as_deref().map(str::trim).filter(|p| !p.is_empty());
+        let (path, stream, size) = match (chosen, spec.cover_size) {
+            (Some(p), Some((w, h))) if w > 0 && h > 0 => (p.to_string(), 0, (w, h)),
+            (Some(_), _) => return Err("The picture's size is not known. Choose the picture again (Basic > Picture).".into()),
+            (None, _) if info.video.width > 0 && info.video.height > 0 => {
+                (spec.input.clone(), info.video.stream_index, (info.video.width, info.video.height))
+            }
+            (None, _) => return Err("Choose a picture for the video (Basic > Picture).".into()),
+        };
+        Some((Still { path, stream }, VideoInfo { codec: "png".into(), width: size.0, height: size.1, fps: 1.0, ..VideoInfo::default() }))
+    } else {
+        None
+    };
+    let v = still.as_ref().map_or(&info.video, |(_, cv)| cv);
+    let still = still.as_ref().map(|(s, _)| s);
     let codec = spec.codec;
 
     match (spec.container, codec) {
@@ -652,6 +697,9 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             .collect::<Result<_, String>>()?
     };
     let mixed = seg_src.iter().any(|s| s.is_some());
+    if let (None, Some(m)) = (still, seg_src.iter().flatten().find(|m| m.audio_only)) {
+        return Err(format!("{} has no video stream, so it cannot be joined to a video.", m.file_name));
+    }
     let segs = if mixed {
         let mut out = Vec::new();
         for (i, g) in spec.segments.iter().enumerate() {
@@ -664,7 +712,11 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     };
     let clip: f64 = segs.iter().map(|(s, e)| e - s).sum();
     let speed = spec.speed;
-    let boomerang = spec.playback == Playback::Boomerang;
+    // a still picture has nothing to play backwards; the sound plays forward
+    let boomerang = spec.playback == Playback::Boomerang && still.is_none();
+    if still.is_some() && spec.playback == Playback::Boomerang {
+        warnings.push("Boomerang applies to the picture only; the sound plays forward.".into());
+    }
     let duration_out = clip / speed * if boomerang { 2.0 } else { 1.0 };
     if spec.playback != Playback::Forward && duration_out > 30.0 {
         warnings.push(format!(
@@ -677,14 +729,19 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     let fps_cap = spec
         .fps
         .filter(|f| f.is_finite() && *f > 0.0)
-        .filter(|f| src_fps_out <= 0.0 || *f < src_fps_out - 0.01);
+        .filter(|f| src_fps_out <= 0.0 || *f < src_fps_out - 0.01)
+        .filter(|_| still.is_none());
     // GIF frame delays are whole centiseconds and players treat under 2 as
     // slow, so a GIF is capped at 50 fps
     let fps_cap = if codec.is_image() && fps_cap.unwrap_or(src_fps_out) > 50.0 { Some(50.0) } else { fps_cap };
     // smooth slow motion: frames are made up to the source rate (or the cap)
-    let interpolate = (spec.smooth_slowmo && speed < 1.0 - 1e-9 && v.fps > 0.0 && !codec.is_image())
+    let interpolate = (spec.smooth_slowmo && speed < 1.0 - 1e-9 && v.fps > 0.0 && !codec.is_image() && still.is_none())
         .then(|| fps_cap.map_or(v.fps, |c| c.min(v.fps)));
-    let out_fps = interpolate.unwrap_or(fps_cap.unwrap_or(if src_fps_out > 0.0 { src_fps_out } else { 30.0 }));
+    let still_rate = still.map(|_| still_rate(duration_out, spec.fade_in > 0.0 || spec.fade_out > 0.0));
+    let out_fps = match &still_rate {
+        Some((fps, _)) => *fps,
+        None => interpolate.unwrap_or(fps_cap.unwrap_or(if src_fps_out > 0.0 { src_fps_out } else { 30.0 })),
+    };
     if interpolate.is_some() && duration_out > 20.0 {
         warnings.push("Smooth slow motion computes every new frame and is slow: expect minutes per second of output.".into());
     }
@@ -743,7 +800,9 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     };
 
     // --- geometry ---
-    let mut g = geometry(v.width, v.height, spec.crop, spec.rotate, spec.max_width, spec.max_height);
+    // crop is drawn on a video frame; a still picture is used whole
+    let crop = if still.is_some() { None } else { spec.crop };
+    let mut g = geometry(v.width, v.height, crop, spec.rotate, spec.max_width, spec.max_height);
     let mut auto_scaled = false;
     if let (true, true, Some(k)) = (size_mode, spec.auto_scale, video_kbps) {
         let (ng, ok) = auto_scale(g, spec.max_width, spec.max_height, k, out_fps, codec);
@@ -797,6 +856,13 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             }
         }
         Some(SubsSel::File { path }) => Some((escape_filter_value(path), None)),
+    };
+    let subtitles = match subtitles {
+        Some(_) if still.is_some() => {
+            warnings.push("Subtitles are not burned in on a still picture.".into());
+            None
+        }
+        s => s,
     };
 
     // --- filter graph ---
@@ -858,14 +924,14 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     let vpost = video_post(&PostFilters {
         scale: ((g.out_w, g.out_h) != (g.rot_w, g.rot_h)).then_some((g.out_w, g.out_h)),
         caption: spec.caption.as_ref().and_then(|c| caption_filter(c, g.out_h)),
-        speed,
+        speed: if still.is_some() { 1.0 } else { speed },
         // After setpts the filter graph still reports the source rate, and
         // ffmpeg then writes the file at that rate: 1.5x of 30 fps kept 2 of
         // every 3 frames at 30 fps instead of all of them at 45 fps. Naming
         // the new rate keeps every frame (they already sit on its grid).
-        fps: fps_cap.or(((speed - 1.0).abs() > 1e-9 && src_fps_out > 0.0).then_some(src_fps_out)),
+        fps: fps_cap.or(((speed - 1.0).abs() > 1e-9 && src_fps_out > 0.0 && still.is_none()).then_some(src_fps_out)),
         interpolate,
-        playback: spec.playback,
+        playback: if still.is_some() { Playback::Forward } else { spec.playback },
         fade_in: spec.fade_in.max(0.0),
         fade_out: spec.fade_out.max(0.0),
         duration_out,
@@ -1015,8 +1081,33 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         warnings.push("Music needs sound in the output: turn on the audio.".into());
     }
     let music_idx = segs.len() + usize::from(overlay.is_some());
-    // a logo or music is one more input, so it needs the filter_complex form
-    let multi = segs.len() > 1 || overlay.is_some() || music.is_some();
+    let still_idx = music_idx + usize::from(music.is_some());
+    // a still picture: its one frame repeated at its own rate, cut to the
+    // output's length; then rotation, flips and color adjustments as on video
+    let still_chain = still.zip(still_rate.as_ref()).map(|(s, (_, rate))| {
+        let mut c = vec![
+            "loop=loop=-1:size=1".to_string(),
+            format!("setpts=N/({rate})/TB"),
+            format!("fps={rate}"),
+            format!("trim=duration={}", fmt_num(duration_out)),
+        ];
+        let pic = SegmentFilters {
+            deinterlace: false,
+            denoise: false,
+            stabilize: false,
+            tonemap: false,
+            anamorphic: false,
+            crop: None,
+            subtitles: None,
+            ..sf
+        };
+        c.extend(segment_chain(&pic, 0.0));
+        // the size came from probing the picture; scaling to it keeps a wrong size from failing
+        c.push(format!("scale={}:{},setsar=1", g.rot_w.max(2) / 2 * 2, g.rot_h.max(2) / 2 * 2));
+        format!("[{still_idx}:{}]{}[vj];", s.stream, c.join(","))
+    });
+    // a logo, music or picture is one more input, so it needs the filter_complex form
+    let multi = segs.len() > 1 || overlay.is_some() || music.is_some() || still.is_some();
     let track = audio.map(|a| a.track);
     let build_pass = |pass: u32| -> Vec<String> {
         let with_audio = pass != 1 && audio.is_some();
@@ -1042,6 +1133,9 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             }
             push(&mut a, &["-i", &m.path]);
         }
+        if let Some(s) = still {
+            push(&mut a, &["-i", &s.path]);
+        }
         if !multi {
             push(&mut a, &["-map", &format!("0:{}", v.stream_index)]);
             if let (true, Some(t)) = (with_audio, track) {
@@ -1063,8 +1157,10 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             let mut graph = String::new();
             for (i, chain) in seg_chains.iter().enumerate() {
                 let chain = if chain.is_empty() { "null" } else { chain.as_str() };
-                let vi = seg_src[i].map_or(v.stream_index, |m| m.video.stream_index);
-                graph.push_str(&format!("[{i}:{vi}]{chain}[v{i}];"));
+                if still.is_none() {
+                    let vi = seg_src[i].map_or(v.stream_index, |m| m.video.stream_index);
+                    graph.push_str(&format!("[{i}:{vi}]{chain}[v{i}];"));
+                }
                 if let (true, Some(t)) = (with_audio && !music_replaces, track) {
                     // joined files: one sample format and layout for concat; a
                     // file without sound gives silence of the range's length
@@ -1084,16 +1180,19 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             }
             let src_audio = with_audio && !music_replaces;
             for i in 0..segs.len() {
-                graph.push_str(&format!("[v{i}]"));
+                if still.is_none() {
+                    graph.push_str(&format!("[v{i}]"));
+                }
                 if src_audio {
                     graph.push_str(&format!("[a{i}]"));
                 }
             }
             let n = segs.len();
-            if src_audio {
-                graph.push_str(&format!("concat=n={n}:v=1:a=1[vj][aj];"));
-            } else {
-                graph.push_str(&format!("concat=n={n}:v=1:a=0[vj];"));
+            match (&still_chain, src_audio) {
+                (None, true) => graph.push_str(&format!("concat=n={n}:v=1:a=1[vj][aj];")),
+                (None, false) => graph.push_str(&format!("concat=n={n}:v=1:a=0[vj];")),
+                (Some(c), true) => graph.push_str(&format!("concat=n={n}:v=0:a=1[aj];{c}")),
+                (Some(c), false) => graph.push_str(c),
             }
             match &overlay {
                 Some((_, logo, place)) => {
@@ -1147,10 +1246,17 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             push(&mut a, &["-an", "-frames:v", "1", "-update", "1", "-c:v", "png", "-f", "image2", opts.output]);
             return a;
         }
+        if still.is_some() {
+            // the picture's last frame would otherwise run up to a second past the sound
+            push(&mut a, &["-t", &fmt_num(duration_out)]);
+        }
         if !gif {
             push(&mut a, &["-pix_fmt", "yuv420p"]);
         }
         a.extend(video_args(pass));
+        if let (Some((fps, _)), false) = (&still_rate, image) {
+            push(&mut a, &["-g", &fmt_num((fps * STILL_GOP_SECS).round().max(1.0))]);
+        }
         if !image {
             push(&mut a, &["-colorspace", &color.0, "-color_primaries", &color.1, "-color_trc", &color.2]);
         }
@@ -1222,6 +1328,9 @@ pub fn copy_container(video: &str, audio: Option<&str>) -> Option<Container> {
 /// or before the in point, so the clip can start early; every filter and
 /// the rate settings are ignored (and listed in the warnings when set).
 fn build_copy(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned, String> {
+    if info.audio_only {
+        return Err("Cut only copies a video stream. For a sound file choose the Audio format, or turn off Cut only.".into());
+    }
     let v = &info.video;
     let segs = resolve_segments(&spec.segments, info.duration)?;
     if segs.len() > 1 {
@@ -1502,7 +1611,22 @@ mod tests {
             subs_delay: 0.0,
             subs_font_size: None,
             output_dir: None,
+            cover: None,
+            cover_size: None,
         }
+    }
+
+    /// a sound file: no video stream, optionally an embedded cover (stream 1, 600x600)
+    fn sound(embedded: bool) -> MediaInfo {
+        let mut m = media();
+        m.path = "in.mp3".into();
+        m.audio_only = true;
+        m.video = if embedded {
+            VideoInfo { codec: "mjpeg".into(), width: 600, height: 600, stream_index: 1, ..Default::default() }
+        } else {
+            VideoInfo::default()
+        };
+        m
     }
 
     fn opts() -> Opts<'static> {
@@ -1777,6 +1901,73 @@ mod tests {
         assert!(s.contains("force_original_aspect_ratio=decrease,pad="), "{s}");
         assert!(s.contains("anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=3"), "{s}");
         assert!((p.duration_out - 7.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn cover_picture_from_file() {
+        let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
+        sp.input = "in.mp3".into();
+        sp.cover = Some("pic.png".into());
+        sp.cover_size = Some((641, 361));
+        sp.crop = Some(Crop { x: 10.0, y: 10.0, w: 100.0, h: 100.0 });
+        let p = build(&sp, &sound(false), &opts()).unwrap();
+        assert_eq!((p.out_width, p.out_height), (640, 360));
+        assert_eq!(p.duration_out, 4.0);
+        let s = strs(&p.passes[0]).join(" ");
+        assert!(s.contains("-ss 10 -t 4 -i in.mp3 -i pic.png"), "{s}");
+        assert!(
+            s.contains("[0:a:0]asetpts=PTS-STARTPTS[a0];[a0]concat=n=1:v=0:a=1[aj];[1:0]loop=loop=-1:size=1,setpts=N/(1)/TB,fps=1,trim=duration=4,"),
+            "{s}"
+        );
+        assert!(s.contains("scale=640:360,setsar=1[vj]"), "{s}");
+        assert!(!s.contains("crop="), "a still picture is not cropped: {s}");
+        assert!(s.contains("-map [vout] -map [aout] -t 4 -pix_fmt yuv420p"), "{s}");
+        assert!(s.contains("-g 10"), "{s}");
+        // frames end with the sound
+        assert_eq!(still_rate(4.5, false), (5.0 / 4.5, "5/4.5".to_string()));
+        assert_eq!(still_rate(4.5, true).1, "10");
+        // the embedded cover: the sound file again, its picture stream
+        sp.cover = None;
+        let s = strs(&build(&sp, &sound(true), &opts()).unwrap().passes[0]).join(" ");
+        assert!(s.contains("-i in.mp3 -i in.mp3 -filter_complex"), "{s}");
+        assert!(s.contains("[1:1]loop=loop=-1:size=1"), "{s}");
+        // with music the picture is the input after it
+        sp.music = Some(crate::spec::Music { path: "m.mp3".into(), mix: false, volume_db: 0.0, offset: 0.0 });
+        let s = strs(&build(&sp, &sound(true), &opts()).unwrap().passes[0]).join(" ");
+        assert!(s.contains("-i m.mp3 -i in.mp3"), "{s}");
+        assert!(s.contains("[2:1]loop="), "{s}");
+        assert!(!s.contains("concat"), "music replaces the sound: {s}");
+    }
+
+    #[test]
+    fn cover_picture_needed_for_video() {
+        let mut sp = spec(Rate::Size { max_bytes: 4_000_000.0 });
+        sp.input = "in.mp3".into();
+        let e = build(&sp, &sound(false), &opts()).unwrap_err();
+        assert_eq!(e, "Choose a picture for the video (Basic > Picture).");
+        sp.cover = Some("pic.png".into());
+        assert!(build(&sp, &sound(false), &opts()).unwrap_err().contains("Choose the picture again"));
+    }
+
+    #[test]
+    fn sound_file_to_audio_format() {
+        let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
+        sp.input = "in.mp3".into();
+        sp.container = Container::Audio;
+        sp.codec = Codec::Opus;
+        let p = build(&sp, &sound(false), &opts()).unwrap();
+        let s = strs(&p.passes[0]).join(" ");
+        assert!(s.contains("-ss 10 -t 4 -i in.mp3 -map 0:a:0"), "{s}");
+        assert!(s.contains("-c:a libopus -b:a 64k"), "{s}");
+        assert!(!s.contains("loop"), "{s}");
+        // a sound file cannot be joined to a video
+        let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
+        sp.segments.push(Segment { start: 0.0, end: 2.0 });
+        sp.segment_sources = vec![None, Some("in.mp3".into())];
+        let mut sources = std::collections::HashMap::new();
+        sources.insert("in.mp3".to_string(), sound(false));
+        let o = Opts { sources: Some(&sources), ..opts() };
+        assert!(build(&sp, &media(), &o).unwrap_err().contains("has no video stream"));
     }
 
     #[test]

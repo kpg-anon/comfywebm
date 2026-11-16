@@ -24,8 +24,10 @@
   const turned = $derived(!app.cropMode && (app.rotate === 90 || app.rotate === 270));
   const box = $derived.by(() => {
     const m = app.media;
-    const aw = m?.video.width || 16;
-    const ah = m?.video.height || 9;
+    // a sound file: the shape of its picture
+    const still = app.stillSize;
+    const aw = (m?.audioOnly ? still?.[0] : m?.video.width) || 16;
+    const ah = (m?.audioOnly ? still?.[1] : m?.video.height) || 9;
     if (sw <= 0 || sh <= 0) return { x: 0, y: 0, w: 0, h: 0 };
     const a = turned ? ah / aw : aw / ah; // aspect as shown on screen
     let w = sw;
@@ -141,6 +143,9 @@
         if (!app.cropMode) app.togglePlay();
       }}
       ></video>
+      {#if app.audioOnly && app.stillUrl}
+        <img class="still" src={app.stillUrl} alt="" draggable="false" style:filter={showAdj ? "url(#cwm-adjust)" : null} />
+      {/if}
       <CropOverlay rect={{ x: 0, y: 0, w: box.w, h: box.h }} />
     </div>
     {#if fadeDark > 0}
@@ -252,6 +257,15 @@
   }
   .pic {
     position: absolute;
+  }
+  /* the picture of a sound file, over the (empty) video, which still plays the sound */
+  .still {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none;
   }
   .fx {
     position: absolute;

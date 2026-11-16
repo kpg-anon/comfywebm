@@ -20,7 +20,7 @@
   const THUMBS = 60;
   const film = $derived.by(() => {
     const m = app.media;
-    if (!m || !trackW || !m.video.height) return null;
+    if (!m || m.audioOnly || !trackW || !m.video.height) return null;
     const slotW = (26 * m.video.width) / m.video.height;
     const count = Math.max(1, Math.min(400, Math.round((trackW * zoom) / Math.max(12, slotW))));
     return {
@@ -33,7 +33,7 @@
   $effect(() => {
     const path = app.media?.path;
     filmUrl = null;
-    if (!path || !app.showFilm || app.ffmpegMissing) return;
+    if (!path || app.audioOnly || !app.showFilm || app.ffmpegMissing) return;
     let live = true;
     ipc.timelineThumbs(path).then((p) => live && (filmUrl = convertFileSrc(p))).catch(() => {});
     return () => (live = false);
@@ -301,11 +301,11 @@
 
   <div class="row">
     <div class="group">
-      <button class="btn icon" disabled={!app.media} onclick={() => app.stepFrame(-1)} aria-label="Previous frame (<)"><Icon name="prevFrame" /></button>
+      <button class="btn icon" disabled={!app.media || app.audioOnly} onclick={() => app.stepFrame(-1)} aria-label="Previous frame (<)"><Icon name="prevFrame" /></button>
       <button class="btn icon" disabled={!app.media} onclick={() => app.togglePlay()} aria-label="Play or pause (Space)">
         <Icon name={app.paused ? "play" : "pause"} />
       </button>
-      <button class="btn icon" disabled={!app.media} onclick={() => app.stepFrame(1)} aria-label="Next frame (>)"><Icon name="nextFrame" /></button>
+      <button class="btn icon" disabled={!app.media || app.audioOnly} onclick={() => app.stepFrame(1)} aria-label="Next frame (>)"><Icon name="nextFrame" /></button>
     </div>
 
     <div class="times">
@@ -353,10 +353,10 @@
     </div>
     <span class="grow"></span>
     <div class="group">
-      <button class="btn" class:on={app.cropMode} disabled={!app.media} aria-pressed={app.cropMode} onclick={() => (app.cropMode = !app.cropMode)}>
+      <button class="btn" class:on={app.cropMode} disabled={!app.media || app.audioOnly} aria-pressed={app.cropMode} onclick={() => (app.cropMode = !app.cropMode)}>
         <Icon name="crop" size={14} />Crop <kbd>C</kbd>
       </button>
-      <button class="btn" disabled={!app.media || app.ffmpegMissing || app.findingCuts} title="Find where the picture cuts to a new shot. Range edges then snap to the cuts, and [ and ] jump between them. Reads the whole video once." onclick={() => app.findCuts()}><Icon name="cut" size={14} />{app.findingCuts ? "Finding..." : app.cuts ? `${app.cuts.length} cuts` : "Find cuts"}</button>
+      <button class="btn" disabled={!app.media || app.audioOnly || app.ffmpegMissing || app.findingCuts} title="Find where the picture cuts to a new shot. Range edges then snap to the cuts, and [ and ] jump between them. Reads the whole video once." onclick={() => app.findCuts()}><Icon name="cut" size={14} />{app.findingCuts ? "Finding..." : app.cuts ? `${app.cuts.length} cuts` : "Find cuts"}</button>
       <button class="btn" disabled={!app.media || app.ffmpegMissing} onclick={() => app.runSample()}><Icon name="film" size={14} />Sample <kbd>P</kbd></button>
       <button class="btn" disabled={!app.media || app.ffmpegMissing} title="Save the frame at the playhead as PNG with the crop. Shift+click (Shift+S): as the encode sees it, with filters, adjustments and the output size." onclick={(e) => app.exportFrame(e.shiftKey)}><Icon name="image" size={14} />Frame <kbd>S</kbd></button>
     </div>

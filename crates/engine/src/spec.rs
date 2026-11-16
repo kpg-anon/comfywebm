@@ -21,7 +21,12 @@ pub struct MediaInfo {
     pub created: Option<String>,
     #[serde(default)]
     pub encoder: Option<String>,
+    /// For a file with sound and no video stream (`audio_only`): the embedded
+    /// cover picture when there is one (codec, size, stream index), else all zero.
     pub video: VideoInfo,
+    /// the file has sound but no video stream; a cover picture is not video
+    #[serde(default)]
+    pub audio_only: bool,
     pub audio: Vec<AudioTrack>,
     pub subs: Vec<SubTrack>,
 }
@@ -396,6 +401,14 @@ pub struct EncodeSpec {
     /// None = the folder from Settings when the job starts
     #[serde(default)]
     pub output_dir: Option<String>,
+    /// the still picture of a video made from a sound file; None = the file's
+    /// embedded cover, if any
+    #[serde(default)]
+    pub cover: Option<String>,
+    /// the picture's display size (width, height), from probing it; plan
+    /// cannot read files, and the queue probes only the source
+    #[serde(default)]
+    pub cover_size: Option<(u32, u32)>,
 }
 
 impl EncodeSpec {

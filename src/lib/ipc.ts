@@ -50,6 +50,8 @@ export const exportFrameProcessed = (spec: EncodeSpec, time: number) => invoke<s
 export const timelineThumbs = (path: string) => invoke<string>("timeline_thumbs", { path });
 export const proxyCancel = () => invoke<void>("proxy_cancel");
 export const poster = (path: string) => invoke<string>("poster", { path });
+/** The embedded cover picture of a sound file, as a PNG in the cache dir. */
+export const coverPicture = (path: string) => invoke<string>("cover_picture", { path });
 export const sceneCuts = (path: string) => invoke<number[]>("scene_cuts", { path });
 export const timelineWave = (path: string, track: number) => invoke<string>("timeline_wave", { path, track });
 export type CacheInfo = { dir: string; bytes: number; files: number; downloadBytes: number };

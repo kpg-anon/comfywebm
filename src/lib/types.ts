@@ -13,6 +13,8 @@ export type MediaInfo = {
   bitrateK: number | null; // overall
   created: string | null;
   encoder: string | null;
+  /** sound but no video stream; `video` then holds the embedded cover picture, or zeros */
+  audioOnly?: boolean;
   // width/height are display pixels (rotation and sample aspect ratio applied)
   video: {
     codec: string;
@@ -114,6 +116,10 @@ export type EncodeSpec = {
   subsFontSize?: number | null;
   /** set by the backend when queued: the output folder ("" = beside the source) */
   outputDir?: string | null;
+  /** the still picture of a video made from a sound file; null = its embedded cover */
+  cover?: string | null;
+  /** that picture's size [width, height] */
+  coverSize?: [number, number] | null;
 };
 
 export type PlanInfo = {

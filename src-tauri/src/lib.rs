@@ -72,6 +72,18 @@ async fn poster(app: AppHandle, path: String) -> Result<String, String> {
     .await
 }
 
+/// The embedded cover picture of a sound file as a PNG in the cache folder (cached).
+#[tauri::command]
+async fn cover_picture(app: AppHandle, path: String) -> Result<String, String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let ffmpeg = state.ffmpeg()?;
+        let info = state.media(&path)?;
+        Ok(strip::cover(&ffmpeg, &info, &state.cache_dir)?.to_string_lossy().into_owned())
+    })
+    .await
+}
+
 /// Scene cut times of the video, in seconds (cached).
 #[tauri::command]
 async fn scene_cuts(app: AppHandle, path: String) -> Result<Vec<f64>, String> {
@@ -311,9 +323,10 @@ async fn plan(app: AppHandle, spec: EncodeSpec) -> Result<PlanInfo, String> {
     blocking(move || {
         let state = app.state::<AppState>();
         let info = state.media(&spec.input)?;
-        // the player shows the logo through the asset protocol; only image files are added
-        if let Some(o) = &spec.overlay {
-            let p = std::path::Path::new(&o.path);
+        // the player shows the logo and the picture of a sound file through the asset
+        // protocol; only image files are added
+        for path in spec.overlay.as_ref().map(|o| &o.path).into_iter().chain(spec.cover.as_ref()) {
+            let p = std::path::Path::new(path);
             let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
             if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp") && p.is_file() {
                 let _ = app.asset_protocol_scope().allow_file(p);
@@ -801,6 +814,7 @@ pub fn run() {
             initial_file,
             open_item,
             probe,
+            cover_picture,
             make_proxy,
             plan,
             queue_list,

@@ -72,6 +72,9 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
 - **Audio only**: Format Audio saves the sound of the ranges as Opus, MP3 or
   AAC (.m4a), with speed, reverse, fades, volume and normalization. In size
   limit mode the bitrate is worked out from the limit.
+- **Sound files**: an MP3, M4A, FLAC or other sound file opens like a video.
+  Format Audio cuts it; a video format makes a video of the sound with a still
+  picture (Basic > Picture, or the file's embedded cover).
 - **Cut only (no re-encode)**: copies one range's video and audio as they are
   into WebM or MP4, when the source's codecs fit that container. Fast and
   lossless, but the clip starts on the key frame at or before the in point, and

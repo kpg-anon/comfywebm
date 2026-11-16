@@ -37,6 +37,9 @@ pub fn proxy_path(cache_dir: &Path, path: &str) -> Result<PathBuf, String> {
 /// (Chromium: H.264 8-bit, VP9, AV1; AAC, MP3, Opus). Sources already in a
 /// container it reads failed for another reason, so they are transcoded.
 pub fn can_remux(info: &MediaInfo) -> bool {
+    if info.audio_only {
+        return false;
+    }
     let ext = std::path::Path::new(&info.path).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     if matches!(ext.as_str(), "mp4" | "m4v" | "webm") {
         return false;

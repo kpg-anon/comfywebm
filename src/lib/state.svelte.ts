@@ -262,6 +262,12 @@ class AppState {
   logoCorner = $state<"tl" | "tr" | "bl" | "br">("br");
   logoSize = $state(15);
   logoOpacity = $state(1);
+  /** A sound file is encoded as a video with a still picture: this image, else
+   *  the file's embedded cover. Cleared when another file opens. */
+  coverPath = $state<string | null>(null);
+  coverSize = $state<[number, number] | null>(null);
+  /** the embedded cover extracted to the cache (asset URL), for the player */
+  embeddedCoverUrl = $state<string | null>(null);
   extraArgs = $state("");
   outputName = $state("");
 
@@ -281,6 +287,16 @@ class AppState {
   // ---------- derived ----------
 
   duration = $derived(this.media?.duration ?? 0);
+  /** the open file has sound and no video */
+  audioOnly = $derived(!!this.media?.audioOnly);
+  /** the picture shown for a sound file, and its size */
+  stillUrl = $derived(this.coverPath ? convertFileSrc(this.coverPath) : this.embeddedCoverUrl);
+  stillSize = $derived.by((): [number, number] | null => {
+    const m = this.media;
+    if (!m?.audioOnly) return null;
+    if (this.coverPath) return this.coverSize;
+    return m.video.width > 0 ? [m.video.width, m.video.height] : null;
+  });
   fpsSrc = $derived(this.media && this.media.video.fps > 0 ? this.media.video.fps : 30);
   minLen = $derived(1 / this.fpsSrc);
   hasRange = $derived(this.segments.length > 0);
@@ -442,6 +458,8 @@ class AppState {
       caption: own && this.captionText.trim() && this.container !== "audio" ? { text: this.captionText, top: this.captionTop, size: this.captionSize } : null,
       extraArgs: splitArgs(this.extraArgs),
       outputName: own ? this.outputName.trim() || null : null,
+      cover: own && m.audioOnly && this.coverPath ? this.coverPath : null,
+      coverSize: own && m.audioOnly && this.coverPath ? this.coverSize : null,
       streamCopy: this.streamCopy,
     };
   }
@@ -525,6 +543,11 @@ class AppState {
     if (!m) return [0, 0];
     let w = m.video.width;
     let h = m.video.height;
+    // a sound file: the size of its picture, which is never cropped
+    if (m.audioOnly) {
+      const s = m === this.media ? this.stillSize : null;
+      return s ? [s[0], s[1]] : [w, h];
+    }
     if (crop) [w, h] = [crop.w, crop.h];
     return this.rotate === 90 || this.rotate === 270 ? [h, w] : [w, h];
   }
@@ -721,6 +744,14 @@ class AppState {
       this.cuts = null;
       this.findingCuts = false;
       this.captionText = "";
+      this.coverPath = null;
+      this.coverSize = null;
+      this.embeddedCoverUrl = null;
+      if (info.audioOnly && info.video.width > 0) {
+        ipc.coverPicture(path).then((p) => {
+          if (this.media?.path === path) this.embeddedCoverUrl = convertFileSrc(p);
+        }).catch(() => {});
+      }
       this.remember(path);
       const mem = load<Record<string, EditMemory>>("edits")?.[AppState.editMemoryKey(info)];
       if (restoreEdit && mem && (mem.segments.length || mem.crop)) {
@@ -728,7 +759,7 @@ class AppState {
         this.committed = this.snap();
         this.segments = mem.segments.filter((g) => g.end > g.start && g.start < info.duration + 0.5);
         this.order = mem.order && mem.order.length === this.segments.length ? mem.order : null;
-        this.crop = mem.crop;
+        this.crop = info.audioOnly ? null : mem.crop;
         this.sel = this.segments.length ? 0 : -1;
         if (this.segments.length) this.loop = true;
         const what = [this.segments.length ? `${this.segments.length} range${this.segments.length > 1 ? "s" : ""}` : "", mem.crop ? "the crop" : ""].filter(Boolean).join(" and ");
@@ -828,8 +859,28 @@ class AppState {
     } else v.pause();
   }
 
+  /** Sets the picture of a sound file (null = its embedded cover). Its size comes
+   *  from ffprobe, which also lets the player load it. */
+  async setCover(path: string | null) {
+    if (!path) {
+      this.coverPath = null;
+      this.coverSize = null;
+      return;
+    }
+    const src = this.media?.path;
+    try {
+      const info = await ipc.probe(path);
+      if (this.media?.path !== src) return;
+      if (!info.video.width || !info.video.height || info.audioOnly) throw new Error("ffprobe found no picture in it.");
+      this.coverSize = [info.video.width, info.video.height];
+      this.coverPath = path;
+    } catch (e) {
+      this.error = `Could not use ${path} as the picture: ${ipc.errText(e)}`;
+    }
+  }
+
   stepFrame(n: number) {
-    if (!this.media) return;
+    if (!this.media || this.audioOnly) return;
     this.video?.pause();
     this.seek(this.current + n / this.fpsSrc);
   }
@@ -1306,6 +1357,8 @@ class AppState {
   async exportFrame(processed = false) {
     const m = this.media;
     if (!m || this.ffmpegMissing) return;
+    // a sound file has only the picture as the encode makes it
+    if (m.audioOnly) processed = true;
     this.video?.pause();
     try {
       const s = this.spec;
@@ -1443,7 +1496,7 @@ class AppState {
   findingCuts = $state(false);
   async findCuts() {
     const m = this.media;
-    if (!m || this.findingCuts || this.ffmpegMissing) return;
+    if (!m || m.audioOnly || this.findingCuts || this.ffmpegMissing) return;
     this.findingCuts = true;
     try {
       const c = await ipc.sceneCuts(m.path);
@@ -1469,7 +1522,7 @@ class AppState {
   /** Set the crop to the source's black bars (ffmpeg cropdetect at three points). */
   async detectBars() {
     const m = this.media;
-    if (!m || this.detectingCrop || this.ffmpegMissing) return;
+    if (!m || m.audioOnly || this.detectingCrop || this.ffmpegMissing) return;
     this.detectingCrop = true;
     try {
       const c = await ipc.detectCrop(m.path);

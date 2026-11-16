@@ -185,7 +185,7 @@ export function installKeys(actions: KeyActions): () => void {
           app.setView(app.view === "batch" ? "editor" : "batch");
           break;
         case "c":
-          if (app.media) app.cropMode = !app.cropMode;
+          if (app.media && !app.audioOnly) app.cropMode = !app.cropMode;
           break;
         case "Escape":
           if (app.cropMode) app.cropMode = false;

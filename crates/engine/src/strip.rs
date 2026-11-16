@@ -32,6 +32,9 @@ fn publish(part: &Path, out: &Path, res: Result<(), RunError>) -> Result<PathBuf
 /// key frames are decoded, so a long file takes seconds, not minutes; a file
 /// with few key frames shows the nearest one.
 pub fn thumbs(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path, cancel: &Cancel) -> Result<PathBuf, RunError> {
+    if info.audio_only {
+        return Err(RunError::Failed("The file has no video stream.".into()));
+    }
     if info.duration <= 0.0 {
         return Err(RunError::Failed("The file has no duration.".into()));
     }
@@ -71,7 +74,11 @@ pub fn poster(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path) -> Result<PathB
         return Ok(out);
     }
     let part = out.with_extension(format!("{}.part.jpg", std::process::id()));
-    let at = crate::plan::fmt_num((info.duration * 0.1).max(0.0));
+    // a sound file: its embedded cover, which is one frame at the start
+    let at = if info.audio_only { "0".into() } else { crate::plan::fmt_num((info.duration * 0.1).max(0.0)) };
+    if info.audio_only && info.video.width == 0 {
+        return Err("The file has no picture.".into());
+    }
     let mut cmd = crate::tools::command(ffmpeg);
     cmd.args(["-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-ss", &at, "-i", &info.path]);
     cmd.args(["-map", &format!("0:{}", info.video.stream_index), "-frames:v", "1", "-vf", "scale=160:-2", "-q:v", "5", "-f", "image2"]);
@@ -85,10 +92,39 @@ pub fn poster(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path) -> Result<PathB
     Ok(out)
 }
 
+/// The embedded cover picture of a sound file as a PNG at full size, for the
+/// player. Cached by source path + size + mtime.
+pub fn cover(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path) -> Result<PathBuf, String> {
+    if !info.audio_only || info.video.width == 0 {
+        return Err("The file has no embedded picture.".into());
+    }
+    let dir = cache_dir.join("strips");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+    let out = dir.join(format!("cover-{}.png", source_key(&info.path)?));
+    if out.is_file() {
+        return Ok(out);
+    }
+    let part = out.with_extension(format!("{}.part.png", std::process::id()));
+    let mut cmd = crate::tools::command(ffmpeg);
+    cmd.args(["-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i", &info.path]);
+    cmd.args(["-map", &format!("0:{}", info.video.stream_index), "-frames:v", "1", "-c:v", "png", "-f", "image2"]);
+    cmd.arg(&part);
+    let res = crate::tools::output_within(cmd, std::time::Duration::from_secs(30), "ffmpeg (cover)")?;
+    if !res.status.success() || !part.is_file() {
+        let _ = std::fs::remove_file(&part);
+        return Err("ffmpeg could not read the embedded picture.".into());
+    }
+    std::fs::rename(&part, &out).map_err(|e| format!("Cannot rename {}: {e}", part.display()))?;
+    Ok(out)
+}
+
 /// Times (seconds) where the picture changes to a new shot: ffmpeg's scene
 /// score above 0.3 on a 160-pixel-wide copy. Decodes every frame, so a long
 /// file takes a while; the result is cached as text.
 pub fn scenes(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path, cancel: &Cancel) -> Result<Vec<f64>, RunError> {
+    if info.audio_only {
+        return Err(RunError::Failed("The file has no video stream.".into()));
+    }
     let dir = cache_dir.join("strips");
     std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
     let out = dir.join(format!("scenes-{}.txt", source_key(&info.path)?));

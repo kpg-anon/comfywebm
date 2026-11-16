@@ -11,6 +11,11 @@ Work on the `exp` branch.
 
 ### Added
 
+- Sound files open (MP3, M4A, Opus, FLAC and others). Format Audio cuts them
+  with no picture; a video format makes a video of the sound with a still
+  picture: Basic > Picture, or the file's embedded cover. The picture runs at
+  about 1 frame per second, with a keyframe every 10 seconds, and in size mode
+  a file under the limit is not encoded again to fill it.
 - Batch: a small picture of each file (from 10% in), made two at a time.
 - Batch: "Join into one file" makes one job from the included files in list
   order, each with its trim, at the first file's picture size and frame

@@ -74,6 +74,8 @@ pub fn parse(json: &Value) -> Result<MediaInfo, String> {
     let mut info = MediaInfo::default();
     let mut video: Option<VideoInfo> = None;
     let mut video_duration = None;
+    // the first embedded cover picture (attached_pic): (codec, width, height, stream index)
+    let mut cover: Option<(String, u32, u32, u32)> = None;
     for s in &streams {
         let kind = s.get("codec_type").and_then(Value::as_str).unwrap_or("");
         let codec = s.get("codec_name").and_then(Value::as_str).unwrap_or("unknown").to_string();
@@ -81,6 +83,11 @@ pub fn parse(json: &Value) -> Result<MediaInfo, String> {
             "video" if video.is_none() => {
                 let attached = s.pointer("/disposition/attached_pic").and_then(num).unwrap_or(0.0) > 0.0;
                 if attached {
+                    if cover.is_none() {
+                        let dim = |k: &str| s.get(k).and_then(num).unwrap_or(0.0) as u32;
+                        let index = s.get("index").and_then(num).unwrap_or(0.0) as u32;
+                        cover = Some((codec, dim("width"), dim("height"), index));
+                    }
                     continue;
                 }
                 let w = s.get("width").and_then(num).unwrap_or(0.0);
@@ -156,7 +163,17 @@ pub fn parse(json: &Value) -> Result<MediaInfo, String> {
             _ => {}
         }
     }
-    info.video = video.ok_or("The file has no video stream.")?;
+    match video {
+        Some(v) => info.video = v,
+        None if info.audio.is_empty() => return Err("The file has no video or audio stream.".into()),
+        None => {
+            // a sound file: it is made into a video with a still picture
+            info.audio_only = true;
+            if let Some((codec, width, height, stream_index)) = cover.filter(|c| c.1 > 0 && c.2 > 0) {
+                info.video = VideoInfo { codec, width, height, stream_index, ..VideoInfo::default() };
+            }
+        }
+    }
     let fmt = json.get("format");
     info.format = fmt
         .and_then(|f| f.get("format_long_name").or_else(|| f.get("format_name")))
@@ -173,4 +190,26 @@ pub fn parse(json: &Value) -> Result<MediaInfo, String> {
         .filter(|d| d.is_finite() && *d > 0.0)
         .unwrap_or(0.0);
     Ok(info)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sound_file_with_cover() {
+        let json: Value = serde_json::from_str(
+            r#"{"streams":[
+                {"index":0,"codec_type":"audio","codec_name":"mp3","channels":2},
+                {"index":1,"codec_type":"video","codec_name":"mjpeg","width":600,"height":500,"disposition":{"attached_pic":1}}
+            ],"format":{"duration":"8.0"}}"#,
+        )
+        .unwrap();
+        let info = parse(&json).unwrap();
+        assert!(info.audio_only);
+        assert_eq!((info.video.width, info.video.height, info.video.stream_index), (600, 500, 1));
+        assert_eq!(info.duration, 8.0);
+        let none: Value = serde_json::from_str(r#"{"streams":[],"format":{"duration":"8.0"}}"#).unwrap();
+        assert!(parse(&none).is_err());
+    }
 }

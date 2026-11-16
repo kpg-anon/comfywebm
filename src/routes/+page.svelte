@@ -230,7 +230,7 @@
       <span class="file">
         <span class="fname">{app.media.fileName}</span>
         <span class="mono muted">
-          {app.media.video.width}x{app.media.video.height} · {Math.round(app.media.video.fps * 100) / 100} fps · {app.media.video.codec}
+          {#if app.media.audioOnly}sound · {app.media.audio[0]?.codec ?? ""}{:else}{app.media.video.width}x{app.media.video.height} · {Math.round(app.media.video.fps * 100) / 100} fps · {app.media.video.codec}{/if}
           · {fmtBytes(app.media.sizeBytes)}{app.media.video.interlaced ? " · interlaced" : ""}
         </span>
       </span>

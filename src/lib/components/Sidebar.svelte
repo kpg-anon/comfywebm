@@ -225,7 +225,16 @@
         {#if app.container === "audio"}
           <div class="muted small">Audio only: the sound of the ranges, with speed, direction, fades and the audio level. Resolution, crop and the picture filters do nothing.</div>
         {:else}
+        {#if app.audioOnly}
+          <div class="row">
+            <span title="A sound file becomes a video with this still picture. Without one, the file's own cover picture is used, if it has one.">Picture</span>
+            <span class="path small" class:muted={!app.coverPath} title={app.coverPath ?? ""}>{app.coverPath ? baseName(app.coverPath) : app.media?.video.width ? "Embedded cover" : "None"}</span>
+            <button class="btn small" onclick={async () => { const f = await pickImage(); if (f) await app.setCover(f); }}>Choose</button>
+            {#if app.coverPath}<button class="btn small" onclick={() => app.setCover(null)}>Remove</button>{/if}
+          </div>
+        {/if}
         <ResolutionPicker />
+        {#if !app.audioOnly}
         <div class="row">
           <span title="Cut away the edges of the picture. Draw the rectangle on the video (C).">Crop</span>
           {#if app.crop}
@@ -237,6 +246,7 @@
             <button class="btn small" disabled={!app.media} onclick={() => (app.cropMode = true)}>Draw <kbd>C</kbd></button>
           {/if}
         </div>
+        {/if}
         {/if}
       </Group>
 

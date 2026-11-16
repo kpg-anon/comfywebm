@@ -113,6 +113,15 @@ fn real_main() -> Result<(), String> {
         segment_sources.push(Some(j.clone()));
         sources.insert(j.clone(), ji);
     }
+    // CWM_COVER=<image>: the picture for a sound file (its size from probing it, as the app does)
+    let cover = std::env::var("CWM_COVER").ok();
+    let cover_size = match &cover {
+        Some(c) => {
+            let ci = probe::probe(&ffprobe, c)?;
+            Some((ci.video.width, ci.video.height))
+        }
+        None => None,
+    };
     let spec = EncodeSpec {
         input,
         segments,
@@ -152,6 +161,8 @@ fn real_main() -> Result<(), String> {
         stabilize: std::env::var("CWM_STAB").is_ok(),
         smooth_slowmo: std::env::var("CWM_SMOOTH").is_ok(),
         output_dir: None,
+        cover,
+        cover_size,
     };
     let zscale = st.filters.zscale;
     let shown = plan::build(&spec, &info, &plan::Opts { display: true, zscale, sources: Some(&sources), ..plan::Opts::new(&output, "passlog") })?.info();

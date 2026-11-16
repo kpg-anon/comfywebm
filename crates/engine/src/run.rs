@@ -303,6 +303,11 @@ pub fn run_job(
         if spec.codec.is_image() && !spec.auto_scale {
             break;
         }
+        // a still picture (video from a sound file) cannot use a larger bitrate, so a
+        // file under the limit is kept instead of encoded again to fill it
+        if info.audio_only && !spec.codec.is_audio() && size as f64 <= max {
+            break;
+        }
         if attempt >= MAX_ATTEMPTS {
             break;
         }
@@ -424,6 +429,9 @@ pub fn export_frame_processed(ffmpeg: &Path, spec: &EncodeSpec, info: &MediaInfo
 /// of the file, combined to the box that keeps every non-black pixel seen.
 /// Returns the crop in display pixels, or None when there are no bars.
 pub fn detect_crop(ffmpeg: &Path, info: &MediaInfo) -> Result<Option<Crop>, String> {
+    if info.audio_only {
+        return Err("The file has no video stream.".into());
+    }
     let v = &info.video;
     if v.width == 0 || v.height == 0 {
         return Err("The file has no picture size.".into());
@@ -487,6 +495,9 @@ pub fn detect_crop(ffmpeg: &Path, info: &MediaInfo) -> Result<Option<Crop>, Stri
 /// crop applied (and tone mapping for HDR sources when zscale exists).
 /// Returns the path written: `out`, or `out (n)` when that name was taken meanwhile.
 pub fn export_frame(ffmpeg: &Path, info: &MediaInfo, time: f64, crop: Option<Crop>, out: &Path, zscale: bool) -> Result<PathBuf, String> {
+    if info.audio_only {
+        return Err("The file has no video stream.".into());
+    }
     let v = &info.video;
     let g = plan::geometry(v.width, v.height, crop, 0, None, None);
     let chain = plan::segment_chain(

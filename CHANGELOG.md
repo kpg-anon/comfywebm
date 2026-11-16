@@ -103,6 +103,12 @@ Work on the `exp` branch.
 
 ### Fixed
 
+- The webview could read any file on disk through the asset protocol
+  (scope `**`). The scope now holds only the app's cache folder; a file is
+  added when ffprobe reads it as media, when it is picked in a dialog or
+  dropped, and a logo image when a plan uses it. The release build's
+  content security policy no longer allows the dev server's localhost
+  addresses.
 - Closing the app left ffmpeg running when a job, sample or download was
   active; all child processes are now stopped on exit.
 - A finished output or saved frame could replace a file that appeared at

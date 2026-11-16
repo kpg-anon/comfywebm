@@ -229,7 +229,14 @@ fn initial_file() -> Option<String> {
 
 #[tauri::command]
 async fn probe(app: AppHandle, path: String) -> Result<MediaInfo, String> {
-    blocking(move || app.state::<AppState>().probe(&path)).await
+    blocking(move || {
+        let info = app.state::<AppState>().probe(&path)?;
+        // the player reads the file through the asset protocol, whose static scope holds only the
+        // app's cache; a file ffprobe reads as media is added here (dialogs and drops add their own)
+        let _ = app.asset_protocol_scope().allow_file(&path);
+        Ok(info)
+    })
+    .await
 }
 
 #[derive(Clone, Serialize)]
@@ -285,6 +292,14 @@ async fn plan(app: AppHandle, spec: EncodeSpec) -> Result<PlanInfo, String> {
     blocking(move || {
         let state = app.state::<AppState>();
         let info = state.media(&spec.input)?;
+        // the player shows the logo through the asset protocol; only image files are added
+        if let Some(o) = &spec.overlay {
+            let p = std::path::Path::new(&o.path);
+            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+            if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp") && p.is_file() {
+                let _ = app.asset_protocol_scope().allow_file(p);
+            }
+        }
         let settings = state.settings();
         let (_, st) = state.tools();
         let zscale = st.filters.zscale;

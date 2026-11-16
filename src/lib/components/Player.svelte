@@ -146,7 +146,8 @@
     {#if fadeDark > 0}
       <div class="fade" style:left="{box.x}px" style:top="{box.y}px" style:width="{box.w}px" style:height="{box.h}px" style:opacity={fadeDark}></div>
     {/if}
-    {#if app.logoPath && !app.cropMode && app.container !== "audio"}
+    <!-- after a plan: the plan command adds the logo file to the asset scope -->
+    {#if app.logoPath && app.plan && !app.cropMode && app.container !== "audio"}
       {@const c = app.crop && !turned ? app.crop : null}
       {@const r = c && app.srcW ? { x: box.x + (c.x / app.srcW) * box.w, y: box.y + (c.y / app.srcH) * box.h, w: (c.w / app.srcW) * box.w, h: (c.h / app.srcH) * box.h } : { x: box.x, y: box.y, w: box.w, h: box.h }}
       {@const m = Math.min(r.w, r.h) * 0.03}

@@ -891,6 +891,14 @@ fn settings_open(app: AppHandle, target: String) -> Result<(), String> {
     }
 }
 
+/// Whether the updater can replace this copy: on Linux only an AppImage (the
+/// AppImage runtime sets APPIMAGE); a .deb or .rpm install is updated by
+/// downloading the new package. Windows and macOS installs can.
+#[tauri::command]
+fn can_self_update() -> bool {
+    !cfg!(target_os = "linux") || std::env::var_os("APPIMAGE").is_some()
+}
+
 /// Reads settings.json again after it was edited outside the app.
 #[tauri::command]
 fn settings_reload(state: State<AppState>) -> Result<Settings, String> {
@@ -1007,6 +1015,7 @@ pub fn run() {
             settings_import,
             settings_open,
             settings_reload,
+            can_self_update,
         ])
         .build(tauri::generate_context!())
         .expect("error while building comfywebm")

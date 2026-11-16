@@ -4,6 +4,9 @@
 import { check as checkUpdate, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { load, save } from "./persist";
+import { canSelfUpdate } from "./ipc";
+
+export const RELEASES_URL = "https://github.com/kpg-anon/comfywebm/releases/latest";
 
 export type UpdatePhase = "idle" | "checking" | "none" | "available" | "downloading" | "restarting" | "error";
 
@@ -19,6 +22,8 @@ class Updater {
   error = $state("");
   /** the notice was closed with Later; Settings still shows the update */
   dismissed = $state(false);
+  /** false for a Linux .deb/.rpm install: the notice links the release page instead */
+  selfUpdate = $state(true);
   /** Settings > Look > Updates: check when the app starts (per machine) */
   auto = $state(load<boolean>("updateCheck") ?? true);
   private update: Update | null = null;
@@ -40,6 +45,7 @@ class Updater {
     try {
       const u = await checkUpdate();
       if (u) {
+        this.selfUpdate = await canSelfUpdate().catch(() => true);
         this.update = u;
         this.version = u.version;
         this.notes = (u.body ?? "").trim();

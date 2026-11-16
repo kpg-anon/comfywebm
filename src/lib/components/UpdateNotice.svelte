@@ -3,7 +3,7 @@
   // from the changelog, Update now / Later, then download progress.
   import { onMount } from "svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
-  import { updater, parseNotes, type Seg } from "$lib/updater.svelte";
+  import { updater, parseNotes, RELEASES_URL, type Seg } from "$lib/updater.svelte";
   import { app } from "$lib/state.svelte";
 
   // notes in the same shape release.ps1 publishes, for the dev preview
@@ -70,14 +70,22 @@ Full changelog: https://github.com/kpg-anon/comfywebm/blob/main/CHANGELOG.md`;
       {#if parsed.changelogUrl}
         <button class="link" onclick={() => open(parsed.changelogUrl)}>Full changelog ↗</button>
       {/if}
-      <div class="row">
-        <button class="btn primary grow" onclick={() => updater.install()}>Update now</button>
-        <button class="btn" onclick={() => (updater.dismissed = true)}>Later</button>
-      </div>
-      <div class="hint">
-        The app closes, installs the update and starts again.
-        {#if app.runningJob}<span class="warn">An encode is running: it stops and is listed as interrupted.</span>{/if}
-      </div>
+      {#if updater.selfUpdate}
+        <div class="row">
+          <button class="btn primary grow" onclick={() => updater.install()}>Update now</button>
+          <button class="btn" onclick={() => (updater.dismissed = true)}>Later</button>
+        </div>
+        <div class="hint">
+          The app closes, installs the update and starts again.
+          {#if app.runningJob}<span class="warn">An encode is running: it stops and is listed as interrupted.</span>{/if}
+        </div>
+      {:else}
+        <div class="row">
+          <button class="btn primary grow" onclick={() => open(RELEASES_URL)}>Open the release page</button>
+          <button class="btn" onclick={() => (updater.dismissed = true)}>Later</button>
+        </div>
+        <div class="hint">This copy was installed from a package (.deb or .rpm), which the app cannot replace itself. Download the new package from the release page.</div>
+      {/if}
     {:else if updater.phase === "downloading"}
       <div class="head"><span class="title">Downloading v{updater.version}...</span></div>
       <div class="bar"><div class="fill" style:width="{updater.progress}%"></div></div>

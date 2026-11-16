@@ -6,6 +6,7 @@
   import { installTooltips } from "$lib/tooltip";
   import KeysDialog from "$lib/components/KeysDialog.svelte";
   import Toasts from "$lib/components/Toasts.svelte";
+  import UpdateNotice from "$lib/components/UpdateNotice.svelte";
   import BatchView from "$lib/components/BatchView.svelte";
   import { batch } from "$lib/batch.svelte";
   import Logo from "$lib/components/Logo.svelte";
@@ -329,6 +330,7 @@
     <KeysDialog />
   {/if}
   <Toasts />
+  <UpdateNotice />
 </div>
 
 <style>

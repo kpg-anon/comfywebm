@@ -17,6 +17,11 @@
   } from "$lib/themes";
   import Select from "./Select.svelte";
   import type { Settings } from "$lib/types";
+  import { updater } from "$lib/updater.svelte";
+  import { getVersion } from "@tauri-apps/api/app";
+
+  let appVersion = $state("");
+  getVersion().then((v) => (appVersion = v)).catch(() => {});
 
   // appearance applies at once and is kept per machine (not part of Save)
   let theme = $state(storedTheme());
@@ -77,6 +82,7 @@
     timelineWave: app.showWave,
     showRecent: app.showRecent,
     sideResize: app.sideResize,
+    updateCheck: updater.auto,
   });
 
   function applyLook(v: unknown) {
@@ -90,6 +96,7 @@
     if (typeof o.timelineFilm === "boolean" && typeof o.timelineWave === "boolean") app.setTimelinePics(o.timelineFilm, o.timelineWave);
     if (typeof o.showRecent === "boolean") app.setShowRecent(o.showRecent);
     if (typeof o.sideResize === "boolean") app.setSideResize(o.sideResize);
+    if (typeof o.updateCheck === "boolean") updater.setAuto(o.updateCheck);
   }
 
   /** Puts saved settings into the app and into this dialog's fields. */
@@ -345,6 +352,26 @@
         />
       </div>
       <span class="hint">The speed and frame rate controls check that the output plays evenly at this rate. Most screens are 60 Hz.</span>
+    </div>
+
+    <div class="col">
+      <span>Updates</span>
+      <div class="line cacheline">
+        <label><input type="checkbox" checked={updater.auto} onchange={(e) => updater.setAuto((e.currentTarget as HTMLInputElement).checked)} /> Check when the app starts</label>
+        <button class="btn small" disabled={updater.phase === "checking" || updater.phase === "downloading"} onclick={() => updater.check(true)}>Check now</button>
+        {#if updater.phase === "available" && updater.dismissed}
+          <button class="btn small primary" onclick={() => (updater.dismissed = false)}>Show v{updater.version}</button>
+        {/if}
+      </div>
+      <span class="hint">
+        This is version {appVersion || "..."}.
+        {#if updater.phase === "checking"}Checking...
+        {:else if updater.phase === "none"}It is the newest version.
+        {:else if updater.phase === "available"}Version {updater.version} is available.
+        {:else if updater.phase === "error"}The check failed: {updater.error}
+        {/if}
+        Updates come from the GitHub releases and are checked against the release's signature before they are installed.
+      </span>
     </div>
 
     <div class="col">

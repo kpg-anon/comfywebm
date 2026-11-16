@@ -13,6 +13,13 @@ below under those numbers.
 
 ### Added
 
+- In-app updates: at start (Settings > Look > Updates, on by default) and
+  with Check now, the app reads latest.json from the latest GitHub release.
+  A newer version shows a notice with its changelog; Update now downloads
+  the installer, checks its signature, installs it and restarts the app.
+- `scripts/release.ps1` and `scripts/bump-version.ps1`: one command builds the
+  signed installer, writes latest.json from the CHANGELOG section, tags and
+  publishes the GitHub release. See scripts/README.md.
 - Caption position Custom: drag the caption on the player, or type the
   position across and down in percent.
 - Watermark rotation, -90 to 90 degrees. With Tile the whole grid turns, so

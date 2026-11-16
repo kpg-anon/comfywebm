@@ -2,9 +2,9 @@
   // Notifications in the top right, newest on top. Each fades out 6 s after it
   // appears (failures after 12 s); the pointer over a toast holds it. The x
   // dismisses one at once.
-  import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
+  import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { app, type Toast } from "$lib/state.svelte";
-  import { errText } from "$lib/ipc";
+  import { errText, openItem } from "$lib/ipc";
   import Icon from "./Icon.svelte";
 
   const LIFE = { done: 6000, info: 6000, over: 10000, failed: 12000 };
@@ -76,7 +76,7 @@
           {@const path = t.path}
           <div class="acts">
             {#if !path.toLowerCase().endsWith(".png")}
-              <button class="btn small" onclick={() => run(() => openPath(path))}><Icon name="play" size={10} />Play</button>
+              <button class="btn small" onclick={() => run(() => openItem(path))}><Icon name="play" size={10} />Play</button>
             {/if}
             <button class="btn small" onclick={() => run(() => revealItemInDir(path))}><Icon name="reveal" size={10} />Reveal</button>
           </div>

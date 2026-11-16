@@ -109,6 +109,10 @@ Work on the `exp` branch.
   dropped, and a logo image when a plan uses it. The release build's
   content security policy no longer allows the dev server's localhost
   addresses.
+- The webview could open any path in its default program (permission
+  `open-path` with scope `**`; opening an executable runs it). The
+  permission is removed; Play, Output folder and Open folder go through a
+  new `open_item` command that opens only folders and media files.
 - Closing the app left ffmpeg running when a job, sample or download was
   active; all child processes are now stopped on exit.
 - A finished output or saved frame could replace a file that appeared at

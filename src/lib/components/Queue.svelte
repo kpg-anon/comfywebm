@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
+  import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { app } from "$lib/state.svelte";
   import * as ipc from "$lib/ipc";
   import { convertFileSrc } from "@tauri-apps/api/core";
@@ -111,7 +111,7 @@
     </span>
     <span class="grow"></span>
     {#if app.outputPath}
-      <button class="btn small" title={app.outputPath} onclick={() => run(() => openPath(app.outputPath!))}><Icon name="open" size={11} />Output folder</button>
+      <button class="btn small" title={app.outputPath} onclick={() => run(() => ipc.openItem(app.outputPath!))}><Icon name="open" size={11} />Output folder</button>
     {/if}
     {#if pending > 1}
       <button class="btn small" title="Remove every job that has not started" onclick={async () => { try { app.jobs = await ipc.queueRemoveWaiting(); } catch (e) { app.error = errText(e); } }}><Icon name="x" size={11} />Remove waiting</button>
@@ -168,7 +168,7 @@
               {/if}
               <span class="grow"></span>
               {#if j.status === "done" && j.output}
-                <button class="btn small" onclick={() => run(() => openPath(j.output!))}><Icon name="play" size={11} />Play</button>
+                <button class="btn small" onclick={() => run(() => ipc.openItem(j.output!))}><Icon name="play" size={11} />Play</button>
                 <button class="btn small" onclick={() => run(() => revealItemInDir(j.output!))}><Icon name="reveal" size={11} />Reveal</button>
                 <button class="btn small" onclick={() => copyPath(j)}><Icon name={copiedId === j.id ? "check" : "copy"} size={11} />{copiedId === j.id ? "Copied" : "Copy path"}</button>
               {/if}

@@ -3,9 +3,8 @@
   // folder (presets/platform, presets/saved): save as new, overwrite, rename,
   // delete, import and export (JSON), open the folder, reload after editing
   // the files by hand, restore the platform presets.
-  import { openPath } from "@tauri-apps/plugin-opener";
   import { app } from "$lib/state.svelte";
-  import { errText } from "$lib/ipc";
+  import { errText, openItem } from "$lib/ipc";
   import { pickPresetsFile, savePresetsFile } from "$lib/dialogs";
   import Icon from "./Icon.svelte";
   import Select from "./Select.svelte";
@@ -26,7 +25,7 @@
   async function openFolder() {
     if (!app.config) return;
     try {
-      await openPath(app.config.dir);
+      await openItem(app.config.dir);
     } catch (e) {
       msg = { text: errText(e), bad: true };
     }

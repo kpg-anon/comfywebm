@@ -227,6 +227,21 @@ fn initial_file() -> Option<String> {
     Some(abs.to_string_lossy().into_owned())
 }
 
+/// Opens a folder, or a media file in its default program. The webview has no `open-path`
+/// permission (opening an executable runs it), so the only way it opens a path is this command.
+#[tauri::command]
+fn open_item(app: AppHandle, path: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    const MEDIA: [&str; 14] =
+        ["webm", "mp4", "mkv", "mov", "gif", "webp", "opus", "mp3", "m4a", "ogg", "png", "jpg", "jpeg", "avi"];
+    let p = std::path::Path::new(&path);
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if !(p.is_dir() || p.is_file() && MEDIA.contains(&ext.as_str())) {
+        return Err(format!("Not opened: {path} is not a folder or a media file"));
+    }
+    app.opener().open_path(&path, None::<&str>).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn probe(app: AppHandle, path: String) -> Result<MediaInfo, String> {
     blocking(move || {
@@ -777,6 +792,7 @@ pub fn run() {
             tools_status,
             tools_rescan,
             initial_file,
+            open_item,
             probe,
             make_proxy,
             plan,

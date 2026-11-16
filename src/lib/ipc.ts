@@ -22,6 +22,7 @@ export const toolsStatus = () => invoke<ToolsStatus>("tools_status");
 /** Searches for the tools again and returns the new status. */
 export const toolsRescan = () => invoke<ToolsStatus>("tools_rescan");
 export const initialFile = () => invoke<string | null>("initial_file");
+export const openItem = (path: string) => invoke<void>("open_item", { path });
 export const probe = (path: string) => invoke<MediaInfo>("probe", { path });
 /** `remux` false: skip the stream copy (it was tried and did not play). */
 export const makeProxy = (path: string, remux = true) => invoke<{ path: string; remuxed: boolean }>("make_proxy", { path, remux });

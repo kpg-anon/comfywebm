@@ -454,15 +454,37 @@
         {/if}
       </Group>
 
-      <Group id="caption" title="Caption" note={app.captionText.trim() ? (app.captionTop ? "top" : "bottom") : "none"}>
+      <Group id="caption" title="Caption" note={app.captionText.trim() ? (app.captionCustom ? "custom" : app.captionTop ? "top" : "bottom") : "none"}>
         <label class="col">
           <span title="Text drawn on the picture, centered. Several lines are allowed. The player shows where it goes; Sample shows the real result.">Text</span>
           <textarea class="field" rows="2" spellcheck="true" placeholder="none" bind:value={app.captionText}></textarea>
         </label>
         <div class="row">
-          <span>Position</span>
-          <Seg label="Caption position" value={app.captionTop ? "top" : "bottom"} onchange={(v) => (app.captionTop = v === "top")} options={[{ value: "top", label: "Top" }, { value: "bottom", label: "Bottom" }]} />
+          <span title="Top or bottom edge, centered; Custom: drag the caption on the player (dragging it also switches to Custom) or type the position.">Position</span>
+          <Seg
+            label="Caption position"
+            value={app.captionCustom ? "custom" : app.captionTop ? "top" : "bottom"}
+            onchange={(v) => {
+              app.captionCustom = v === "custom";
+              if (v !== "custom") app.captionTop = v === "top";
+            }}
+            options={[
+              { value: "top", label: "Top" },
+              { value: "bottom", label: "Bottom" },
+              { value: "custom", label: "Custom", title: "Where you drag it on the player" },
+            ]}
+          />
         </div>
+        {#if app.captionCustom}
+          <div class="row">
+            <span title="0% = left or top edge, 100% = right or bottom edge, 50% = centered. Drag the caption on the player to set both.">Across, down</span>
+            <span class="unit">
+              <input class="field mono s" type="number" min="0" max="100" step="1" aria-label="Caption position across (percent)" value={Math.round(app.captionX * 100)} onchange={(e) => (app.captionX = Math.min(100, Math.max(0, Number((e.currentTarget as HTMLInputElement).value) || 0)) / 100)} />
+              <input class="field mono s" type="number" min="0" max="100" step="1" aria-label="Caption position down (percent)" value={Math.round(app.captionY * 100)} onchange={(e) => (app.captionY = Math.min(100, Math.max(0, Number((e.currentTarget as HTMLInputElement).value) || 0)) / 100)} />
+              <span class="muted">%</span>
+            </span>
+          </div>
+        {/if}
         <div class="row">
           <span title="Text height as a share of the output picture's height.">Size</span>
           <Select label="Caption size" bind:value={app.captionSize} options={[4, 5, 7, 9, 12, 15].map((v) => ({ value: v, label: `${v}%` }))} />
@@ -517,6 +539,11 @@
             <span>Opacity</span>
             <input type="range" min="0.1" max="1" step="0.05" bind:value={app.logoOpacity} aria-label="Watermark opacity" />
             <span class="mono small">{Math.round(app.logoOpacity * 100)}%</span>
+          </div>
+          <div class="row">
+            <span title="Turns the image clockwise (negative: counterclockwise). With Tile the whole grid turns, so the rows run diagonally. Double-click to reset.">Rotation</span>
+            <input type="range" min="-90" max="90" step="5" bind:value={app.logoAngle} aria-label="Watermark rotation" ondblclick={() => (app.logoAngle = 0)} />
+            <span class="mono small">{app.logoAngle}°</span>
           </div>
         {/if}
       </Group>

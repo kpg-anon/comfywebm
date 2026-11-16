@@ -27,21 +27,19 @@
     return { x: c.endsWith("l") ? m : r.w - lw - m, y: c.startsWith("t") ? m : r.h - lh - m };
   }
 
-  // Dragging the watermark places it anywhere (switches to Custom).
-  function dragLogo(e: PointerEvent, r: Rect, lw: number, lh: number) {
+  /**
+   * Drags a box inside an area: `start` is its top-left in the area, `room` the
+   * space left beside and below it; `apply` gets the position as 0..1 of that room.
+   */
+  function dragIn(e: PointerEvent, start: { x: number; y: number }, room: { w: number; h: number }, apply: (fx: number, fy: number) => void) {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
-    const start = logoPos(r, lw, lh);
-    const room = { w: r.w - lw, h: r.h - lh };
-    const set = (x: number, y: number) => {
-      app.logoX = room.w > 0 ? Math.min(1, Math.max(0, x / room.w)) : 0.5;
-      app.logoY = room.h > 0 ? Math.min(1, Math.max(0, y / room.h)) : 0.5;
-    };
+    const frac = (v: number, r: number) => (r > 0 ? Math.min(1, Math.max(0, v / r)) : 0.5);
+    const set = (x: number, y: number) => apply(frac(x, room.w), frac(y, room.h));
     set(start.x, start.y);
-    app.logoCorner = "custom";
     const [px, py] = [e.clientX, e.clientY];
     const move = (ev: PointerEvent) => set(start.x + ev.clientX - px, start.y + ev.clientY - py);
     const up = () => {
@@ -54,12 +52,45 @@
     el.addEventListener("pointercancel", up);
   }
 
+  // Dragging the watermark places it anywhere (switches to Custom). bw, bh: its
+  // bounding box on screen (larger than the image when it is turned).
+  function dragLogo(e: PointerEvent, r: Rect, bw: number, bh: number) {
+    dragIn(e, logoPos(r, bw, bh), { w: r.w - bw, h: r.h - bh }, (fx, fy) => {
+      app.logoX = fx;
+      app.logoY = fy;
+    });
+    app.logoCorner = "custom";
+  }
+
+  // Dragging the caption places it anywhere (switches to Custom).
+  function dragCaption(e: PointerEvent) {
+    const s = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const d = (e.currentTarget as HTMLElement).parentElement!.getBoundingClientRect();
+    dragIn(e, { x: s.left - d.left, y: s.top - d.top }, { w: d.width - s.width, h: d.height - s.height }, (fx, fy) => {
+      app.captionX = fx;
+      app.captionY = fy;
+    });
+    app.captionCustom = true;
+  }
+  let capW = $state(0);
+  let capH = $state(0);
+
+  /** Bounding box of a w x h box turned by `deg`. */
+  function turnedBox(w: number, h: number, deg: number) {
+    const a = (deg * Math.PI) / 180;
+    const [c, s] = [Math.abs(Math.cos(a)), Math.abs(Math.sin(a))];
+    return { w: w * c + h * s, h: w * s + h * c };
+  }
+
   /** The tile grid in output pixels, as the engine lays it out (plan.rs overlay_chain). */
   function tileGrid(outW: number, outH: number) {
     const w = Math.max(2, Math.round((outW * Math.min(100, Math.max(2, app.logoSize))) / 100 / 2) * 2);
     const cell = Math.max(w, 2, Math.round(w * (1 + Math.min(3, Math.max(0, app.logoSpacing)))));
-    const cols = Math.ceil(outW / cell) + 1;
-    const rows = Math.ceil(outH / cell) + 1;
+    // a turned grid covers the picture's diagonal
+    const d = Math.ceil(Math.hypot(outW, outH));
+    const [cw, ch] = app.logoAngle ? [d, d] : [outW, outH];
+    const cols = Math.ceil(cw / cell) + 1;
+    const rows = Math.ceil(ch / cell) + 1;
     return { w, cell, cols, rows, x: Math.trunc((outW - cols * cell) / 2), y: Math.trunc((outH - rows * cell) / 2) };
   }
 
@@ -254,36 +285,56 @@
           {@const t = tileGrid(app.plan.outWidth, app.plan.outHeight)}
           {@const k = r.w / app.plan.outWidth}
           <div class="tiles" style:left="{r.x}px" style:top="{r.y}px" style:width="{r.w}px" style:height="{r.h}px" style:opacity={app.logoOpacity}>
-            {#each { length: t.rows } as _, j (j)}
-              {#each { length: t.cols } as _, i (i)}
-                <span class="cell" style:left="{(t.x + i * t.cell) * k}px" style:top="{(t.y + j * t.cell) * k}px" style:width="{t.cell * k}px" style:height="{t.cell * k}px">
-                  <img {src} alt="" draggable="false" onerror={i + j === 0 ? retry : null} style:max-width="{t.w * k}px" style:max-height="{t.w * k}px" />
-                </span>
+            <div
+              class="grid"
+              style:left="{t.x * k}px"
+              style:top="{t.y * k}px"
+              style:width="{t.cols * t.cell * k}px"
+              style:height="{t.rows * t.cell * k}px"
+              style:transform={app.logoAngle ? `rotate(${app.logoAngle}deg)` : null}
+            >
+              {#each { length: t.rows } as _, j (j)}
+                {#each { length: t.cols } as _, i (i)}
+                  <span class="cell" style:left="{i * t.cell * k}px" style:top="{j * t.cell * k}px" style:width="{t.cell * k}px" style:height="{t.cell * k}px">
+                    <img {src} alt="" draggable="false" onerror={i + j === 0 ? retry : null} style:max-width="{t.w * k}px" style:max-height="{t.w * k}px" />
+                  </span>
+                {/each}
               {/each}
-            {/each}
+            </div>
           </div>
         {:else}
           {@const lw = (r.w * app.logoSize) / 100}
           {@const lh = lw * logoAspect}
-          {@const p = logoPos(r, lw, lh)}
-          <img
+          {@const b = turnedBox(lw, lh, app.logoAngle)}
+          {@const p = logoPos(r, b.w, b.h)}
+          <!-- the bounding box of the (turned) image is what gets placed, as in the engine -->
+          <div
             class="logo"
             class:custom={app.logoCorner === "custom"}
             title="Drag to move the watermark"
-            onerror={retry}
-            onload={(e) => {
-              const im = e.currentTarget as HTMLImageElement;
-              if (im.naturalWidth) logoAspect = im.naturalHeight / im.naturalWidth;
-            }}
-            onpointerdown={(e) => dragLogo(e, r, lw, lh)}
-            {src}
-            alt=""
-            draggable="false"
-            style:width="{lw}px"
-            style:opacity={app.logoOpacity}
+            role="presentation"
+            onpointerdown={(e) => dragLogo(e, r, b.w, b.h)}
+            style:width="{b.w}px"
+            style:height="{b.h}px"
             style:left="{r.x + p.x}px"
             style:top="{r.y + p.y}px"
-          />
+          >
+            <img
+              onerror={retry}
+              onload={(e) => {
+                const im = e.currentTarget as HTMLImageElement;
+                if (im.naturalWidth) logoAspect = im.naturalHeight / im.naturalWidth;
+              }}
+              {src}
+              alt=""
+              draggable="false"
+              style:width="{lw}px"
+              style:left="{(b.w - lw) / 2}px"
+              style:top="{(b.h - lh) / 2}px"
+              style:opacity={app.logoOpacity}
+              style:transform={app.logoAngle ? `rotate(${app.logoAngle}deg)` : null}
+            />
+          </div>
         {/if}
       {/key}
     {/if}
@@ -291,8 +342,15 @@
       {@const c = app.crop && !turned ? app.crop : null}
       {@const r = c && app.srcW ? { x: box.x + (c.x / app.srcW) * box.w, y: box.y + (c.y / app.srcH) * box.h, w: (c.w / app.srcW) * box.w, h: (c.h / app.srcH) * box.h } : { x: box.x, y: box.y, w: box.w, h: box.h }}
       {@const fs = (r.h * app.captionSize) / 100}
-      <div class="caption" class:top={app.captionTop} style:left="{r.x}px" style:top="{r.y}px" style:width="{r.w}px" style:height="{r.h}px">
+      <div class="caption" class:top={app.captionTop} class:custom={app.captionCustom} style:left="{r.x}px" style:top="{r.y}px" style:width="{r.w}px" style:height="{r.h}px">
         <span
+          role="presentation"
+          title="Drag to move the caption"
+          bind:offsetWidth={capW}
+          bind:offsetHeight={capH}
+          onpointerdown={dragCaption}
+          style:left={app.captionCustom ? `${(r.w - capW) * app.captionX}px` : null}
+          style:top={app.captionCustom ? `${(r.h - capH) * app.captionY}px` : null}
           style:font-size="{fs}px"
           style:color={app.captionColor}
           style:-webkit-text-stroke={app.captionOutline > 0 ? `${Math.max(1, (fs * app.captionOutline) / 100) * 2}px ${app.captionOutlineColor}` : null}
@@ -347,6 +405,10 @@
     cursor: move;
     touch-action: none;
   }
+  .logo img {
+    position: absolute;
+    pointer-events: none;
+  }
   .logo.custom {
     outline: 1px dashed rgb(255 255 255 / 0.6);
     outline-offset: 2px;
@@ -355,6 +417,10 @@
     position: absolute;
     overflow: hidden;
     pointer-events: none;
+  }
+  .tiles .grid {
+    position: absolute;
+    transform-origin: center;
   }
   .tiles .cell {
     position: absolute;
@@ -381,6 +447,13 @@
   .caption.top {
     justify-content: flex-start;
   }
+  .caption.custom {
+    display: block;
+    padding: 0;
+  }
+  .caption.custom span {
+    position: absolute;
+  }
   .caption span {
     color: #fff;
     font-family: Arial, "DejaVu Sans", Helvetica, sans-serif;
@@ -389,6 +462,9 @@
     text-align: center;
     white-space: pre;
     paint-order: stroke fill;
+    pointer-events: auto;
+    cursor: move;
+    touch-action: none;
   }
   .stage {
     position: relative;

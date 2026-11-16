@@ -85,8 +85,9 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
   in-between frames below 1x speed), HDR to SDR tone mapping, rotate, flip
   horizontal and vertical, reverse, boomerang (forward then reverse), fade in
   and out.
-- **Caption**: text drawn on the picture, top or bottom, sized as a share of
-  the output height. Font (any installed font, or a .ttf/.otf file), text
+- **Caption**: text drawn on the picture, at the top or bottom edge or
+  anywhere (Custom: drag it on the player, or type the position across and
+  down in percent), sized as a share of the output height. Font (any installed font, or a .ttf/.otf file), text
   color, outline color and outline width (none, thin, normal, thick); the
   default is white bold sans with a black outline. The look is remembered
   between runs; the text is cleared when another file opens. Shown on the
@@ -94,8 +95,9 @@ It uses your own ffmpeg and yt-dlp; neither is bundled.
 - **Watermark**: an image over the picture, sized as a share of the output
   width, with opacity. Placed in a corner, anywhere (Custom: drag it on the
   player; dragging it in corner mode also switches to Custom), or tiled over
-  the whole picture with tight, normal, wide or sparse spacing. Remembered
-  between runs and used for batch files too.
+  the whole picture with tight, normal, wide or sparse spacing. Rotation
+  from -90 to 90 degrees; with Tile the whole grid turns, so the rows run
+  diagonally. Remembered between runs and used for batch files too.
 - **Adjustments**: brightness, contrast, saturation, gamma, hue, and a master
   curve with draggable points (ffmpeg `eq`, `hue` and `curves`). They show on
   the picture while editing; the preview is close to but not exactly the
@@ -283,7 +285,9 @@ The longest clip is advisory: the app warns when the output is longer.
   in the webview; presets are not in it), Show in folder, Open in editor (the
   program set for .json files, else Notepad on Windows) and Reload (reads
   settings.json again after editing it by hand). An imported file is saved
-  at once; your presets and last chosen preset are kept.
+  at once; your presets and last chosen preset are kept. Settings > Files >
+  Recent files turns the start screen's recent files list off (which also
+  clears it) or on.
 - `config.toml` in the same folder: the resolution steps (heights and widths),
   percentages, frame rate caps and audio bitrates the app offers, and whether
   steps are heights or widths by default. Written once with comments; edit it

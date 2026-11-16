@@ -39,6 +39,9 @@ fn real_main() -> Result<(), String> {
                 color: std::env::var("CWM_CAPTION_COLOR").unwrap_or_else(|_| "#ffffff".into()),
                 outline_color: "#000000".into(),
                 outline: 7.0,
+                custom: false,
+                x: 0.5,
+                y: 0.9,
             }),
             "--range" => {
                 let r = args.next().unwrap_or_default();
@@ -171,6 +174,7 @@ fn real_main() -> Result<(), String> {
             x: 0.5,
             y: 0.5,
             spacing: 0.5,
+            angle: std::env::var("CWM_LOGO_ANGLE").ok().and_then(|a| a.parse().ok()).unwrap_or(0.0),
         }),
         subs_delay: std::env::var("CWM_SUBS_DELAY").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0),
         subs_font_size: std::env::var("CWM_SUBS_SIZE").ok().and_then(|s| s.parse().ok()),

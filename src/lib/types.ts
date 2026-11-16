@@ -108,6 +108,11 @@ export type EncodeSpec = {
   caption?: {
     text: string;
     top: boolean;
+    /** placed at x, y instead of the top or bottom edge */
+    custom: boolean;
+    /** custom: 0..1 of the room beside and below the text */
+    x: number;
+    y: number;
     size: number;
     /** font file; null = a bold sans the system has */
     font: string | null;
@@ -133,6 +138,8 @@ export type EncodeSpec = {
     y: number;
     /** "tile": space between copies, as a multiple of the image width */
     spacing: number;
+    /** degrees, clockwise; for "tile" the whole grid is turned */
+    angle: number;
   } | null;
   /** seconds the subtitles are shown later (negative: earlier) */
   subsDelay?: number;

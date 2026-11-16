@@ -238,6 +238,9 @@ pub struct Overlay {
     /// "tile": space between copies, as a multiple of the image width
     #[serde(default = "half")]
     pub spacing: f64,
+    /// degrees, clockwise; for "tile" the whole grid is turned
+    #[serde(default)]
+    pub angle: f64,
 }
 
 fn half() -> f64 {
@@ -261,9 +264,17 @@ fn one_f() -> f64 {
 #[serde(rename_all = "camelCase")]
 pub struct Caption {
     pub text: String,
-    /// true = top edge, false = bottom edge
+    /// true = top edge, false = bottom edge (when not `custom`)
     #[serde(default)]
     pub top: bool,
+    /// placed at `x`, `y` instead of the top or bottom edge
+    #[serde(default)]
+    pub custom: bool,
+    /// `custom`: 0..1 of the room beside (x) and below (y) the text; 0,0 = top left
+    #[serde(default = "half")]
+    pub x: f64,
+    #[serde(default = "caption_y")]
+    pub y: f64,
     /// text height in percent of the output picture height
     #[serde(default = "caption_size")]
     pub size: f64,
@@ -283,6 +294,10 @@ pub struct Caption {
 
 fn caption_size() -> f64 {
     7.0
+}
+
+fn caption_y() -> f64 {
+    0.9
 }
 
 fn caption_outline() -> f64 {

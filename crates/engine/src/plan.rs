@@ -315,36 +315,54 @@ fn caption_font() -> Option<String> {
 /// - "custom": `x`, `y` (0..1) of the room left beside and below the image
 /// - "tile": the image fitted into square cells (width x width), with `spacing`
 ///   times the width between them, repeated over the whole picture and centered
+///
+/// `angle` (degrees, clockwise) turns the image; for "tile" it turns the whole
+/// grid, so the rows run diagonally, and the grid is made large enough to cover
+/// the picture's diagonal.
 pub fn overlay_chain(o: &crate::spec::Overlay, out_w: u32, out_h: u32) -> (String, String) {
     let w = ((out_w as f64 * o.size.clamp(2.0, 100.0) / 100.0 / 2.0).round() as u32 * 2).max(2);
     let a = o.opacity.clamp(0.0, 1.0);
     let fade = if a < 1.0 { format!(",colorchannelmixer=aa={}", fmt_num((a * 100.0).round() / 100.0)) } else { String::new() };
+    let deg = if o.angle.is_finite() { (o.angle % 360.0 + 540.0) % 360.0 - 180.0 } else { 0.0 };
+    let turned = deg.abs() > 0.05;
+    let rad = (deg.to_radians() * 1e6).round() / 1e6;
     match o.corner.as_str() {
         "tile" => {
             let cell = ((w as f64 * (1.0 + o.spacing.clamp(0.0, 3.0))).round() as u32).max(w).max(2);
-            let cols = out_w.div_ceil(cell) + 1;
-            let rows = out_h.div_ceil(cell) + 1;
+            // a turned grid has to cover the diagonal, so it is a square that wide
+            let (cover_w, cover_h) = if turned {
+                let d = ((out_w as f64).hypot(out_h as f64)).ceil() as u32;
+                (d, d)
+            } else {
+                (out_w, out_h)
+            };
+            let cols = cover_w.div_ceil(cell) + 1;
+            let rows = cover_h.div_ceil(cell) + 1;
             let x = (out_w as i64 - (cols * cell) as i64) / 2;
             let y = (out_h as i64 - (rows * cell) as i64) / 2;
+            let turn = if turned { format!(",rotate=a={rad}:ow=iw:oh=ih:c=none") } else { String::new() };
             // one picture made of cols x rows copies: loop repeats the single frame, tile lays them out
             (
                 format!(
-                    "scale={w}:{w}:force_original_aspect_ratio=decrease,format=rgba{fade},pad={cell}:{cell}:(ow-iw)/2:(oh-ih)/2:color=black@0,loop=loop={}:size=1,tile=layout={cols}x{rows},setpts=0",
+                    "scale={w}:{w}:force_original_aspect_ratio=decrease,format=rgba{fade},pad={cell}:{cell}:(ow-iw)/2:(oh-ih)/2:color=black@0,loop=loop={}:size=1,tile=layout={cols}x{rows},setpts=0{turn}",
                     cols * rows - 1
                 ),
                 format!("overlay=x={x}:y={y}:format=auto"),
             )
         }
-        "custom" => {
-            let fx = fmt_num((o.x.clamp(0.0, 1.0) * 1000.0).round() / 1000.0);
-            let fy = fmt_num((o.y.clamp(0.0, 1.0) * 1000.0).round() / 1000.0);
-            (format!("scale={w}:-2,format=rgba{fade}"), format!("overlay=x=(W-w)*{fx}:y=(H-h)*{fy}:format=auto"))
-        }
         c => {
+            // the turned image's bounding box is what gets placed
+            let turn = if turned { format!(",rotate=a={rad}:ow=rotw({rad}):oh=roth({rad}):c=none") } else { String::new() };
+            let lg = format!("scale={w}:-2,format=rgba{fade}{turn}");
+            if c == "custom" {
+                let fx = fmt_num((o.x.clamp(0.0, 1.0) * 1000.0).round() / 1000.0);
+                let fy = fmt_num((o.y.clamp(0.0, 1.0) * 1000.0).round() / 1000.0);
+                return (lg, format!("overlay=x=(W-w)*{fx}:y=(H-h)*{fy}:format=auto"));
+            }
             let m = (out_w.min(out_h) as f64 * 0.03).round();
             let x = if c.ends_with('l') { format!("{m}") } else { format!("W-w-{m}") };
             let y = if c.starts_with('t') { format!("{m}") } else { format!("H-h-{m}") };
-            (format!("scale={w}:-2,format=rgba{fade}"), format!("overlay=x={x}:y={y}:format=auto"))
+            (lg, format!("overlay=x={x}:y={y}:format=auto"))
         }
     }
 }
@@ -382,7 +400,14 @@ pub fn caption_filter(c: &Caption, out_h: u32) -> Option<String> {
         String::new()
     };
     let margin = (out_h as f64 * 0.04).round();
-    let y = if c.top { format!("{margin}") } else { format!("h-text_h-{margin}") };
+    let frac = |v: f64| fmt_num((v.clamp(0.0, 1.0) * 1000.0).round() / 1000.0);
+    let (x, y) = if c.custom {
+        (format!("(w-text_w)*{}", frac(c.x)), format!("(h-text_h)*{}", frac(c.y)))
+    } else if c.top {
+        ("(w-text_w)/2".into(), format!("{margin}"))
+    } else {
+        ("(w-text_w)/2".into(), format!("h-text_h-{margin}"))
+    };
     let font = caption_own_font(c)
         .map(escape_filter_value)
         .or_else(caption_font)
@@ -391,7 +416,7 @@ pub fn caption_filter(c: &Caption, out_h: u32) -> Option<String> {
     // centered lines (text_align needs ffmpeg 6.1 or newer, so only when there are several)
     let align = if text.contains('\n') { "text_align=C:" } else { "" };
     Some(format!(
-        "drawtext={font}{align}text={}:expansion=none:fontsize={size}:fontcolor={}{border}:line_spacing={}:x=(w-text_w)/2:y={y}",
+        "drawtext={font}{align}text={}:expansion=none:fontsize={size}:fontcolor={}{border}:line_spacing={}:x={x}:y={y}",
         escape_filter_text(text),
         drawtext_color(&c.color, "0xFFFFFF"),
         (size * 0.15).round()
@@ -2058,7 +2083,7 @@ mod tests {
 
     #[test]
     fn watermark_placement() {
-        let mut o = crate::spec::Overlay { path: "w.png".into(), corner: "tl".into(), size: 10.0, opacity: 1.0, x: 0.25, y: 0.75, spacing: 0.5 };
+        let mut o = crate::spec::Overlay { path: "w.png".into(), corner: "tl".into(), size: 10.0, opacity: 1.0, x: 0.25, y: 0.75, spacing: 0.5, angle: 0.0 };
         let (lg, place) = overlay_chain(&o, 1000, 500);
         assert_eq!(lg, "scale=100:-2,format=rgba");
         assert_eq!(place, "overlay=x=15:y=15:format=auto");
@@ -2071,6 +2096,17 @@ mod tests {
         assert!(lg.contains("colorchannelmixer=aa=0.5,pad=150:150:"), "{lg}");
         assert!(lg.contains("loop=loop=39:size=1,tile=layout=8x5,setpts=0"), "{lg}");
         assert_eq!(place, "overlay=x=-100:y=-125:format=auto");
+        // turned 45 degrees: a square grid over the 1119 px diagonal (9 x 9 cells), then rotated
+        o.angle = 45.0;
+        let (lg, place) = overlay_chain(&o, 1000, 500);
+        assert!(lg.contains("tile=layout=9x9,setpts=0,rotate=a=0.785398:ow=iw:oh=ih:c=none"), "{lg}");
+        assert_eq!(place, "overlay=x=-175:y=-425:format=auto");
+        // a single image: its turned bounding box is placed
+        o.corner = "br".into();
+        o.angle = -30.0;
+        assert!(overlay_chain(&o, 1000, 500).0.ends_with(",rotate=a=-0.523599:ow=rotw(-0.523599):oh=roth(-0.523599):c=none"));
+        o.angle = 360.0;
+        assert!(!overlay_chain(&o, 1000, 500).0.contains("rotate"));
     }
 
     #[test]
@@ -2083,10 +2119,18 @@ mod tests {
             color: "#ff8800".into(),
             outline_color: "#112233".into(),
             outline: 10.0,
+            custom: false,
+            x: 0.5,
+            y: 0.9,
         };
         let f = caption_filter(&c, 1000).unwrap();
         assert!(f.contains("fontcolor=0xFF8800"), "{f}");
         assert!(f.contains(":borderw=10:bordercolor=0x112233"), "{f}");
+        assert!(f.ends_with(":x=(w-text_w)/2:y=h-text_h-40"), "{f}");
+        c.custom = true;
+        c.x = 0.125;
+        assert!(caption_filter(&c, 1000).unwrap().ends_with(":x=(w-text_w)*0.125:y=(h-text_h)*0.9"));
+        c.custom = false;
         // no outline
         c.outline = 0.0;
         assert!(!caption_filter(&c, 1000).unwrap().contains("borderw"));

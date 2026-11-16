@@ -69,7 +69,7 @@ const REMEMBERED = [
   "maxWidth", "maxHeight", "fps", "speed", "playback", "denoise", "stabilize", "smoothSlowmo", "fadeIn", "fadeOut", "effort",
   "twoPass", "audioOn", "audioBitrateK", "volumeDb", "normalize", "separate", "aspect",
   "resMode", "resStep", "resPct", "exactEdge", "exactVal", "stepBy", "adjustPreview",
-  "logoPath", "logoCorner", "logoSize", "logoOpacity", "logoX", "logoY", "logoSpacing",
+  "logoPath", "logoCorner", "logoSize", "logoOpacity", "logoX", "logoY", "logoSpacing", "logoAngle",
   "captionFont", "captionColor", "captionOutlineColor", "captionOutline",
 ] as const;
 
@@ -273,6 +273,10 @@ class AppState {
   /** Caption on the picture; cleared when another file opens. */
   captionText = $state("");
   captionTop = $state(false);
+  /** Caption placed where it was dragged on the player (or typed in), 0..1 of the room left */
+  captionCustom = $state(false);
+  captionX = $state(0.5);
+  captionY = $state(0.9);
   captionSize = $state(7);
   /** Caption look; remembered. Font is a font file path, null = default bold sans. */
   captionFont = $state<string | null>(null);
@@ -301,6 +305,8 @@ class AppState {
   logoY = $state(1);
   /** "tile": space between copies, as a multiple of the image width */
   logoSpacing = $state(0.5);
+  /** degrees, clockwise; for "tile" the whole grid turns */
+  logoAngle = $state(0);
   logoSize = $state(15);
   logoOpacity = $state(1);
   /** A sound file is encoded as a video with a still picture: this image, else
@@ -501,12 +507,16 @@ class AppState {
               x: this.logoX,
               y: this.logoY,
               spacing: this.logoSpacing,
+              angle: this.logoAngle,
             } : null,
       subsDelay: Number(this.subsDelay) || 0,
       subsFontSize: this.subsFontSize,
       caption: own && this.captionText.trim() && this.container !== "audio" ? {
               text: this.captionText,
               top: this.captionTop,
+              custom: this.captionCustom,
+              x: this.captionX,
+              y: this.captionY,
               size: this.captionSize,
               font: this.captionFont,
               color: this.captionColor,

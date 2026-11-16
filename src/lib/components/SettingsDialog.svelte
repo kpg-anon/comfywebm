@@ -76,6 +76,7 @@
     timelineFilm: app.showFilm,
     timelineWave: app.showWave,
     showRecent: app.showRecent,
+    sideResize: app.sideResize,
   });
 
   function applyLook(v: unknown) {
@@ -88,6 +89,7 @@
     if (typeof o.refreshHz === "number" && REFRESH_RATES.includes(o.refreshHz)) app.setRefreshHz(o.refreshHz);
     if (typeof o.timelineFilm === "boolean" && typeof o.timelineWave === "boolean") app.setTimelinePics(o.timelineFilm, o.timelineWave);
     if (typeof o.showRecent === "boolean") app.setShowRecent(o.showRecent);
+    if (typeof o.sideResize === "boolean") app.setSideResize(o.sideResize);
   }
 
   /** Puts saved settings into the app and into this dialog's fields. */
@@ -322,6 +324,14 @@
         />
       </div>
       <span class="hint">Scales the whole window's text and controls, on top of the system's display scaling.</span>
+    </div>
+
+    <div class="col">
+      <span>Sidebar</span>
+      <div class="line cacheline">
+        <label><input type="checkbox" checked={app.sideResize} onchange={(e) => app.setSideResize((e.currentTarget as HTMLInputElement).checked)} /> Resizable: drag its left edge to change its width</label>
+      </div>
+      <span class="hint">Off: the sidebar has its standard width. Double-click the edge to go back to it. Applies at once.</span>
     </div>
 
     <div class="col">

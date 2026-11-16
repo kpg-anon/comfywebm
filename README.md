@@ -288,6 +288,8 @@ The longest clip is advisory: the app warns when the output is longer.
   at once; your presets and last chosen preset are kept. Settings > Files >
   Recent files turns the start screen's recent files list off (which also
   clears it) or on.
+  Settings > Look > Sidebar makes the sidebar resizable by dragging its
+  left edge (off by default; off, it has its standard width).
 - `config.toml` in the same folder: the resolution steps (heights and widths),
   percentages, frame rate caps and audio bitrates the app offers, and whether
   steps are heights or widths by default. Written once with comments; edit it

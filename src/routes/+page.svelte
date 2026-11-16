@@ -38,6 +38,7 @@
   });
 
   // Sidebar width: dragged on the splitter, double-click resets; remembered.
+  // Only with Settings > Look > "Resizable sidebar"; otherwise the default width.
   const SIDE_DEFAULT = 330;
   let sideW = $state(Math.min(620, Math.max(280, loadPref<number>("sideWidth") ?? SIDE_DEFAULT)));
   let mainEl: HTMLDivElement;
@@ -267,7 +268,7 @@
     </div>
   {/if}
 
-  <div class="main" bind:this={mainEl} style:--side-w="{sideW}px">
+  <div class="main" bind:this={mainEl} style:--side-w="{app.sideResize ? sideW : SIDE_DEFAULT}px">
     <div class="left" class:hidden={app.view !== "editor"}>
       <div class="preview" bind:this={preview}>
         {#if app.media}
@@ -299,17 +300,19 @@
         {/if}
       </div>
     {/if}
-    <div
-      class="splitter"
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Sidebar width (double-click resets)"
-      onpointerdown={splitDown}
-      ondblclick={() => {
-        sideW = SIDE_DEFAULT;
-        savePref("sideWidth", sideW);
-      }}
-    ></div>
+    {#if app.sideResize}
+      <div
+        class="splitter"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Sidebar width (double-click resets)"
+        onpointerdown={splitDown}
+        ondblclick={() => {
+          sideW = SIDE_DEFAULT;
+          savePref("sideWidth", sideW);
+        }}
+      ></div>
+    {/if}
     <Sidebar />
   </div>
 

@@ -138,6 +138,12 @@ class AppState {
   keysOpen = $state(false);
   /** Recently opened files, newest first (localStorage, per machine). */
   recent = $state<string[]>(loadRecent());
+  /** Settings > Look: the sidebar's width can be changed by dragging its edge (per machine). */
+  sideResize = $state(load<boolean>("sideResize") ?? false);
+  setSideResize(on: boolean) {
+    this.sideResize = on;
+    save("sideResize", on);
+  }
   /** Settings > Files: keep and show the recent files list (per machine). */
   showRecent = $state(load<boolean>("showRecent") ?? true);
   setShowRecent(on: boolean) {

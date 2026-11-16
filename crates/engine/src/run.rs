@@ -437,12 +437,25 @@ pub fn detect_crop(ffmpeg: &Path, info: &MediaInfo) -> Result<Option<Crop>, Stri
     let vf = format!("{pre}cropdetect=limit=0.094:round=2:reset=0");
     let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0u32, 0u32);
     let mut found = false;
-    for f in [0.25, 0.5, 0.75] {
-        let at = if info.duration > 4.0 { info.duration * f } else { 0.0 };
-        let mut cmd = command(ffmpeg);
-        cmd.args(["-hide_banner", "-nostdin", "-ss", &plan::fmt_num(at), "-t", "2", "-i", &info.path]);
-        cmd.args(["-map", &format!("0:{}", v.stream_index), "-an", "-sn", "-dn", "-vf", &vf, "-f", "null", "-"]);
-        let out = crate::tools::output_within(cmd, std::time::Duration::from_secs(60), "ffmpeg (black bar check)")?;
+    // the three points run at the same time (a slow network file waits once, not three times)
+    let runs: Vec<Result<std::process::Output, String>> = std::thread::scope(|sc| {
+        let handles: Vec<_> = [0.25, 0.5, 0.75]
+            .into_iter()
+            .map(|f| {
+                let vf = &vf;
+                sc.spawn(move || {
+                    let at = if info.duration > 4.0 { info.duration * f } else { 0.0 };
+                    let mut cmd = command(ffmpeg);
+                    cmd.args(["-hide_banner", "-nostdin", "-ss", &plan::fmt_num(at), "-t", "2", "-i", &info.path]);
+                    cmd.args(["-map", &format!("0:{}", v.stream_index), "-an", "-sn", "-dn", "-vf", vf, "-f", "null", "-"]);
+                    crate::tools::output_within(cmd, std::time::Duration::from_secs(60), "ffmpeg (black bar check)")
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("black bar check failed".into()))).collect()
+    });
+    for out in runs {
+        let out = out?;
         let text = String::from_utf8_lossy(&out.stderr);
         // the last "crop=w:h:x:y" of the run holds the box over all its frames
         let Some(c) = text.rsplit("crop=").next().filter(|_| text.contains("crop=")) else { continue };

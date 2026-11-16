@@ -8,6 +8,13 @@
   let video = $state<HTMLVideoElement>();
   let sw = $state(0);
   let sh = $state(0);
+  // the plan command adds the logo file to the asset scope; a logo set while an older plan is
+  // shown can load before that and fail, so a failed load is tried again (a few times)
+  let logoTry = $state(0);
+  $effect(() => {
+    void app.logoPath;
+    logoTry = 0;
+  });
 
   $effect(() => {
     app.video = video ?? null;
@@ -152,13 +159,14 @@
     {#if fadeDark > 0}
       <div class="fade" style:left="{box.x}px" style:top="{box.y}px" style:width="{box.w}px" style:height="{box.h}px" style:opacity={fadeDark}></div>
     {/if}
-    <!-- after a plan: the plan command adds the logo file to the asset scope -->
     {#if app.logoPath && app.plan && !app.cropMode && app.container !== "audio"}
       {@const c = app.crop && !turned ? app.crop : null}
       {@const r = c && app.srcW ? { x: box.x + (c.x / app.srcW) * box.w, y: box.y + (c.y / app.srcH) * box.h, w: (c.w / app.srcW) * box.w, h: (c.h / app.srcH) * box.h } : { x: box.x, y: box.y, w: box.w, h: box.h }}
       {@const m = Math.min(r.w, r.h) * 0.03}
+      {#key logoTry}
       <img
         class="logo"
+        onerror={() => logoTry < 5 && setTimeout(() => logoTry++, 400)}
         src={convertFileSrc(app.logoPath)}
         alt=""
         draggable="false"
@@ -169,6 +177,7 @@
         style:top={app.logoCorner.startsWith("t") ? `${r.y + m}px` : null}
         style:bottom={app.logoCorner.startsWith("b") ? `${sh - (r.y + r.h) + m}px` : null}
       />
+      {/key}
     {/if}
     {#if app.captionText.trim() && !app.cropMode && app.container !== "audio"}
       {@const c = app.crop && !turned ? app.crop : null}

@@ -27,10 +27,18 @@ update notice.
 2. Sets the version everywhere and turns `[Unreleased]` into
    `## [x.y.z] - <today>`.
 3. Deletes old bundles of that version and builds the signed NSIS installer
-   (`npx tauri build`, about 3 minutes), checking that it is new.
-4. Makes the portable zip (`comfywebm.exe`, `WebView2Loader.dll`, the
-   `portable` file) and a `latest.json` that lists Windows.
-5. Commits only its files (`release: vX.Y.Z`), pushes `main`, and runs
+   (`npx tauri build`, about 3 minutes) with the MSVC toolchain
+   (`stable-x86_64-pc-windows-msvc`, for this build only), checking that it
+   is new. Microsoft Defender flagged the GNU (MinGW) builds of 1.0.1 and
+   1.0.2 as `Trojan:Win32/Bearfoos.A!ml`; the same source built with MSVC
+   was not flagged. Needs Visual Studio Build Tools with the C++ workload
+   (`winget install Microsoft.VisualStudio.BuildTools` with
+   `--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended`).
+4. Scans the installer and the exe with Microsoft Defender (report only);
+   a detection stops the release before anything is committed or published.
+5. Makes the portable zip (`comfywebm.exe`, which has the WebView2 loader
+   inside, and the `portable` file) and a `latest.json` that lists Windows.
+6. Commits only its files (`release: vX.Y.Z`), pushes `main`, and runs
    `gh release create`: the tag and a **published** release with the
    installer, its `.sig`, the portable zip and `latest.json`. Windows copies
    can update from that moment.

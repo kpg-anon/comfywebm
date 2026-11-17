@@ -12,8 +12,13 @@
     3. CHANGELOG.md: "## [Unreleased]" becomes "## [x.y.z] - <today>" (an
        empty [Unreleased] stays above it). That section is the release notes.
     4. Deletes old bundles of this version, then builds the signed NSIS
-       installer (npx tauri build) and checks that it is new.
-    5. The portable zip: comfywebm.exe, WebView2Loader.dll, the "portable" file.
+       installer (npx tauri build) with the MSVC toolchain and checks that it
+       is new. Microsoft Defender flagged the GNU (MinGW) builds as
+       Trojan:Win32/Bearfoos.A!ml; the same source built with MSVC was clean.
+       Then Defender scans the installer and the exe; a detection stops the
+       release before anything is committed or published.
+    5. The portable zip: comfywebm.exe and the "portable" file (an MSVC build
+       has the WebView2 loader inside the exe).
     6. latest.json for Windows (the release workflow rewrites it with every
        platform when its builds are done).
     7. Commits only the files it changed ("release: vX.Y.Z") and pushes main.
@@ -53,6 +58,9 @@ $release = Join-Path $root 'target/release'
 $nsis = Join-Path $release 'bundle/nsis'
 $setupName = "comfywebm_${Version}_x64-setup.exe"
 $portableName = "comfywebm_${Version}_x64-portable.zip"
+# the toolchain the release is built with, whatever the default on this PC is
+$toolchain = 'stable-x86_64-pc-windows-msvc'
+$mpcmd = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
 
 function Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 function Run([string]$exe, [string[]]$argv) {
@@ -83,6 +91,16 @@ if (-not (Test-Path $keyPath) -or -not (Test-Path $passPath)) { Problem 'The upd
 git fetch -q --tags origin
 if ($LASTEXITCODE) { Problem 'git fetch failed (network?); cannot check the tags on GitHub.' }
 if (git tag --list $tag) { Problem "Tag $tag exists already." }
+# MSVC: the toolchain is installed and finds Microsoft's linker (Visual Studio Build Tools, C++ workload)
+$hostLine = (& rustup run $toolchain rustc -vV 2>$null) | Where-Object { $_ -like 'host:*' }
+if ($hostLine -notlike '*windows-msvc*') { Problem "The Rust toolchain $toolchain is not installed (rustup toolchain install $toolchain)." }
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+if (-not (Test-Path $vswhere)) {
+    Problem 'Visual Studio Build Tools (C++ workload) are not installed; the MSVC toolchain needs its linker.'
+} elseif (-not (& $vswhere -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath)) {
+    Problem 'Visual Studio is installed without the C++ build tools (workload "Desktop development with C++" / VCTools).'
+}
+if (-not (Test-Path $mpcmd)) { Problem "Microsoft Defender's command line ($mpcmd) was not found; the release scan needs it." }
 Write-Host '    done' -ForegroundColor Green
 
 # ---------------------------------------------------------------- 2. version
@@ -115,7 +133,7 @@ Write-Host '    notes (the release and the in-app update notice show this):' -Fo
 $section -split "`n" | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
 
 # ---------------------------------------------------------------- 4. build Windows
-Step 'Build Windows (npx tauri build, signed)'
+Step "Build Windows (npx tauri build, signed, $toolchain)"
 if (-not $DryRun) {
     # an installer of this version left from an earlier build (a test, a failed run) must not be published
     Get-ChildItem $nsis -Filter "*_${Version}_*" -ErrorAction SilentlyContinue | Remove-Item -Force
@@ -128,15 +146,33 @@ if (-not $DryRun) {
     $env:TAURI_SIGNING_PRIVATE_KEY = [System.IO.File]::ReadAllText($keyPath)
     $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = [System.IO.File]::ReadAllText($passPath).Trim()
 }
-Run 'npx' @('tauri', 'build')
+# MSVC for this build only (rustup reads RUSTUP_TOOLCHAIN); the PC's default stays as it is
+$env:RUSTUP_TOOLCHAIN = $toolchain
+try { Run 'npx' @('tauri', 'build') } finally { Remove-Item Env:RUSTUP_TOOLCHAIN -ErrorAction SilentlyContinue }
 $setup = Join-Path $nsis $setupName
+$exe = Join-Path $release 'comfywebm.exe'
 if (-not $DryRun) {
-    foreach ($f in @($setup, "$setup.sig")) {
+    foreach ($f in @($setup, "$setup.sig", $exe)) {
         if (-not (Test-Path $f)) { throw "$f was not built." }
         if ((Get-Item $f).LastWriteTime -lt $buildStart) { throw "$f is older than this build." }
     }
     Write-Host "    $setupName, $((Get-Item $setup).Length) bytes" -ForegroundColor Green
 }
+
+# ---------------------------------------------------------------- 4b. Defender
+Step 'Microsoft Defender scan (report only)'
+# Exit code 2 = a threat was found. -DisableRemediation reports without deleting the file.
+foreach ($f in @($setup, $exe)) {
+    Write-Host "    $f" -ForegroundColor DarkGray
+    if ($DryRun) { continue }
+    $scan = & $mpcmd -Scan -ScanType 3 -File $f -DisableRemediation 2>&1 | Out-String
+    if ($LASTEXITCODE -eq 2) {
+        throw "Microsoft Defender flags $f; nothing was committed or published.`n$($scan.Trim())"
+    } elseif ($LASTEXITCODE -ne 0) {
+        throw "The Defender scan of $f did not finish (exit $LASTEXITCODE).`n$($scan.Trim())"
+    }
+}
+if (-not $DryRun) { Write-Host '    no threat found' -ForegroundColor Green }
 
 # ---------------------------------------------------------------- 5. portable zip
 Step 'Portable zip'
@@ -145,11 +181,8 @@ if (-not $DryRun) {
     $dir = Join-Path $release 'portable'
     if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
     New-Item -ItemType Directory -Force $dir, (Split-Path $portable) | Out-Null
-    Copy-Item (Join-Path $release 'comfywebm.exe') $dir
-    # this PC builds with the GNU toolchain: the exe loads WebView2Loader.dll from its folder
-    $dll = Join-Path $release 'WebView2Loader.dll'
-    if (-not (Test-Path $dll)) { throw "$dll is missing; the portable exe would not start." }
-    Copy-Item $dll $dir
+    # an MSVC build has the WebView2 loader inside the exe (a WebView2Loader.dll in target/release is from an old GNU build)
+    Copy-Item $exe $dir
     [System.IO.File]::WriteAllText((Join-Path $dir 'portable'),
         "This file makes comfywebm portable: while it is here, settings, presets, the queue,`r`nthe cache and the remembered options are kept in the `"data`" folder beside it.`r`n", $utf8)
     Compress-Archive -Path (Join-Path $dir '*') -DestinationPath $portable -Force

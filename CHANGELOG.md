@@ -7,6 +7,15 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+
+- Microsoft Defender reported the Windows installer and the installed app as
+  `Trojan:Win32/Bearfoos.A!ml` and removed them. This was a false positive
+  from Defender's machine-learning check on the builds made with the GNU
+  (MinGW) toolchain. Windows builds are now made with Microsoft's own (MSVC)
+  toolchain, which Defender did not flag in testing, and every release is
+  scanned with Defender before it is published.
+
 ## [1.0.2] - 2026-11-16
 
 ### Added

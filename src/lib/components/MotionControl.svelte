@@ -6,11 +6,17 @@
   import { app } from "$lib/state.svelte";
   import { evenOn, fmtFps, fmtSpeed, motion, nearestSmooth, smooth, smoothSpeeds } from "$lib/motion";
   import Select from "./Select.svelte";
+  import { speedRange } from "$lib/ramp";
 
   const LO = 0.25;
   const HI = 4;
 
   const hz = $derived(app.refreshHz);
+  /** a speed ramp on the timeline replaces the Speed setting */
+  const ramped = $derived(app.speedRamp.length > 0);
+  const rampRange = $derived(
+    ramped ? speedRange(app.speedRamp, app.segments.length ? app.segments : [{ start: 0, end: app.duration }]) : [1, 1],
+  );
   const src = $derived(app.fpsSrc);
   const cap = $derived(app.fps && app.fps > 0 ? app.fps : null);
   const m = $derived(motion(src, app.speed || 1, cap, hz));
@@ -59,6 +65,16 @@
     <Select label="Frame rate cap" value={cap} onchange={(v) => (app.fps = v)} options={fpsOptions} />
   </div>
 
+  {#if ramped}
+    <div class="row">
+      <span class="lbl">Speed</span>
+      <span class="ramped">
+        Speed ramp on the timeline: {fmtSpeed(rampRange[0])}{#if rampRange[1] !== rampRange[0]}{" to "}{fmtSpeed(rampRange[1])}{/if}
+      </span>
+      <button class="btn small" onclick={() => (app.rampLane = true)}>Show</button>
+      <button class="btn small" title="Remove the speed ramp; the Speed setting applies again" onclick={() => app.clearRamp()}>Remove</button>
+    </div>
+  {:else}
   <div class="row">
     <span class="lbl" title="Playback speed of the output, 0.25x to 4x; sound is sped up or slowed down with it. The slider snaps to speeds that play evenly on your display (the chips below). Double-click the slider for 1x.">Speed</span>
     <input
@@ -73,8 +89,9 @@
     />
     <input class="field mono spd" type="text" inputmode="decimal" aria-label="Speed factor" value={fmtSpeed(app.speed)} onchange={typed} onfocus={(e) => (e.currentTarget as HTMLInputElement).select()} />
   </div>
+  {/if}
 
-  {#if app.media}
+  {#if app.media && !ramped}
     <div class="chips" aria-label="Speeds that play evenly" title="Speeds whose output frame rate divides evenly into your display's refresh rate (Settings), so motion stays smooth">
       {#each list as s (s)}
         <button class="chip" class:on={Math.abs(s - app.speed) < 1e-6} title={`${fmtFps(outFpsOf(s))}`} onclick={() => (app.speed = s)}>{fmtSpeed(s)}</button>
@@ -108,6 +125,12 @@
 </div>
 
 <style>
+  .ramped {
+    flex: 1;
+    min-width: 0;
+    font-size: 11.5px;
+    color: var(--accent-strong);
+  }
   .motion {
     display: flex;
     flex-direction: column;

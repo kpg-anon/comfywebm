@@ -6,6 +6,7 @@
   import TimeField from "./TimeField.svelte";
   import CropBar from "./CropBar.svelte";
   import EditStrip from "./EditStrip.svelte";
+  import SpeedLane from "./SpeedLane.svelte";
 
   import { convertFileSrc } from "@tauri-apps/api/core";
   import * as ipc from "$lib/ipc";
@@ -272,6 +273,10 @@
     <div class="head" style:left="{pct(app.current)}%"></div>
   </div>
 
+  {#if app.media && !app.audioOnly && app.rampLane}
+    <SpeedLane {viewStart} {viewLen} />
+  {/if}
+
   {#if zoomed}
     <div
       class="overview"
@@ -353,6 +358,16 @@
     </div>
     <span class="grow"></span>
     <div class="group">
+      <button
+        class="btn"
+        class:on={app.rampLane}
+        disabled={!app.media || app.audioOnly}
+        aria-pressed={app.rampLane}
+        title="Speed ramp: change the speed over the clip with points on a lane under the timeline (0.25x to 4x). With points it replaces the Speed setting."
+        onclick={() => (app.rampLane = !app.rampLane)}
+      >
+        <Icon name="speed" size={14} />Speed{#if app.speedRamp.length}<span class="cnt">{app.speedRamp.length}</span>{/if}
+      </button>
       <button class="btn" class:on={app.cropMode} disabled={!app.media || app.audioOnly} aria-pressed={app.cropMode} onclick={() => (app.cropMode = !app.cropMode)}>
         <Icon name="crop" size={14} />Crop <kbd>C</kbd>
       </button>
@@ -380,6 +395,14 @@
 </div>
 
 <style>
+  .cnt {
+    margin-left: 2px;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--accent-bg);
+    color: var(--accent-strong);
+    font-size: 10px;
+  }
   .crop-warn {
     order: 10;
     font-size: 11px;

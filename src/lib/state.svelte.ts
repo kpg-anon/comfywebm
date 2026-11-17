@@ -2,6 +2,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import * as ipc from "./ipc";
 import { load, save } from "./persist";
+import * as ramp from "./ramp";
 import { AUDIO_LABEL, BUILTIN_PRESETS, CODECS_BY_CONTAINER, CRF_RANGE, audioCodecFor } from "./presets";
 import { fitRatio, isFull, move, ratioOf, round, type AspectLock } from "./crop";
 import * as seg from "./segments";
@@ -25,6 +26,7 @@ import type {
   Rotate,
   Segment,
   Settings,
+  SpeedPoint,
   ToolsStatus,
   WatermarkPlace,
 } from "./types";
@@ -112,8 +114,9 @@ type EditSnap = {
   mirror: boolean;
   vflip: boolean;
   adjust: Adjust;
+  speedRamp: SpeedPoint[];
 };
-type EditMemory = { segments: Segment[]; order: number[] | null; crop: Crop | null; t: number };
+type EditMemory = { segments: Segment[]; order: number[] | null; crop: Crop | null; speedRamp?: SpeedPoint[]; t: number };
 
 function loadRecent(): string[] {
   const r = load<unknown>("recent");
@@ -249,6 +252,10 @@ class AppState {
   outputPath = $state<string | null>(null);
   fps = $state<number | null>(null);
   speed = $state(1);
+  /** speed ramp points (file time) of the open file; with points they replace `speed` */
+  speedRamp = $state<SpeedPoint[]>([]);
+  /** the speed ramp lane is shown under the timeline */
+  rampLane = $state(false);
   playback = $state<Playback>("forward");
   deinterlace = $state(false);
   denoise = $state(false);
@@ -372,8 +379,14 @@ class AppState {
   clipLen = $derived(this.hasRange ? seg.totalLength(this.segments) : this.duration);
   /** Length of the longest output file, after speed and boomerang. */
   outLen = $derived.by(() => {
+    const back = this.playback === "boomerang" ? 2 : 1;
+    const segs = this.hasRange ? this.outSegments : [{ start: 0, end: this.duration }];
+    if (this.speedRamp.length) {
+      const one = this.separate && segs.length > 1 ? Math.max(...segs.map((g) => ramp.outLength(this.speedRamp, [g]))) : ramp.outLength(this.speedRamp, segs);
+      return one * back;
+    }
     const src = this.separate && this.segments.length > 1 ? Math.max(...this.segments.map((s) => s.end - s.start)) : this.clipLen;
-    return (src / (this.speed || 1)) * (this.playback === "boomerang" ? 2 : 1);
+    return (src / (this.speed || 1)) * back;
   });
 
   presetEntries = $derived<PresetEntry[]>(
@@ -417,6 +430,8 @@ class AppState {
   baseH = $derived.by(() => this.baseSize()[1]);
   /** Frame rate of the output (source fps x speed, or the cap). */
   outFps = $derived.by(() => {
+    // a ramp: a steady output at the source rate (or the cap)
+    if (this.speedRamp.length) return this.fps && this.fps > 0 && this.fps < this.fpsSrc - 0.01 ? this.fps : this.fpsSrc;
     const sp = this.speed || 1;
     // interpolation makes frames up to the source rate (or the cap)
     if (this.smoothSlowmo && sp < 1 && this.container !== "gif" && this.container !== "webp")
@@ -427,7 +442,7 @@ class AppState {
   // with interpolation the output runs at the source rate, as at 1x
   motionIssues = $derived(
     this.media
-      ? motionWarnings(this.fpsSrc, this.smoothSlowmo && (this.speed || 1) < 1 ? 1 : this.speed || 1, numOrNull(this.fps), this.refreshHz)
+      ? motionWarnings(this.fpsSrc, this.speedRamp.length || (this.smoothSlowmo && (this.speed || 1) < 1) ? 1 : this.speed || 1, numOrNull(this.fps), this.refreshHz)
       : [],
   );
 
@@ -485,6 +500,8 @@ class AppState {
       autoScale: this.rateMode === "size" && this.resMode === "auto",
       fps: numOrNull(this.fps),
       speed: this.speed,
+      // the ramp is the open file's own (file time): Batch and Splits items do not get it
+      speedRamp: own ? (ramp.clean($state.snapshot(this.speedRamp) as SpeedPoint[])) : [],
       playback: this.playback,
       deinterlace: own ? this.deinterlace : m.video.interlaced,
       denoise: this.denoise,
@@ -541,16 +558,16 @@ class AppState {
 
   /** The edit state as text; a change in it is an edit. The selection alone is not. */
   editKey(): string {
-    return JSON.stringify([this.segments, this.order, this.crop, this.rotate, this.mirror, this.vflip, this.adjust]);
+    return JSON.stringify([this.segments, this.order, this.crop, this.rotate, this.mirror, this.vflip, this.adjust, this.speedRamp]);
   }
 
   private snap(): EditSnap {
-    const { segments, order, sel, crop, rotate, mirror, vflip, adjust } = this;
-    return $state.snapshot({ segments, order, sel, crop, rotate, mirror, vflip, adjust }) as EditSnap;
+    const { segments, order, sel, crop, rotate, mirror, vflip, adjust, speedRamp } = this;
+    return $state.snapshot({ segments, order, sel, crop, rotate, mirror, vflip, adjust, speedRamp }) as EditSnap;
   }
 
   private static key(s: EditSnap): string {
-    return JSON.stringify([s.segments, s.order, s.crop, s.rotate, s.mirror, s.vflip, s.adjust]);
+    return JSON.stringify([s.segments, s.order, s.crop, s.rotate, s.mirror, s.vflip, s.adjust, s.speedRamp]);
   }
 
   /**
@@ -582,6 +599,7 @@ class AppState {
     this.mirror = s.mirror;
     this.vflip = s.vflip;
     this.adjust = s.adjust;
+    this.speedRamp = s.speedRamp ?? [];
     this.committed = s;
   }
 
@@ -797,8 +815,8 @@ class AppState {
     if (!m) return;
     const key = AppState.editMemoryKey(m);
     const all = (load<Record<string, EditMemory>>("edits") ?? {}) as Record<string, EditMemory>;
-    if (!s.segments.length && !s.crop) delete all[key];
-    else all[key] = { segments: s.segments, order: s.order, crop: s.crop, t: Date.now() };
+    if (!s.segments.length && !s.crop && !s.speedRamp.length) delete all[key];
+    else all[key] = { segments: s.segments, order: s.order, crop: s.crop, speedRamp: s.speedRamp.length ? s.speedRamp : undefined, t: Date.now() };
     const keep = Object.entries(all).sort((a, b) => b[1].t - a[1].t).slice(0, 40);
     save("edits", Object.fromEntries(keep));
   }
@@ -833,6 +851,7 @@ class AppState {
       this.mirror = false;
       this.vflip = false;
       this.adjust = { ...NEUTRAL_ADJUST, curve: [] };
+      this.speedRamp = [];
       this.deinterlace = info.video.interlaced;
       this.tonemap = info.video.hdr && !!this.tools?.filters.zscale;
       this.audioTrack = info.audio[0]?.track ?? 0;
@@ -864,15 +883,21 @@ class AppState {
       }
       this.remember(path);
       const mem = load<Record<string, EditMemory>>("edits")?.[AppState.editMemoryKey(info)];
-      if (restoreEdit && mem && (mem.segments.length || mem.crop)) {
+      if (restoreEdit && mem && (mem.segments.length || mem.crop || mem.speedRamp?.length)) {
         // the empty state is the first undo step, so Ctrl+Z drops the restored edit
         this.committed = this.snap();
         this.segments = mem.segments.filter((g) => g.end > g.start && g.start < info.duration + 0.5);
         this.order = mem.order && mem.order.length === this.segments.length ? mem.order : null;
         this.crop = info.audioOnly ? null : mem.crop;
+        this.speedRamp = (mem.speedRamp ?? []).filter((p) => p.t <= info.duration + 0.5);
+        if (this.speedRamp.length) this.rampLane = true;
         this.sel = this.segments.length ? 0 : -1;
         if (this.segments.length) this.loop = true;
-        const what = [this.segments.length ? `${this.segments.length} range${this.segments.length > 1 ? "s" : ""}` : "", mem.crop ? "the crop" : ""].filter(Boolean).join(" and ");
+        const what = [
+          this.segments.length ? `${this.segments.length} range${this.segments.length > 1 ? "s" : ""}` : "",
+          mem.crop ? "the crop" : "",
+          this.speedRamp.length ? "the speed ramp" : "",
+        ].filter(Boolean).join(", ");
         this.toast({ kind: "info", title: "Restored your last edit", text: `${what} from the last time this file was open. Ctrl+Z removes them.`, path: null });
       }
       return true;
@@ -1161,6 +1186,37 @@ class AppState {
       const base = this.crop ?? { x: 0, y: 0, w: this.srcW, h: this.srcH };
       this.setCrop(fitRatio(base, r, this.srcW, this.srcH));
     }
+  }
+
+  // ---------- speed ramp (points in file time, kept sorted) ----------
+
+  /** Adds a point at file time t (at the ramp's speed there, or 1x); returns its index. */
+  addRampPoint(t: number, speed?: number): number {
+    const p = ramp.clean(this.speedRamp);
+    const at = Math.min(Math.max(0, t), this.duration || t);
+    const s = ramp.niceSpeed(speed ?? (p.length ? ramp.speedAt(p, at) : this.speed || 1));
+    const next = ramp.clean([...p.filter((q) => Math.abs(q.t - at) >= 0.01), { t: at, speed: s }]);
+    this.speedRamp = next;
+    this.rampLane = true;
+    return next.findIndex((q) => q.t === at);
+  }
+
+  /** Moves point i; it stays between its neighbours. */
+  setRampPoint(i: number, t: number, speed: number) {
+    const p = [...this.speedRamp];
+    if (!p[i]) return;
+    const lo = i > 0 ? p[i - 1].t + 0.01 : 0;
+    const hi = i < p.length - 1 ? p[i + 1].t - 0.01 : this.duration || t;
+    p[i] = { t: Math.min(Math.max(lo, t), Math.max(lo, hi)), speed: ramp.niceSpeed(speed) };
+    this.speedRamp = p;
+  }
+
+  removeRampPoint(i: number) {
+    this.speedRamp = this.speedRamp.filter((_, k) => k !== i);
+  }
+
+  clearRamp() {
+    this.speedRamp = [];
   }
 
   /** Arrow keys in crop mode: move, or with `grow` change the size from the top-left corner. */

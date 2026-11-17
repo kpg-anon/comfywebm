@@ -301,6 +301,13 @@ pub enum SplitLength {
     Longest,
 }
 
+/// A point of a speed ramp: at `t` seconds of the source file the speed is `speed`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct SpeedPoint {
+    pub t: f64,
+    pub speed: f64,
+}
+
 /// A rectangle in canvas pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Rect {
@@ -490,6 +497,10 @@ pub struct EncodeSpec {
     pub fps: Option<f64>,
     #[serde(default = "one")]
     pub speed: f64,
+    /// a speed that changes over the clip (points in source file time); when
+    /// it has points it replaces `speed`. Applies to ranges of `input` only.
+    #[serde(default)]
+    pub speed_ramp: Vec<SpeedPoint>,
     #[serde(default)]
     pub playback: Playback,
     #[serde(default)]

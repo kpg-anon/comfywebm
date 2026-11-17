@@ -5,6 +5,8 @@
   import { sample } from "$lib/curve";
   import CropOverlay from "./CropOverlay.svelte";
   import { ratioOf } from "$lib/crop";
+  import * as ramp from "$lib/ramp";
+  import type { SpeedPoint } from "$lib/types";
 
   let video = $state<HTMLVideoElement>();
   let sw = $state(0);
@@ -175,11 +177,29 @@
   // the speed setting plays in the preview too (pitch kept, as atempo does)
   // (defaultPlaybackRate too: loading a new source resets the rate to it)
   $effect(() => {
+    if (app.speedRamp.length) return;
     const r = Math.min(16, Math.max(0.0625, Number(app.speed) || 1));
     if (video) {
       video.defaultPlaybackRate = r;
       video.playbackRate = r;
     }
+  });
+  // A speed ramp: the rate follows the ramp at the playhead, each frame. The
+  // loop reads the video's own time, not app.current, so it does not re-run
+  // the effect on every frame.
+  $effect(() => {
+    const v = video;
+    const pts = ramp.clean($state.snapshot(app.speedRamp) as SpeedPoint[]);
+    if (!v || !pts.length) return;
+    let raf = 0;
+    const step = () => {
+      const r = ramp.speedAt(pts, v.currentTime);
+      if (Math.abs(v.playbackRate - r) > 0.005) v.playbackRate = r;
+      v.defaultPlaybackRate = r;
+      raf = requestAnimationFrame(step);
+    };
+    step();
+    return () => cancelAnimationFrame(raf);
   });
   // Fade preview: how dark the picture is at the playhead, from the fades at
   // the start of the first output range and the end of the last (in source
@@ -189,13 +209,16 @@
     const fo = Number(app.fadeOut) || 0;
     if ((!fi && !fo) || app.cropMode || app.playback !== "forward") return 0;
     const segs = app.outSegments;
-    const sp = Number(app.speed) || 1;
+    // with a ramp, the speed where each fade is (near enough for a preview)
+    const pts = app.speedRamp.length ? ramp.clean(app.speedRamp) : null;
     const start = segs.length ? segs[0].start : 0;
     const end = segs.length ? segs[segs.length - 1].end : app.duration;
     const t = app.current;
     let d = 0;
-    if (fi > 0 && t >= start && t < start + fi * sp) d = Math.max(d, 1 - (t - start) / (fi * sp));
-    if (fo > 0 && t <= end && t > end - fo * sp) d = Math.max(d, 1 - (end - t) / (fo * sp));
+    const si = pts ? ramp.speedAt(pts, start) : Number(app.speed) || 1;
+    const so = pts ? ramp.speedAt(pts, end) : Number(app.speed) || 1;
+    if (fi > 0 && t >= start && t < start + fi * si) d = Math.max(d, 1 - (t - start) / (fi * si));
+    if (fo > 0 && t <= end && t > end - fo * so) d = Math.max(d, 1 - (end - t) / (fo * so));
     return Math.min(1, Math.max(0, d));
   });
   const adj = $derived(app.adjust);

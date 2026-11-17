@@ -723,6 +723,8 @@ pub struct PostFilters {
     /// make in-between frames up to this rate after the speed change (replaces `fps`)
     pub interpolate: Option<f64>,
     pub speed: f64,
+    /// a speed ramp's `setpts=...` (replaces `speed`)
+    pub ramp: Option<String>,
     pub fps: Option<f64>,
     pub playback: Playback,
     pub fade_in: f64,
@@ -740,7 +742,9 @@ pub fn video_post(p: &PostFilters) -> String {
     if let Some(c) = &p.caption {
         lin.push(c.clone());
     }
-    if (p.speed - 1.0).abs() > 1e-9 {
+    if let Some(r) = &p.ramp {
+        lin.push(r.clone());
+    } else if (p.speed - 1.0).abs() > 1e-9 {
         lin.push(format!("setpts=PTS/{}", fmt_num(p.speed)));
     }
     if let Some(f) = p.interpolate {
@@ -771,6 +775,9 @@ pub fn audio_post(speed: f64, reverse: bool, normalize: bool, volume_db: f64, fa
     let mut f = atempo_chain(speed);
     if reverse {
         f.push("areverse".into());
+        // areverse keeps each frame's time, so they run backwards; with a speed ramp's
+        // pieces the muxer then dropped all but the first 0.27 s. Count them afresh.
+        f.push("asetpts=N/SR/TB".into());
     }
     if normalize {
         f.push("loudnorm=I=-16:TP=-1.5:LRA=11".into());
@@ -974,13 +981,25 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         Some(crate::spec::SplitLength::Longest) => lens.iter().cloned().fold(0.0, f64::max),
         None => lens.iter().sum(),
     };
-    let speed = spec.speed;
+    // a speed ramp: points in the file time of `input`, so only for ranges of it
+    let ramp = if spec.speed_ramp.is_empty() || still.is_some() {
+        None
+    } else if mixed {
+        warnings.push("The speed ramp applies to one file, so it is not used when ranges come from other files.".into());
+        None
+    } else {
+        crate::ramp::Ramp::new(&spec.speed_ramp, &segs)
+    };
+    // with a ramp the constant speed is not used
+    let speed = if ramp.is_some() { 1.0 } else { spec.speed };
     // a still picture has nothing to play backwards; the sound plays forward
     let boomerang = spec.playback == Playback::Boomerang && still.is_none();
     if still.is_some() && spec.playback == Playback::Boomerang {
         warnings.push("Boomerang applies to the picture only; the sound plays forward.".into());
     }
-    let duration_out = clip / speed * if boomerang { 2.0 } else { 1.0 };
+    // one way through, before boomerang doubles it
+    let forward_out = ramp.as_ref().map_or(clip / speed, |r| r.duration());
+    let duration_out = forward_out * if boomerang { 2.0 } else { 1.0 };
 
     let src_fps_out = v.fps * speed;
     let fps_cap = spec
@@ -992,7 +1011,8 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     // slow, so a GIF is capped at 50 fps
     let fps_cap = if codec.is_image() && fps_cap.unwrap_or(src_fps_out) > 50.0 { Some(50.0) } else { fps_cap };
     // interpolation (slow motion): frames are made up to the source rate (or the cap)
-    let interpolate = (spec.smooth_slowmo && speed < 1.0 - 1e-9 && v.fps > 0.0 && !codec.is_image() && still.is_none())
+    let slowest = ramp.as_ref().map_or(speed, |r| r.min_speed());
+    let interpolate = (spec.smooth_slowmo && slowest < 1.0 - 1e-9 && v.fps > 0.0 && !codec.is_image() && still.is_none())
         .then(|| fps_cap.map_or(v.fps, |c| c.min(v.fps)));
     let still_rate = still.map(|_| still_rate(duration_out, spec.fade_in > 0.0 || spec.fade_out > 0.0));
     let out_fps = match &still_rate {
@@ -1126,7 +1146,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     // ffmpeg's reverse keeps every frame it has been given, after the scale and the frame
     // rate change: output size x frames x 1.5 bytes (8-bit 4:2:0; more for 10-bit sources)
     if spec.playback != Playback::Forward && still.is_none() {
-        let frames = (clip / speed * out_fps).ceil();
+        let frames = (forward_out * out_fps).ceil();
         let bytes = g.out_w as f64 * g.out_h as f64 * 1.5 * frames;
         if bytes > REVERSE_WARN_BYTES {
             warnings.push(format!(
@@ -1290,11 +1310,15 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         scale: ((g.out_w, g.out_h) != (g.rot_w, g.rot_h)).then_some((g.out_w, g.out_h)),
         caption: spec.caption.as_ref().and_then(|c| caption_filter(c, g.out_h)),
         speed: if still.is_some() { 1.0 } else { speed },
+        ramp: ramp.as_ref().map(|r| r.setpts()),
         // After setpts the filter graph still reports the source rate, and
         // ffmpeg then writes the file at that rate: 1.5x of 30 fps kept 2 of
         // every 3 frames at 30 fps instead of all of them at 45 fps. Naming
         // the new rate keeps every frame (they already sit on its grid).
-        fps: fps_cap.or(((speed - 1.0).abs() > 1e-9 && src_fps_out > 0.0 && still.is_none()).then_some(src_fps_out)),
+        // a ramp gives every frame its own time: fps makes a steady rate again
+        fps: fps_cap.or(((speed - 1.0).abs() > 1e-9 && src_fps_out > 0.0 && still.is_none()).then_some(src_fps_out)).or(
+            ramp.as_ref().map(|_| if v.fps > 0.0 { v.fps } else { 30.0 }),
+        ),
         interpolate,
         playback: if still.is_some() { Playback::Forward } else { spec.playback },
         fade_in: spec.fade_in.max(0.0),
@@ -1303,7 +1327,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         color: color_tags(v, tonemap),
     });
     let apost = audio.map(|a| {
-        audio_post(
+        let rest = audio_post(
             speed,
             spec.playback == Playback::Reverse,
             a.normalize,
@@ -1311,7 +1335,13 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             spec.fade_in.max(0.0),
             spec.fade_out.max(0.0),
             duration_out,
-        )
+        );
+        // the ramp's sound first (it ends at the picture's length), then the rest
+        match (&ramp, rest.is_empty()) {
+            (Some(r), true) => r.audio("ra"),
+            (Some(r), false) => format!("{},{rest}", r.audio("ra")),
+            (None, _) => rest,
+        }
     });
     let color = color_tags(v, tonemap);
 
@@ -1777,7 +1807,7 @@ fn build_copy(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planne
     if spec.max_width.is_some_and(|w| w < v.width) || spec.max_height.is_some_and(|h| h < v.height) {
         ignored.push("resolution");
     }
-    if spec.fps.is_some() || (spec.speed - 1.0).abs() > 1e-9 || spec.playback != Playback::Forward {
+    if spec.fps.is_some() || (spec.speed - 1.0).abs() > 1e-9 || !spec.speed_ramp.is_empty() || spec.playback != Playback::Forward {
         ignored.push("frame rate, speed and direction");
     }
     if spec.deinterlace || spec.denoise || spec.tonemap || spec.adjust.as_ref().is_some_and(|a| !adjust_filters(a).is_empty()) {
@@ -1858,7 +1888,9 @@ fn build_audio(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Plann
     if spec.playback == Playback::Boomerang {
         warnings.push("Boomerang applies to the picture only; the sound plays forward.".into());
     }
-    let duration_out = clip / spec.speed;
+    let ramp = crate::ramp::Ramp::new(&spec.speed_ramp, &segs);
+    let speed = if ramp.is_some() { 1.0 } else { spec.speed };
+    let duration_out = ramp.as_ref().map_or(clip / speed, |r| r.duration());
     let kbps = match spec.rate {
         Rate::Size { max_bytes } => {
             if !max_bytes.is_finite() || max_bytes <= 0.0 {
@@ -1875,8 +1907,8 @@ fn build_audio(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Plann
     };
     // the size-fit loop only helps below the 320 kbps cap
     let size_mode = matches!(spec.rate, Rate::Size { .. }) && kbps < 320.0;
-    let apost = audio_post(
-        spec.speed,
+    let rest = audio_post(
+        speed,
         spec.playback == Playback::Reverse,
         au.normalize,
         au.volume_db,
@@ -1884,6 +1916,11 @@ fn build_audio(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Plann
         spec.fade_out.max(0.0),
         duration_out,
     );
+    let apost = match (&ramp, rest.is_empty()) {
+        (Some(r), true) => r.audio("ra"),
+        (Some(r), false) => format!("{},{rest}", r.audio("ra")),
+        (None, _) => rest,
+    };
     let mut a = Vec::new();
     push(&mut a, &["-hide_banner"]);
     if !opts.display {
@@ -2002,6 +2039,7 @@ mod tests {
             auto_scale: false,
             fps: None,
             speed: 1.0,
+            speed_ramp: vec![],
             playback: Playback::Forward,
             deinterlace: false,
             denoise: false,
@@ -2120,6 +2158,7 @@ mod tests {
             interpolate: None,
             scale: Some((320, 360)),
             speed: 2.0,
+            ramp: None,
             fps: Some(24.0),
             playback: Playback::Boomerang,
             fade_in: 0.5,
@@ -2469,6 +2508,23 @@ mod tests {
         // sound from the picture (clip 1): it has none, so the output is silent
         assert!(s.contains(" -an "), "{s}");
         assert!(!p.warnings.is_empty());
+    }
+
+    #[test]
+    fn speed_ramp_plan() {
+        use crate::spec::SpeedPoint;
+        let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
+        sp.segments = vec![Segment { start: 0.0, end: 6.0 }];
+        sp.speed = 3.0; // replaced by the ramp
+        sp.speed_ramp = vec![SpeedPoint { t: 0.0, speed: 0.5 }, SpeedPoint { t: 4.0, speed: 2.0 }];
+        sp.audio = Some(AudioSel { track: 0, bitrate_k: 96.0, volume_db: 0.0, normalize: false });
+        sp.playback = Playback::Reverse;
+        let p = build(&sp, &media(), &opts()).unwrap();
+        let s = strs(p.passes.last().unwrap()).join(" ");
+        assert!((p.duration_out - (4f64.ln() / 0.375 + 1.0)).abs() < 1e-9, "{}", p.duration_out);
+        assert!(s.contains("setpts='(log((0.5+0.375*clip(T-0,0,4))/0.5)/0.375+clip(T-4,0,2)/2)/TB',fps=30"), "{s}");
+        assert!(!s.contains("setpts=PTS/3"), "{s}");
+        assert!(s.contains("apad,atrim=duration=4.696785,areverse,asetpts=N/SR/TB"), "{s}");
     }
 
     #[test]

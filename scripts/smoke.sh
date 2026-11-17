@@ -306,6 +306,34 @@ if run pic_seq webm; then
   report splits_picture_then_video $ok "duration=$d"
 else fail_run splits_picture_then_video; fi
 
+# 18. speed ramp: 0.5x at 0 s to 2x at 4 s on a 6 s clip with sound; the output is
+# ln(4)/0.375 + 1 = 4.697 s, and the sound ends with the picture (also reversed, and
+# over two ranges in reverse order: 3-6 then 0-2 with points 1 s 0.5x, 5 s 2x = 5.246 s)
+gen -f lavfi -i testsrc2=size=320x180:rate=30:duration=6 -f lavfi -i sine=frequency=440:sample_rate=48000:duration=6   -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -shortest "$work/six.mp4"
+last_pts() { ffprobe -v error -select_streams "$2:0" -show_entries packet=pts_time -of csv=p=0 "$1" | tail -1 | cut -d, -f1; }
+ramp_case() { # NAME EXPECTED OVERRIDES
+  node -e '
+    const [name, over, input] = process.argv.slice(1);
+    const base = {
+      input, segments: [], crop: null, rotate: 0, mirror: false, maxWidth: null, maxHeight: null,
+      autoScale: false, fps: null, speed: 1, playback: "forward", deinterlace: false, denoise: false,
+      tonemap: false, fadeIn: 0, fadeOut: 0, container: "webm", codec: "vp9",
+      rate: { mode: "crf", crf: 40, maxBitrateK: null }, twoPass: false, effort: "fast",
+      audio: { track: 0, bitrateK: 64, volumeDb: 0, normalize: false }, subs: null, title: null, extraArgs: [], outputName: null,
+    };
+    process.stdout.write(JSON.stringify({ ...base, ...JSON.parse(over) }));
+  ' "$1" "$3" "$(native "$work/six.mp4")" > "$work/$1.json"
+  if run "$1" webm; then
+    d=$(val "$info" duration); v=$(last_pts "$out" v); a=$(last_pts "$out" a)
+    ok=0; near "$d" "$2" 0.05 && near "$v" "$a" 0.1 && near "$a" "$2" 0.1 && ok=1
+    report "$1" $ok "duration=$d (expected $2) video ends $v, sound ends $a"
+  else fail_run "$1"; fi
+}
+R='"speedRamp":[{"t":0,"speed":0.5},{"t":4,"speed":2}]'
+ramp_case speed_ramp 4.697 "{$R,\"speed\":3}"
+ramp_case speed_ramp_reverse 4.697 "{$R,\"playback\":\"reverse\"}"
+ramp_case speed_ramp_two_ranges 5.246 '{"segments":[{"start":3,"end":6},{"start":0,"end":2}],"speedRamp":[{"t":1,"speed":0.5},{"t":5,"speed":2}]}'
+
 # 16. cancel during pass 1: nothing may be left behind
 spec cancel "{\"input\":\"$(native "$work/long.mp4")\",\"effort\":\"best\",\"rate\":{\"mode\":\"size\",\"maxBytes\":4194304}}"
 log=$("$bin" "$work/cancel.json" "$(native "$work/cancel.webm")" --cancel-after 1.5 2>&1)

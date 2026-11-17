@@ -7,6 +7,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- **Speed ramp**: a lane under the timeline with speed points (0.25x to 4x);
+  the speed changes evenly between them. The preview plays it, the sound
+  follows it with its pitch kept, and the output length, size limit and
+  fades take it into account.
+
 ### Changed
 
 - Open URL: Best available is the quality until you pick another (it was the
@@ -16,6 +23,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 - At start the preset field was empty for about 3 seconds, until the search
   for ffmpeg had finished. The preset now shows at once.
+- Reverse with sound could leave only the first fraction of a second of
+  sound (the reversed sound's timestamps ran backwards).
 
 ## [1.0.3] - 2026-11-16
 

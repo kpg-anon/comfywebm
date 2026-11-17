@@ -46,6 +46,15 @@ fn real_main() -> Result<(), String> {
         }
     }
 
+    // CWM_PRINT_PLAN=1: print each ffmpeg pass (as the planner makes it) before running
+    if std::env::var_os("CWM_PRINT_PLAN").is_some() {
+        let opts = comfywebm_engine::plan::Opts { zscale: st.filters.zscale, sources: Some(&sources), ..comfywebm_engine::plan::Opts::new(&output, "passlog") };
+        let p = comfywebm_engine::plan::build(&spec, &info, &opts)?;
+        for (i, pass) in p.passes.iter().enumerate() {
+            println!("pass {}: {}", i + 1, pass.join(" "));
+        }
+    }
+
     let cancel = Arc::new(run::Cancel::new());
     if let Some(secs) = cancel_after {
         let c = cancel.clone();

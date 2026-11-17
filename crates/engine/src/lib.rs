@@ -7,6 +7,7 @@ pub mod naming;
 pub mod plan;
 pub mod probe;
 pub mod proxy;
+pub mod ramp;
 pub mod run;
 pub mod spec;
 pub mod strip;

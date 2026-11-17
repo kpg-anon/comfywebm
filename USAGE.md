@@ -110,6 +110,17 @@ building it yourself. For an overview and the downloads, see
   display's refresh rate (Settings, default 60 Hz). Speeds whose output plays
   evenly are listed and the speed slider snaps to them; a setting that judders
   or stutters is explained, with the nearest smooth speeds and caps as buttons.
+- **Speed ramp**: Speed under the timeline shows a lane where the speed changes
+  over the clip (0.25x to 4x, up is faster, 1x in the middle). Click to add a
+  point, drag it (time and speed), double-click to remove it; right-click a
+  point for 1/4x, 1/2x, 1x, 2x, 4x or "Move to the playhead". Between two
+  points the speed changes evenly; before the first and after the last it
+  stays at that point's speed. Speeds snap to common ones and times to range
+  edges and the playhead (hold Alt for neither). With points, the ramp
+  replaces the Speed setting; the preview plays at the ramp's speed, the sound
+  follows it (pitch kept), and the output length, size and fades use it. The
+  ramp is part of the file's edit (undo, and it comes back when the file is
+  opened again). It is used for the editor's file, not in Batch or Splits.
 - **Quality mode**: CRF on the codec's own scale, with an optional bitrate cap.
 - **Codecs**: WebM with VP9, VP8 or AV1 (Opus audio, Vorbis with VP8); MP4 with
   H.264, HEVC or AV1 (AAC audio); GIF (one palette per clip, no sound). GIF has

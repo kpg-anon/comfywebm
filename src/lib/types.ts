@@ -32,6 +32,9 @@ export type Layout = {
 
 export type Segment = { start: number; end: number; id?: number };
 
+/** A point of a speed ramp: at `t` seconds of the source file the speed is `speed`. */
+export type SpeedPoint = { t: number; speed: number };
+
 export type MediaInfo = {
   path: string;
   fileName: string;
@@ -112,6 +115,8 @@ export type EncodeSpec = {
   autoScale: boolean;
   fps: number | null;
   speed: number;
+  /** a speed that changes over the clip (file time); with points it replaces `speed` */
+  speedRamp: SpeedPoint[];
   playback: Playback;
   deinterlace: boolean;
   denoise: boolean;

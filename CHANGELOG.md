@@ -7,6 +7,16 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- Open URL: Best available is the quality until you pick another (it was the
+  largest up to 1080p).
+
+### Fixed
+
+- At start the preset field was empty for about 3 seconds, until the search
+  for ffmpeg had finished. The preset now shows at once.
+
 ## [1.0.3] - 2026-11-16
 
 ### Fixed

@@ -62,7 +62,8 @@
       const i = await ipc.urlInfo(u);
       info = i;
       lookedUp = u;
-      height = i.heights.find((h) => h <= 1080) ?? i.heights[0] ?? null;
+      // Best available until another quality is picked
+      height = null;
       partStart = 0;
       partEnd = i.duration ?? 0;
     } catch (e) {

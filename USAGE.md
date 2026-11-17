@@ -19,9 +19,9 @@ building it yourself. For an overview and the downloads, see
 
 - **Input**: local files (open, or the first command-line argument; drag and
   drop onto the preview area), and web links through yt-dlp: title, uploader,
-  duration and thumbnail before downloading, a quality choice, and an optional
-  "only download part" start and end. Dropping or opening several files adds
-  one whole-file job each.
+  duration and thumbnail before downloading, a quality choice (Best available
+  unless another is picked), and an optional "only download part" start and
+  end. Dropping or opening several files adds one whole-file job each.
 - **Splits**: a tab for combining two or more videos or pictures (PNG,
   JPEG, WebP, BMP, TIFF) into one output. Add them (button or drop), set each
   video's start and end, and reorder them. How to combine: side by side (the

@@ -1,12 +1,30 @@
 <script lang="ts">
-  // Crop-mode controls: aspect lock, numeric x/y/w/h, full frame, clear.
-  import { app } from "$lib/state.svelte";
-  import { ASPECTS, MORE_ASPECTS, ratioOf } from "$lib/crop";
+  // Crop-mode controls: aspect lock, numeric x/y/w/h, clear, done. Used by the
+  // editor and by Splits, so the values come in as props.
+  import type { Snippet } from "svelte";
+  import { ASPECTS, MORE_ASPECTS, ratioOf, type AspectLock } from "$lib/crop";
   import type { Crop } from "$lib/types";
   import Select from "./Select.svelte";
 
-  const inMore = $derived(MORE_ASPECTS.some((m) => m.value === app.aspect));
-  const custom = $derived(!ASPECTS.includes(app.aspect) && !inMore);
+  interface Props {
+    aspect: AspectLock;
+    crop: Crop | null;
+    /** the picture's size in source display pixels */
+    W: number;
+    H: number;
+    onaspect: (a: AspectLock) => void;
+    oncrop: (c: Crop | null) => void;
+    ondone: () => void;
+    /** buttons before the usual aspects, for example Splits' "Part" */
+    lead?: { value: AspectLock; label: string; title?: string }[];
+    hint?: string;
+    /** more controls after the numbers (zoom, warnings) */
+    children?: Snippet;
+  }
+  let { aspect, crop, W, H, onaspect, oncrop, ondone, lead = [], hint = "Drag on the picture. Arrows move, Shift+arrows 10 px, Alt+arrows resize.", children }: Props = $props();
+
+  const inMore = $derived(MORE_ASPECTS.some((m) => m.value === aspect));
+  const custom = $derived(!ASPECTS.includes(aspect) && !inMore && !lead.some((l) => l.value === aspect));
   let customText = $state("");
   let customBad = $state(false);
 
@@ -15,7 +33,7 @@
     if (!t) return;
     customBad = ratioOf(t) === null;
     if (!customBad) {
-      app.setAspect(t);
+      onaspect(t);
       customText = ""; // the placeholder now shows the ratio in use
     }
   }
@@ -25,22 +43,25 @@
   function setField(k: keyof Crop, raw: string) {
     const n = Math.round(Number(raw));
     if (!Number.isFinite(n)) return;
-    const c = app.crop ?? { x: 0, y: 0, w: app.srcW, h: app.srcH };
+    const c = crop ?? { x: 0, y: 0, w: W, h: H };
     const next = { ...c, [k]: n };
     // keep the rectangle inside the picture: shrink the size before moving
-    if (k === "x") next.x = Math.min(Math.max(0, n), app.srcW - next.w);
-    if (k === "y") next.y = Math.min(Math.max(0, n), app.srcH - next.h);
-    if (k === "w") next.w = Math.min(Math.max(1, n), app.srcW - next.x);
-    if (k === "h") next.h = Math.min(Math.max(1, n), app.srcH - next.y);
-    app.setCrop(next);
+    if (k === "x") next.x = Math.min(Math.max(0, n), W - next.w);
+    if (k === "y") next.y = Math.min(Math.max(0, n), H - next.h);
+    if (k === "w") next.w = Math.min(Math.max(1, n), W - next.x);
+    if (k === "h") next.h = Math.min(Math.max(1, n), H - next.y);
+    oncrop(next);
   }
 </script>
 
 <div class="cropbar">
   <span class="lbl">Aspect</span>
   <div class="seg" role="radiogroup" aria-label="Aspect lock">
+    {#each lead as l (l.value)}
+      <button class:on={aspect === l.value} role="radio" aria-checked={aspect === l.value} title={l.title} onclick={() => onaspect(l.value)}>{l.label}</button>
+    {/each}
     {#each ASPECTS as a (a)}
-      <button class:on={app.aspect === a} role="radio" aria-checked={app.aspect === a} onclick={() => app.setAspect(a)}>
+      <button class:on={aspect === a} role="radio" aria-checked={aspect === a} onclick={() => onaspect(a)}>
         {a === "free" ? "Free" : a}
       </button>
     {/each}
@@ -48,10 +69,10 @@
   <span class="more" class:on={inMore}>
     <Select
       label="More aspect ratios"
-      value={inMore ? app.aspect : null}
+      value={inMore ? aspect : null}
       placeholder="More..."
       options={MORE_ASPECTS.map((m) => ({ value: m.value as string | null, label: m.value, hint: m.hint }))}
-      onchange={(v) => v && app.setAspect(v)}
+      onchange={(v) => v && onaspect(v)}
     />
   </span>
   <input
@@ -60,7 +81,7 @@
     class:on={custom}
     type="text"
     spellcheck="false"
-    placeholder={custom ? app.aspect : "custom 5:3"}
+    placeholder={custom ? aspect : "custom 5:3"}
     aria-label="Custom aspect ratio, for example 5:3 or 1.66"
     title="A ratio such as 5:3, 1.66:1 or 1.66. Enter applies it."
     bind:value={customText}
@@ -81,19 +102,17 @@
           class="field mono"
           type="number"
           min="0"
-          value={app.crop ? app.crop[k] : k === "w" ? app.srcW : k === "h" ? app.srcH : 0}
+          value={crop ? crop[k] : k === "w" ? W : k === "h" ? H : 0}
           onchange={(e) => setField(k, (e.currentTarget as HTMLInputElement).value)}
         />
       </label>
     {/each}
   </div>
 
-  <button class="btn small" onclick={() => app.setCrop(null)} disabled={!app.crop}>Clear</button>
-  <button class="btn small" onclick={() => (app.cropMode = false)}>Done <kbd>Esc</kbd></button>
-  <span class="hint muted">Drag on the picture. Arrows move, Shift+arrows 10 px, Alt+arrows resize.</span>
-  {#if app.rotate !== 0 || app.mirror}
-    <span class="hint warn">The picture is shown unrotated while cropping; rotate and mirror apply after the crop.</span>
-  {/if}
+  {@render children?.()}
+  <button class="btn small" onclick={() => oncrop(null)} disabled={!crop}>Clear</button>
+  <button class="btn small" onclick={ondone}>Done <kbd>Esc</kbd></button>
+  {#if hint}<span class="hint muted">{hint}</span>{/if}
 </div>
 
 <style>

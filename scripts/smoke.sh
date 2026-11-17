@@ -282,6 +282,30 @@ if run sized webm; then
   report splits_size_limit $ok "size=$s limit=300000 $(res)"
 else fail_run splits_size_limit; fi
 
+# a picture as the first clip, beside the wide video: it lasts as long as the video
+# (its range is 0..4 although the file has no length), sound comes from clip 2, and
+# its crop (the left half, red) is used
+gen -f lavfi -i "color=c=red:size=200x400,drawbox=x=100:y=0:w=100:h=400:color=blue:t=fill" -frames:v 1 "$work/pic.png"
+gen -i "$work/pic.png" -frames:v 1 "$work/pic.jpg"
+for ext in png jpg; do
+  pic=$(native "$work/pic.$ext")
+  spec "pic_$ext" "{\"input\":\"$pic\",\"segments\":[{\"start\":0,\"end\":4},{\"start\":0,\"end\":4}],\"segmentSources\":[null,\"$wide\"],\"layout\":{\"mode\":\"columns\",\"fill\":\"crop\",\"length\":\"shortest\",\"width\":640,\"height\":360,\"fps\":30,\"gap\":0,\"gapColor\":\"#000000\",\"weights\":[],\"columns\":0,\"sound\":\"clip\",\"soundClip\":1,\"crops\":[{\"x\":0,\"y\":0,\"w\":100,\"h\":400},null]},$aud}"
+  if run "pic_$ext" webm; then
+    d=$(val "$info" duration)
+    px=$(ffmpeg -v error -ss 2 -i "$out" -vf crop=2:2:300:180 -frames:v 1 -f rawvideo -pix_fmt rgb24 - | od -An -tu1 | head -1 | tr -s ' ')
+    r=$(echo $px | cut -d' ' -f1); b=$(echo $px | cut -d' ' -f3)
+    ok=0; near "$d" 4 0.15 && has_audio "$out" && [ "$r" -gt 150 ] && [ "$b" -lt 100 ] && ok=1
+    report "splits_picture_first_$ext" $ok "$(val "$info" width)x$(val "$info" height) duration=$d crop pixel rgb=$px"
+  else fail_run "splits_picture_first_$ext"; fi
+done
+# one after another: the picture for 2 s, then the 4 s video
+spec pic_seq "{\"input\":\"$(native "$work/pic.jpg")\",\"segments\":[{\"start\":0,\"end\":2},{\"start\":0,\"end\":4}],\"segmentSources\":[null,\"$wide\"],\"layout\":{\"mode\":\"sequence\",\"fill\":\"bars\",\"length\":\"shortest\",$L},$aud}"
+if run pic_seq webm; then
+  d=$(val "$info" duration)
+  ok=0; near "$d" 6 0.15 && has_audio "$out" && ok=1
+  report splits_picture_then_video $ok "duration=$d"
+else fail_run splits_picture_then_video; fi
+
 # 16. cancel during pass 1: nothing may be left behind
 spec cancel "{\"input\":\"$(native "$work/long.mp4")\",\"effort\":\"best\",\"rate\":{\"mode\":\"size\",\"maxBytes\":4194304}}"
 log=$("$bin" "$work/cancel.json" "$(native "$work/cancel.webm")" --cancel-after 1.5 2>&1)

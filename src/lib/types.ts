@@ -26,6 +26,8 @@ export type Layout = {
   weights: number[];
   /** grid columns; 0 = as square as possible */
   columns: number;
+  /** the part of each clip used, in that clip's display pixels; null = all of it */
+  crops: (Rect | null)[];
 };
 
 export type Segment = { start: number; end: number; id?: number };
@@ -41,6 +43,8 @@ export type MediaInfo = {
   encoder: string | null;
   /** sound but no video stream; `video` then holds the embedded cover picture, or zeros */
   audioOnly?: boolean;
+  /** a single picture (PNG, JPEG, WebP...): no length of its own */
+  still?: boolean;
   // width/height are display pixels (rotation and sample aspect ratio applied)
   video: {
     codec: string;

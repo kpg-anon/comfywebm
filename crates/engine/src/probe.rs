@@ -191,6 +191,13 @@ pub fn parse(json: &Value) -> Result<MediaInfo, String> {
     info.bitrate_k = fmt.and_then(|f| f.get("bit_rate")).and_then(num).map(|b| (b / 1000.0).round() as u32);
     info.created = fmt.and_then(|f| tag(f, "creation_time"));
     info.encoder = fmt.and_then(|f| tag(f, "encoder"));
+    // a picture file: the image2 demuxer or one of the single-image ones (png_pipe,
+    // jpeg_pipe, webp_pipe...); GIF and APNG have their own demuxers and stay video
+    let fmt_name = fmt.and_then(|f| f.get("format_name")).and_then(Value::as_str).unwrap_or("");
+    info.still = !info.audio_only
+        && info.video.width > 0
+        && fmt_name.split(',').any(|f| f == "image2" || f.ends_with("_pipe"))
+        && info.video.frames.is_none_or(|n| n <= 1);
     info.duration = json
         .pointer("/format/duration")
         .and_then(num)
@@ -219,6 +226,25 @@ mod tests {
         assert_eq!(info.duration, 8.0);
         let none: Value = serde_json::from_str(r#"{"streams":[],"format":{"duration":"8.0"}}"#).unwrap();
         assert!(parse(&none).is_err());
+    }
+
+    #[test]
+    fn pictures_are_stills() {
+        let pic = |fmt: &str, codec: &str| {
+            let j: Value = serde_json::from_str(&format!(
+                r#"{{"streams":[{{"index":0,"codec_type":"video","codec_name":"{codec}","width":800,"height":1000,"avg_frame_rate":"25/1"}}],
+                    "format":{{"format_name":"{fmt}","duration":"0.04"}}}}"#
+            ))
+            .unwrap();
+            parse(&j).unwrap().still
+        };
+        assert!(pic("png_pipe", "png"));
+        assert!(pic("image2", "mjpeg"));
+        assert!(pic("webp_pipe", "webp"));
+        assert!(!pic("gif", "gif"));
+        assert!(!pic("apng", "apng"));
+        assert!(!pic("mov,mp4,m4a,3gp,3g2,mj2", "h264"));
+        assert!(!pic("avi", "mjpeg"));
     }
 
     #[test]

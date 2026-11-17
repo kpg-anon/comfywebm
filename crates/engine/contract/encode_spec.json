@@ -30,6 +30,7 @@
   "input": "in.mp4",
   "layout": {
     "columns": 0,
+    "crops": [],
     "fill": "bars",
     "fps": 30.0,
     "gap": 8,

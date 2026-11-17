@@ -959,7 +959,9 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     let segs = if mixed {
         let mut out = Vec::new();
         for (i, g) in spec.segments.iter().enumerate() {
-            let d = seg_src[i].map_or(info.duration, |m| m.duration);
+            // a picture has no length of its own: it lasts as long as its range says
+            let m = clip_info(i);
+            let d = if m.still { 0.0 } else { m.duration };
             out.extend(resolve_segments(std::slice::from_ref(g), d).map_err(|e| e.replace("Range 1", &format!("Range {}", i + 1)))?);
         }
         out
@@ -1242,12 +1244,21 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         (0..segs.len())
             .map(|i| {
                 let m = clip_info(i);
+                // the clip's own crop, kept inside its picture
+                let crop = l.crops.get(i).copied().flatten().and_then(|r| {
+                    let (fw, fh) = (m.video.width, m.video.height);
+                    let x = r.x.min(fw.saturating_sub(2));
+                    let y = r.y.min(fh.saturating_sub(2));
+                    let w = r.w.min(fw - x).max(2);
+                    let h = r.h.min(fh - y).max(2);
+                    (fw > 0 && fh > 0 && (x, y, w, h) != (0, 0, fw, fh)).then_some((x, y, w, h))
+                });
                 let pre = segment_chain(
                     &SegmentFilters {
                         deinterlace: m.video.interlaced,
                         tonemap: m.video.hdr && opts.zscale,
                         anamorphic: m.video.anamorphic,
-                        crop: None,
+                        crop,
                         subtitles: None,
                         rotate: 0,
                         mirror: false,
@@ -1467,6 +1478,12 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         }
         push(&mut a, &["-y"]);
         for (i, (s, e)) in segs.iter().enumerate() {
+            if layout.is_some() && clip_info(i).still {
+                // one picture, repeated for the clip's length
+                let path = seg_src[i].map_or(spec.input.as_str(), |m| m.path.as_str());
+                push(&mut a, &["-loop", "1", "-t", &fmt_num(e - s), "-i", path]);
+                continue;
+            }
             if *s > 0.0 {
                 push(&mut a, &["-ss", &fmt_num(*s)]);
             }
@@ -2354,6 +2371,7 @@ mod tests {
             gap_color: "#000000".into(),
             weights: vec![],
             columns: 0,
+            crops: vec![],
         }
     }
 
@@ -2419,6 +2437,38 @@ mod tests {
         let (sp, m) = split_spec(test_layout(LayoutMode::Grid));
         let s = strs(&build(&sp, &media(), &Opts { sources: Some(&m), ..opts() }).unwrap().passes[0]).join(" ");
         assert!(s.contains("xstack=inputs=2:layout=0_0|640_0"), "{s}");
+    }
+
+    #[test]
+    fn split_with_a_still_picture_and_crops() {
+        use crate::spec::{LayoutMode, Rect};
+        // the picture is the first clip (the job's input), the video the second
+        let (mut sp, mut m) = split_spec(crate::spec::Layout {
+            crops: vec![Some(Rect { x: 100, y: 0, w: 400, h: 1000 }), Some(Rect { x: 0, y: 0, w: 1080, h: 1920 })],
+            ..test_layout(LayoutMode::Columns)
+        });
+        sp.input = "pic.jpg".into();
+        sp.segments = vec![Segment { start: 0.0, end: 9.0 }, Segment { start: 0.0, end: 9.0 }];
+        sp.audio = Some(AudioSel { track: 0, bitrate_k: 96.0, volume_db: 0.0, normalize: false });
+        let mut pic = media();
+        pic.path = "pic.jpg".into();
+        pic.duration = 0.04;
+        pic.still = true;
+        pic.audio.clear();
+        pic.video.width = 800;
+        pic.video.height = 1000;
+        m.insert("pic.jpg".into(), pic.clone());
+        let p = build(&sp, &pic, &Opts { sources: Some(&m), ..opts() }).unwrap();
+        let s = strs(p.passes.last().unwrap()).join(" ");
+        // looped for the whole 9 s, not cut to its 0.04 s
+        assert!(s.contains("-loop 1 -t 9 -i pic.jpg -t 9 -i b.mp4"), "{s}");
+        assert!((p.duration_out - 9.0).abs() < 1e-9, "{}", p.duration_out);
+        // its crop is used; the second clip's covers all of it, so none
+        assert!(s.contains("crop=400:1000:100:0"), "{s}");
+        assert_eq!(s.matches("crop=1080:1920").count(), 0, "{s}");
+        // sound from the picture (clip 1): it has none, so the output is silent
+        assert!(s.contains(" -an "), "{s}");
+        assert!(!p.warnings.is_empty());
     }
 
     #[test]

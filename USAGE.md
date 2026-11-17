@@ -22,24 +22,45 @@ building it yourself. For an overview and the downloads, see
   duration and thumbnail before downloading, a quality choice, and an optional
   "only download part" start and end. Dropping or opening several files adds
   one whole-file job each.
-- **Splits**: a tab for combining two or more clips into one output. Add
-  clips (button or drop), set each one's start and end, and reorder them.
-  How to combine: one after another, side by side, stacked, or a grid (as
-  square as possible; an empty place gets the gap color). The final shape
-  (Auto: the shape that wastes the least space; 16:9, 9:16, 1:1, 4:5); for a
-  split screen the shape of each part, which sets the final shape (two 9:16
-  parts side by side make 9:8). Size: Auto (as large as the size limit
-  allows) or Small, Medium, Large, each shown in pixels for the shape and
-  kept within the preset's largest size. Fill each space: the whole picture
-  with bars, fill it and cut the edges, or the picture over a blurred copy.
-  Split screen also has: sizes of the parts (fit each clip, equal, first clip
-  larger), sound from one clip, all mixed, or none, the length of the
-  shortest or the longest clip (the others hold their last frame), and a gap
-  with its color. The frame rate is the highest of the clips (at most 60),
-  within the sidebar's cap. The preview shows the parts where the engine puts
-  them and plays them together. The sidebar's settings (preset, size limit,
-  format, codec, caption, watermark, adjustments, speed) apply to the
-  result; crop, rotation, flips, subtitles and cut-only do not.
+- **Splits**: a tab for combining two or more videos or pictures (PNG,
+  JPEG, WebP, BMP, TIFF) into one output. Add them (button or drop), set each
+  video's start and end, and reorder them. How to combine: side by side (the
+  default), stacked, a grid (as square as possible; an empty place gets the
+  gap color), or one after another. A picture beside a video stays on screen
+  for the result's whole length; one after another it shows for a length you
+  set (5 seconds to start with). The final shape (Auto: the shape that wastes
+  the least space; 16:9, 9:16, 1:1, 4:5); for a split screen the shape of
+  each part, which sets the final shape (two 9:16 parts side by side make
+  9:8). Size: Auto (as large as the size limit allows) or Small, Medium,
+  Large, each shown in pixels for the shape and kept within the preset's
+  largest size. Fill each space: the whole picture with bars, fill it and cut
+  the edges, or the picture over a blurred copy. Split screen also has: sizes
+  of the parts (fit each clip, equal, first clip larger, or by hand), sound
+  from one clip (the first clip that has sound to start with), all mixed, or
+  none, the length of the shortest or the longest video (the others hold
+  their last frame), and a gap with its color. The frame rate is the highest
+  of the videos (at most 60), within the sidebar's cap.
+  - **Crop and zoom** each clip: Crop on its row (or double-click its part in
+    the preview) shows the whole picture with a crop rectangle, the aspect
+    buttons of the editor plus Part (the shape of the space the clip fills;
+    with Auto shapes the space follows the crop, so Part is free), a custom
+    ratio, x/y/w/h, and a zoom slider. In the preview, drag a part to move
+    its picture and use the wheel to zoom at the pointer.
+  - **By hand**: drag the line between two parts (side by side or stacked) to
+    change their sizes.
+  - **Match**: the Match button on a row makes that clip as long as the other
+    one (with three or more clips, a list of them); a video keeps its start
+    when the file is long enough. The ends of a video's range snap to the
+    other clips' lengths while dragged.
+  - **Timeline**: each video's row has a track of the whole file with a
+    filmstrip: drag an end to trim, drag the range to move it, click in it to
+    show that moment. A seek bar under the preview covers the whole result
+    (one after another, with a block per clip).
+  - The preview shows the parts where the engine puts them, with their crops,
+    and plays them together. Right-click a part or a row for crop, match,
+    move and remove. The sidebar's settings (preset, size limit, format,
+    codec, caption, watermark, adjustments, speed) apply to the result; the
+    sidebar's crop, rotation, flips, subtitles and cut-only do not.
 - **Batch**: a tab for encoding many files with the same settings. Add files,
   a folder (optionally with subfolders) or drop them. Each file is planned with
   the current settings and checked: a picture too poor for the size limit,
@@ -179,8 +200,9 @@ building it yourself. For an overview and the downloads, see
   downloads) show in a stack at the top right, newest on top, each fading after
   a few seconds; the x closes one at once.
 - **Help**: every setting explains itself on hover.
-- The window behaves like an app: no browser context menu (text fields keep
-  cut, copy and paste), no browser keys such as Find, Print, Reload or zoom,
+- The window behaves like an app: no browser context menu (text fields get
+  the app's own menu: undo, redo, cut, copy, paste, delete, select all), no
+  browser keys such as Find, Print, Reload or zoom,
   hover text in the theme, and the window's size and position are kept between
   runs. The empty state lists recent files. `?` lists every key.
 - Output files never overwrite an existing file; a number is added instead.

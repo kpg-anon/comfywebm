@@ -19,6 +19,7 @@
   "format": "",
   "path": "in.mp4",
   "sizeBytes": 1,
+  "still": false,
   "subs": [],
   "video": {
     "bitrateK": null,

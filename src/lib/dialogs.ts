@@ -28,6 +28,24 @@ export const pickFont = () =>
 
 export const pickAnyFile = (title: string) => pick({ title });
 
+const IMAGE_EXT = ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"];
+
+/** Splits: videos and pictures, several at once. */
+export const pickSplitClips = async (): Promise<string[]> => {
+  const r = await open({
+    multiple: true,
+    title: "Add videos or pictures",
+    filters: [
+      { name: "Videos and pictures", extensions: [...VIDEO_EXT, ...IMAGE_EXT] },
+      { name: "Videos", extensions: VIDEO_EXT },
+      { name: "Pictures", extensions: IMAGE_EXT },
+      { name: "All files", extensions: ["*"] },
+    ],
+  });
+  if (!r) return [];
+  return Array.isArray(r) ? r : [r];
+};
+
 export const pickVideos = async (): Promise<string[]> => {
   const r = await open({
     multiple: true,

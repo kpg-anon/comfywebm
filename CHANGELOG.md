@@ -7,6 +7,35 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- **Splits takes pictures**: a PNG, JPEG, WebP, BMP or TIFF can be a clip.
+  Beside a video it stays on screen for the whole result; one after another
+  it shows for a length you set.
+- **Crop and zoom in Splits**: each clip can be cropped with the editor's
+  aspect buttons, a Part button for the shape of its space, a custom ratio
+  and a zoom slider. In the preview, drag a part to move its picture and use
+  the wheel to zoom.
+- **Sizes by hand**: drag the line between two parts to change their sizes.
+- **Match**: a button on each clip makes it as long as another clip.
+- **Splits timeline**: each video has a trim track of the whole file with a
+  filmstrip and handles that snap to the other clips' lengths, and a seek
+  bar covers the whole result.
+- **Right-click menu**: text fields have the app's own menu (undo, redo, cut,
+  copy, paste, delete, select all) instead of the browser's; Splits parts and
+  rows have one for crop, match, move and remove.
+
+### Changed
+
+- Splits starts with Side by side.
+- Splits takes its sound from the first clip that has sound, and its frame
+  rate from the videos only.
+
+### Fixed
+
+- A picture added to Splits showed nothing, and with a picture in the splits
+  Play stopped at once: the picture had a length of 0 (PNG) or 0.04 s (JPEG).
+
 ## [1.0.1] - 2026-11-16
 
 ### Added

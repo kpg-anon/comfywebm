@@ -2,15 +2,28 @@
   // Crop rectangle drawn over the displayed picture. `rect` is the picture's
   // box inside the stage in CSS pixels (letterboxing removed); the crop itself
   // is stored in source display pixels, so every pointer delta is scaled by
-  // source width / rect width.
-  import { app } from "$lib/state.svelte";
-  import { draw, move, ratioOf, resize, type Handle } from "$lib/crop";
+  // source width / rect width. Used by the editor and by Splits, so the
+  // values come in as props.
+  import { draw, move, resize, type Handle } from "$lib/crop";
   import type { Crop } from "$lib/types";
 
-  let { rect }: { rect: { x: number; y: number; w: number; h: number } } = $props();
+  interface Props {
+    rect: { x: number; y: number; w: number; h: number };
+    /** the picture's size in source display pixels */
+    W: number;
+    H: number;
+    crop: Crop | null;
+    /** width / height the rectangle keeps, or null for free */
+    ratio: number | null;
+    /** drawing and dragging are on */
+    active: boolean;
+    /** while dragging */
+    onchange: (c: Crop | null) => void;
+    /** when the pointer is released */
+    oncommit: (c: Crop | null) => void;
+  }
+  let { rect, W, H, crop, ratio, active, onchange, oncommit }: Props = $props();
 
-  const W = $derived(app.srcW);
-  const H = $derived(app.srcH);
   const sx = $derived(rect.w > 0 ? W / rect.w : 1);
   const sy = $derived(rect.h > 0 ? H / rect.h : 1);
 
@@ -21,6 +34,8 @@
     | { kind: "move"; start: Crop; x0: number; y0: number }
     | { kind: "resize"; start: Crop; handle: Handle; x0: number; y0: number };
   let drag: Drag | null = null;
+  /** the rectangle being dragged, the last one sent to onchange */
+  let live: Crop | null = null;
 
   /** Pointer position in source pixels, clamped to the picture. */
   function toSrc(e: PointerEvent, el: HTMLElement) {
@@ -33,48 +48,46 @@
   let box: HTMLDivElement;
 
   function down(e: PointerEvent, kind: "new" | "move" | Handle) {
-    if (!app.cropMode || e.button !== 0) return;
+    if (!active || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
     box.setPointerCapture(e.pointerId);
     const p = toSrc(e, box);
+    live = crop;
     if (kind === "new") drag = { kind: "new", px: p.x, py: p.y, x0: e.clientX, y0: e.clientY };
-    else if (kind === "move" && app.crop) drag = { kind: "move", start: { ...app.crop }, x0: e.clientX, y0: e.clientY };
-    else if (app.crop) drag = { kind: "resize", start: { ...app.crop }, handle: kind as Handle, x0: e.clientX, y0: e.clientY };
+    else if (kind === "move" && crop) drag = { kind: "move", start: { ...crop }, x0: e.clientX, y0: e.clientY };
+    else if (crop) drag = { kind: "resize", start: { ...crop }, handle: kind as Handle, x0: e.clientX, y0: e.clientY };
   }
 
   function moveEv(e: PointerEvent) {
     if (!drag) return;
     const dx = (e.clientX - drag.x0) * sx;
     const dy = (e.clientY - drag.y0) * sy;
-    const r = ratioOf(app.aspect);
     let c: Crop;
-    if (drag.kind === "new") c = draw(drag.px, drag.py, dx, dy, r, W, H);
+    if (drag.kind === "new") c = draw(drag.px, drag.py, dx, dy, ratio, W, H);
     else if (drag.kind === "move") c = move(drag.start, dx, dy, W, H);
-    else c = resize(drag.start, drag.handle, dx, dy, r, W, H);
-    // write directly while dragging; setCrop on release drops a full-frame crop
-    app.crop = c;
+    else c = resize(drag.start, drag.handle, dx, dy, ratio, W, H);
+    live = c;
+    onchange(c);
   }
 
   function up(e: PointerEvent) {
     if (!drag) return;
     box.releasePointerCapture(e.pointerId);
-    const c = app.crop;
+    const c = live;
     // a click without a real drag does not make a 1-pixel crop
-    if (drag.kind === "new" && c && (c.w < 8 || c.h < 8)) app.crop = null;
-    else app.setCrop(c);
+    if (drag.kind === "new" && c && (c.w < 8 || c.h < 8)) oncommit(null);
+    else oncommit(c);
     drag = null;
   }
 
   // crop rectangle in overlay CSS pixels
-  const view = $derived(
-    app.crop ? { x: app.crop.x / sx, y: app.crop.y / sy, w: app.crop.w / sx, h: app.crop.h / sy } : null,
-  );
+  const view = $derived(crop ? { x: crop.x / sx, y: crop.y / sy, w: crop.w / sx, h: crop.h / sy } : null);
 </script>
 
 <div
   class="overlay"
-  class:active={app.cropMode}
+  class:active
   bind:this={box}
   style:left="{rect.x}px"
   style:top="{rect.y}px"
@@ -92,13 +105,13 @@
       <div class="dim" style:left="{view.x}px" style:top="{view.y}px" style:width="{view.w}px" style:height="{view.h}px"></div>
     </div>
     <div class="crop" style:left="{view.x}px" style:top="{view.y}px" style:width="{view.w}px" style:height="{view.h}px">
-      {#if app.cropMode}
+      {#if active}
         <div class="body" role="presentation" onpointerdown={(e) => down(e, "move")}></div>
         <div class="grid"></div>
         {#each HANDLES as h (h)}
           <div class="h {h}" role="presentation" onpointerdown={(e) => down(e, h)}></div>
         {/each}
-        <span class="size mono">{app.crop?.w}x{app.crop?.h}</span>
+        <span class="size mono">{crop?.w}x{crop?.h}</span>
       {/if}
     </div>
   {/if}

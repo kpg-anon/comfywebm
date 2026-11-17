@@ -4,6 +4,7 @@
   import { app, isNeutral } from "$lib/state.svelte";
   import { sample } from "$lib/curve";
   import CropOverlay from "./CropOverlay.svelte";
+  import { ratioOf } from "$lib/crop";
 
   let video = $state<HTMLVideoElement>();
   let sw = $state(0);
@@ -270,7 +271,16 @@
       {#if app.audioOnly && app.stillUrl}
         <img class="still" src={app.stillUrl} alt="" draggable="false" style:filter={showAdj ? "url(#cwm-adjust)" : null} />
       {/if}
-      <CropOverlay rect={{ x: 0, y: 0, w: box.w, h: box.h }} />
+      <CropOverlay
+        rect={{ x: 0, y: 0, w: box.w, h: box.h }}
+        W={app.srcW}
+        H={app.srcH}
+        crop={app.crop}
+        ratio={ratioOf(app.aspect)}
+        active={app.cropMode}
+        onchange={(c) => (app.crop = c)}
+        oncommit={(c) => app.setCrop(c)}
+      />
     </div>
     {#if fadeDark > 0}
       <div class="fade" style:left="{box.x}px" style:top="{box.y}px" style:width="{box.w}px" style:height="{box.h}px" style:opacity={fadeDark}></div>

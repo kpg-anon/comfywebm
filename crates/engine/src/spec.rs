@@ -27,6 +27,9 @@ pub struct MediaInfo {
     /// the file has sound but no video stream; a cover picture is not video
     #[serde(default)]
     pub audio_only: bool,
+    /// a single picture (PNG, JPEG, WebP, BMP...): it has no length of its own
+    #[serde(default)]
+    pub still: bool,
     pub audio: Vec<AudioTrack>,
     pub subs: Vec<SubTrack>,
 }
@@ -251,6 +254,9 @@ pub struct Layout {
     /// grid: columns (0 = as square as possible)
     #[serde(default)]
     pub columns: u32,
+    /// the part of each clip that is used, in that clip's display pixels (None = all of it)
+    #[serde(default)]
+    pub crops: Vec<Option<Rect>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

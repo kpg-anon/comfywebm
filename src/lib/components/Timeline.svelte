@@ -363,11 +363,28 @@
   </div>
 
   {#if app.cropMode}
-    <CropBar />
+    <CropBar
+      aspect={app.aspect}
+      crop={app.crop}
+      W={app.srcW}
+      H={app.srcH}
+      onaspect={(a) => app.setAspect(a)}
+      oncrop={(c) => app.setCrop(c)}
+      ondone={() => (app.cropMode = false)}
+    >
+      {#if app.rotate !== 0 || app.mirror}
+        <span class="crop-warn">The picture is shown unrotated while cropping; rotate and mirror apply after the crop.</span>
+      {/if}
+    </CropBar>
   {/if}
 </div>
 
 <style>
+  .crop-warn {
+    order: 10;
+    font-size: 11px;
+    color: var(--yellow);
+  }
   .timeline {
     display: flex;
     flex-direction: column;

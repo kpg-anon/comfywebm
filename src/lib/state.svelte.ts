@@ -893,11 +893,12 @@ class AppState {
         if (this.speedRamp.length) this.rampLane = true;
         this.sel = this.segments.length ? 0 : -1;
         if (this.segments.length) this.loop = true;
-        const what = [
+        const parts = [
           this.segments.length ? `${this.segments.length} range${this.segments.length > 1 ? "s" : ""}` : "",
           mem.crop ? "the crop" : "",
           this.speedRamp.length ? "the speed ramp" : "",
-        ].filter(Boolean).join(", ");
+        ].filter(Boolean);
+        const what = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
         this.toast({ kind: "info", title: "Restored your last edit", text: `${what} from the last time this file was open. Ctrl+Z removes them.`, path: null });
       }
       return true;

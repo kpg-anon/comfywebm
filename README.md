@@ -53,19 +53,21 @@ Windows, Linux and macOS.
   waveform behind them, snapping, scene cut detection, undo and redo, frame
   stepping, loop playback.
 - **Picture**: crop with aspect presets and black bar detection, rotate,
-  mirror, speed from 0.25x to 4x with interpolation for slow motion, reverse
-  and boomerang, fades, brightness / contrast / saturation / gamma / hue and a
-  curve, HDR to SDR tone mapping.
+  mirror, speed from 0.25x to 4x with interpolation for slow motion, a speed
+  ramp drawn on the timeline (the sound follows it), reverse and boomerang,
+  fades, brightness / contrast / saturation / gamma / hue and a curve, HDR to
+  SDR tone mapping.
 - **On top**: captions in any installed font and color, at the top, bottom or
   dragged anywhere; a watermark in a corner, dragged anywhere or tiled
   (optionally turned, for diagonal rows); burned-in subtitles.
 - **Formats**: WebM (VP9, VP8, AV1), MP4 (H.264, HEVC, AV1), GIF, animated
   WebP, and sound only (Opus, MP3, AAC). Cut-only stream copy when nothing
   else changes. Sound files with a picture become a video.
-- **Splits**: combine clips of any size, shape and frame rate into one, one
-  after another or at the same time side by side, stacked or in a grid. Pick
-  the final shape, the shape of each part and the size from plain buttons;
-  each clip fits its space whole, filled, or over a blurred copy.
+- **Splits**: combine videos and pictures of any size, shape and frame rate
+  into one, side by side, stacked, in a grid or one after another. Pick the
+  final shape, the shape of each part and the size from plain buttons; each
+  clip fits its space whole, filled, or over a blurred copy, and can be
+  cropped and zoomed. Drag the line between parts to size them by hand.
 - **Many files**: a batch tab that checks every file against the settings and
   offers one-click fixes, joining files into one, and an encode queue that
   survives restarts.
@@ -76,8 +78,13 @@ Windows, Linux and macOS.
 ## Screenshots
 
 <div align="center">
-  <img src="screenshots/editor.webp" alt="The editor: player with the crop and caption preview, timeline with ranges, thumbnails and waveform, and the settings sidebar" width="860">
-  <br><sub>The editor: preview, timeline with ranges, thumbnails, waveform and scene cuts, and the settings on the right</sub>
+  <img src="screenshots/editor.webp" alt="The editor: player, timeline with two ranges, thumbnails, waveform and scene cuts, a speed ramp lane under it, and the settings sidebar" width="860">
+  <br><sub>The editor: preview, timeline with ranges, thumbnails, waveform and scene cuts, a speed ramp, and the settings on the right</sub>
+</div>
+
+<div align="center">
+  <img src="screenshots/splits.webp" alt="The Splits tab: a video beside a picture, with the choices on the left and each clip's trim track" width="860">
+  <br><sub>Splits: a video beside a picture, with plain choices on the left, a live preview and each clip's trim track</sub>
 </div>
 
 | | |

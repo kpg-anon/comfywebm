@@ -12,8 +12,9 @@
   const HI = 4;
 
   const hz = $derived(app.refreshHz);
-  /** a speed ramp on the timeline replaces the Speed setting */
-  const ramped = $derived(app.speedRamp.length > 0);
+  /** a speed ramp on the timeline replaces the Speed setting, for the editor's file only
+   * (Batch and Splits jobs use Speed) */
+  const ramped = $derived(app.speedRamp.length > 0 && app.view === "editor");
   const rampRange = $derived(
     ramped ? speedRange(app.speedRamp, app.segments.length ? app.segments : [{ start: 0, end: app.duration }]) : [1, 1],
   );

@@ -967,6 +967,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        // the right-click menu's Paste (WebView2 asks for permission before navigator.clipboard.readText)
+        .plugin(tauri_plugin_clipboard_manager::init())
         // in-app updates: latest.json on the GitHub release, installers signed with the updater key
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())

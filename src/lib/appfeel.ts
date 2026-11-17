@@ -4,8 +4,10 @@
 // middle-click autoscroll, no dragging images out. Tauri 2 has no switch for
 // WebView2's context menu or its accelerator keys, so they are stopped here.
 //
-// Text fields keep their own context menu (cut, copy, paste) and keys.
-// A dev build keeps reload and the DevTools keys.
+// Text fields get the app's own menu (undo, cut, copy, paste, select all; see
+// menu.svelte.ts) and keep their keys. A dev build keeps reload and the
+// DevTools keys.
+import { menu, textMenu } from "./menu.svelte";
 
 /** Ctrl (or Cmd) + key, by KeyboardEvent.key in lower case. Ctrl+O and Ctrl+U are the app's own. */
 const CTRL = new Set(["f", "g", "p", "r", "s", "j", "h", "n", "t", "w", "d", "e", "k", "l", "=", "+", "-", "0"]);
@@ -22,8 +24,13 @@ function typing(t: EventTarget | null): boolean {
 export function installAppFeel(): () => void {
   const dev = import.meta.env.DEV;
 
-  const menu = (e: MouseEvent) => {
-    if (!typing(e.target)) e.preventDefault();
+  // an element that opened its own menu has already called preventDefault
+  const onMenu = (e: MouseEvent) => {
+    if (e.defaultPrevented) return;
+    e.preventDefault();
+    const t = e.target;
+    if (typing(t) && (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement)) menu.show(e.clientX, e.clientY, textMenu(t));
+    else menu.hide();
   };
 
   const key = (e: KeyboardEvent) => {
@@ -97,7 +104,7 @@ export function installAppFeel(): () => void {
   });
   watch.observe(document.body, { childList: true, subtree: true });
 
-  window.addEventListener("contextmenu", menu);
+  window.addEventListener("contextmenu", onMenu);
   window.addEventListener("keydown", key, true);
   window.addEventListener("pointerdown", down, true);
   window.addEventListener("mouseup", up, true);
@@ -106,7 +113,7 @@ export function installAppFeel(): () => void {
   window.addEventListener("wheel", wheel, { capture: true, passive: false });
   return () => {
     watch.disconnect();
-    window.removeEventListener("contextmenu", menu);
+    window.removeEventListener("contextmenu", onMenu);
     window.removeEventListener("keydown", key, true);
     window.removeEventListener("pointerdown", down, true);
     window.removeEventListener("mouseup", up, true);

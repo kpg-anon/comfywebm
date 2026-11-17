@@ -81,6 +81,8 @@ class Splits {
   parts = $state<"fit" | "equal" | "first" | "custom">("fit");
   custom = $state<number[]>([]);
   plan = $state<PlanInfo | null>(null);
+  /** the layout the plan was made for: its cells are used only while the layout is the same */
+  private planLayout = $state("");
   planError = $state<string | null>(null);
   // the preview's place in the output, in seconds; seekSeq changes on every seek
   time = $state(0);
@@ -229,8 +231,10 @@ class Splits {
     const [cw, ch] = this.canvas;
     if (!this.split) return this.clips.map(() => ({ x: 0, y: 0, w: cw, h: ch }));
     const n = this.clips.length;
+    // the engine's cells while they are for this layout; while a choice or a drag
+    // changes it, the boxes worked out here (the plan follows 300 ms later)
     const fromPlan = this.plan?.cells ?? [];
-    if (fromPlan.length === n) return fromPlan;
+    if (fromPlan.length === n && this.planLayout === JSON.stringify(this.layout())) return fromPlan;
     if (this.mode === "grid") {
       const [cols, rows] = this.grid;
       return this.clips.map((_, i) => ({ x: ((i % cols) * cw) / cols, y: (Math.floor(i / cols) * ch) / rows, w: cw / cols, h: ch / rows }));
@@ -428,6 +432,7 @@ class Splits {
       const p = await ipc.plan(s);
       if (seq !== this.planSeq) return;
       this.plan = p;
+      this.planLayout = JSON.stringify(s.layout);
       this.planError = null;
     } catch (e) {
       if (seq !== this.planSeq) return;

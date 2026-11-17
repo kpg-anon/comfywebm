@@ -15,22 +15,23 @@
     return it !== undefined && it !== "sep" && !it.disabled;
   };
 
+  // The pointer and window sizes are on-screen pixels; a fixed element's left and top are multiplied by the
+  // page's zoom (the interface size), so they are divided by it here.
+  const zoom = () => parseFloat(document.documentElement.style.zoom) || 1;
+
   $effect(() => {
     if (!menu.open) return;
     active = -1;
-    left = menu.x;
-    top = menu.y;
+    const z = zoom();
+    left = menu.x / z;
+    top = menu.y / z;
     void tick().then(() => {
       if (!box) return;
       const r = box.getBoundingClientRect();
-      // the menu's own size in the page's coordinates (the UI scale zooms the page)
-      const k = r.width / Math.max(1, box.offsetWidth) || 1;
-      const w = r.width / k;
-      const h = r.height / k;
-      const vw = window.innerWidth / k;
-      const vh = window.innerHeight / k;
-      left = Math.max(4, Math.min(menu.x, vw - w - 4));
-      top = menu.y + h > vh - 4 ? Math.max(4, menu.y - h) : menu.y;
+      const x = Math.max(4, Math.min(menu.x, window.innerWidth - r.width - 4));
+      const y = menu.y + r.height > window.innerHeight - 4 ? Math.max(4, menu.y - r.height) : menu.y;
+      left = x / z;
+      top = y / z;
     });
     const outside = (e: PointerEvent) => {
       if (!box?.contains(e.target as Node)) menu.hide();

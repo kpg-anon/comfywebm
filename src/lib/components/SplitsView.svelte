@@ -7,6 +7,7 @@
   // In the preview: drag a part to move its picture, use the wheel to zoom,
   // drag the line between two parts to change their sizes, double-click a
   // part (or Crop on its row) to choose the part of the picture to use.
+  import { untrack } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { app } from "$lib/state.svelte";
   import { splits, frameOf, SHAPES, SIZES, type Shape, type SplitClip } from "$lib/splits.svelte";
@@ -137,18 +138,24 @@
     sync(false);
   }
 
-  // a seek (seek bar, a click in a clip's track): every video goes there
+  // A seek (seek bar, a click in a clip's track): every video goes there.
+  // untrack: sync reads the clock, which changes every frame; tracking it
+  // would seek every video on every frame of playback.
   $effect(() => {
     void splits.seekSeq;
-    t0 = splits.time;
-    wall0 = performance.now();
-    sync(true);
+    untrack(() => {
+      t0 = splits.time;
+      wall0 = performance.now();
+      sync(true);
+    });
   });
   // a trim or a new order changes what each video shows at this moment
   $effect(() => {
     void JSON.stringify(splits.clips.map((c) => [c.id, c.start, c.end]));
     void splits.mode;
-    if (!splits.playing) sync(true);
+    untrack(() => {
+      if (!splits.playing) sync(true);
+    });
   });
   // while an end of a range is dragged, that clip shows the end
   $effect(() => {
@@ -283,7 +290,7 @@
     const v = cropVideo;
     const c = cropClip;
     if (!v || !c) return;
-    const at = splits.at(cropIdx, splits.time).local;
+    const at = untrack(() => splits.at(cropIdx, splits.time).local);
     const go = () => (v.currentTime = at);
     if (v.readyState >= 1) go();
     else v.addEventListener("loadedmetadata", go, { once: true });

@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-11-16
+
 ### Added
 
 - **Splits takes pictures**: a PNG, JPEG, WebP, BMP or TIFF can be a clip.

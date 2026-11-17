@@ -1,6 +1,6 @@
 [package]
 name = "comfywebm-engine"
-version = "1.0.2"
+version = "1.0.3"
 description = "ffmpeg planning, encoding and probing for comfywebm"
 authors = ["kpg-anon"]
 license = "MIT"

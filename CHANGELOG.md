@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-11-16
+
 ### Fixed
 
 - Microsoft Defender reported the Windows installer and the installed app as

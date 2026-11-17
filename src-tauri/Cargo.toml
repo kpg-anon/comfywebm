@@ -1,6 +1,6 @@
 [package]
 name = "comfywebm"
-version = "1.0.3"
+version = "1.0.4"
 description = "Cut a clip out of a video and encode it to WebM under a size limit"
 authors = ["kpg-anon"]
 license = "MIT"

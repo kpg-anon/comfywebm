@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-11-17
+
 ### Added
 
 - **Speed ramp**: a lane under the timeline with speed points (0.25x to 4x);

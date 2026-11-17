@@ -694,23 +694,42 @@ class AppState {
 
   // ---------- startup and remembered options ----------
 
+  constructor() {
+    // The preset field and its values are filled before any IPC answers: the
+    // built-in presets and the remembered options are here already. init()
+    // applies them again once the preset files (maybe edited) are read.
+    this.applyPreset(this.defaultPreset, false);
+    this.restoreOptions();
+  }
+
   async init() {
-    const [tools, settings, jobs, config] = await Promise.allSettled([ipc.toolsStatus(), ipc.settingsGet(), ipc.queueList(), ipc.configGet()]);
+    // The presets and settings are small files and come back at once; the tool
+    // search (finding ffmpeg, reading its encoders and filters) can take seconds
+    // on a cold start. The preset is shown from the first two, without waiting
+    // for the tools; the codec is checked again when they arrive.
+    const toolsP = ipc.toolsStatus();
+    const jobsP = ipc.queueList();
+    const [settings, config] = await Promise.allSettled([ipc.settingsGet(), ipc.configGet()]);
     if (config.status === "fulfilled") {
       this.config = config.value;
       this.stepBy = config.value.stepBy;
       if (config.value.errors.length) this.toast({ kind: "failed", title: "Some config files were not read", text: config.value.errors.join("\n"), path: null });
     } else this.error = `Could not read the config: ${ipc.errText(config.reason)}`;
-    if (tools.status === "fulfilled") this.tools = tools.value;
-    else this.error = ipc.errText(tools.reason);
     if (settings.status === "fulfilled") this.settings = { ...DEFAULT_SETTINGS, ...settings.value };
     else this.error = ipc.errText(settings.reason);
-    if (jobs.status === "fulfilled") this.mergeJobs(jobs.value);
     const last = this.settings.lastPreset;
     this.applyPreset(last && this.presets.some((p) => p.name === last) ? last : this.defaultPreset, false);
     this.restoreOptions();
     void this.refreshOutputDir();
+    // options changed from here on are saved
     this.ready = true;
+    const [tools, jobs] = await Promise.allSettled([toolsP, jobsP]);
+    if (tools.status === "fulfilled") {
+      this.tools = tools.value;
+      // the preset's (or remembered) codec was chosen before the encoders were known
+      if (!this.codecAvailable(this.codec)) this.setContainer(this.container);
+    } else this.error = ipc.errText(tools.reason);
+    if (jobs.status === "fulfilled") this.mergeJobs(jobs.value);
     try {
       const f = await ipc.initialFile();
       if (f) await this.open(f);

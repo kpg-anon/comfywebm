@@ -13,7 +13,7 @@
   import SplitsView from "$lib/components/SplitsView.svelte";
   import { splits } from "$lib/splits.svelte";
   import Logo from "$lib/components/Logo.svelte";
-  import { app, TRACK_MIN } from "$lib/state.svelte";
+  import { app, TRACK_STD } from "$lib/state.svelte";
   import * as ipc from "$lib/ipc";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { pickVideos } from "$lib/dialogs";
@@ -347,7 +347,7 @@
             aria-orientation="horizontal"
             aria-label="Timeline height (double-click resets)"
             onpointerdown={tlSplitDown}
-            ondblclick={() => app.setTrackHeight(TRACK_MIN)}
+            ondblclick={() => app.setTrackHeight(TRACK_STD)}
           ></div>
         {/if}
         <Timeline />

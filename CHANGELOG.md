@@ -34,10 +34,15 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 - The picture area shows only what the output will (the crop with the zoom)
   once crop mode is done, instead of the whole picture with the rest dimmed.
-- Undo and redo moved from the bottom bar into the History panel; Loop moved
-  to the picture's bottom right, beside the speaker; the bottom bar's
-  controls are centred. The start screen no longer lists keys (Keys in the
-  top bar, or `?`, shows them all).
+- The area under the picture is two panels: Timeline (a header with the
+  timeline zoom, a ruler with small ticks, a taller thumbnail track (48 px),
+  the selected range framed in yellow, a marker on the playhead) and the
+  controls in three sections: Playback (a large time, start, frame back,
+  play, frame forward, end), Range (Time, In, Out, Length and the range
+  buttons) and Video tools (Speed, Crop, Find cuts, Sample, Frame). Undo and
+  redo moved into the History panel; Loop moved to the picture's bottom
+  right, beside the speaker. The start screen no longer lists keys (Keys in
+  the top bar, or `?`, shows them all).
 - The audio waveform in the timeline is off to start with (Settings > Look >
   Timeline turns it on), so the thumbnails show clearly.
 - Above Encode: the output on one line, and on its right the warning icon

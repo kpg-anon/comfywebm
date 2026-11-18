@@ -140,6 +140,17 @@
     return out;
   });
 
+  // five small ticks per labelled step
+  const minorTicks = $derived.by(() => {
+    if (!viewLen || !trackW || ticks.length < 2) return [];
+    const step = (ticks[1].t - ticks[0].t) / 5;
+    const out: number[] = [];
+    for (let t = Math.ceil(viewStart / step) * step; t <= viewStart + viewLen + 1e-9; t += step) {
+      if (!ticks.some((k) => Math.abs(k.t - t) < step / 2)) out.push(t);
+    }
+    return out;
+  });
+
   function label(t: number, step: number) {
     const s = fmtTime(t);
     // fmtTime gives m:ss.mmm; keep tenths only when the step needs them
@@ -233,6 +244,22 @@
 </script>
 
 <div class="timeline">
+  <section class="panel tlp">
+  <header class="ph tlhead">
+    <Icon name="film" size={14} /><span>Timeline</span>
+    <span class="hgrow"></span>
+        <div class="group zoom">
+          <button class="btn icon" disabled={!app.media || !zoomed} aria-label="Zoom out (Ctrl+wheel)" onclick={() => setZoom(zoom / 2)}><Icon name="zoomOut" size={15} /></button>
+          <button class="btn icon" disabled={!app.selSeg} aria-label="Zoom to the selected range" onclick={() => {
+            const g = app.selSeg;
+            if (!g || g.end <= g.start) return;
+            const pad = (g.end - g.start) * 0.08;
+            setZoom(dur / (g.end - g.start + 2 * pad), g.start - pad, 0);
+          }}><Icon name="fitSel" size={15} /></button>
+          <button class="btn zl mono" disabled={!app.media || !zoomed} aria-label="Show the whole file" onclick={() => setZoom(1)}>{zoomed ? `${zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}x` : "Fit"}</button>
+          <button class="btn icon" disabled={!app.media || zoom >= maxZoom} aria-label="Zoom in (Ctrl+wheel)" onclick={() => setZoom(zoom * 2)}><Icon name="zoomIn" size={15} /></button>
+        </div>
+  </header>
   {#if filmUrl && hoverT !== null && !drag && app.media && dur > 0}
     {@const ph = 96}
     {@const pw = Math.round((ph * app.media.video.width) / Math.max(1, app.media.video.height))}
@@ -249,8 +276,11 @@
     ></div>
   {/if}
   <div class="ruler" aria-hidden="true">
+    {#each minorTicks as t (t)}
+      <span class="tick minor" style:left="{pct(t)}%"></span>
+    {/each}
     {#each ticks as k (k.t)}
-      <span class="tick" style:left="{pct(k.t)}%">{#if pct(k.t) < 96}<span class="tl mono">{k.label}</span>{/if}</span>
+      <span class="tick" style:left="{pct(k.t)}%">{#if pct(k.t) < 97}<span class="tl mono" class:first={pct(k.t) < 3}>{k.label}</span>{/if}</span>
     {/each}
     {#if hoverT !== null}
       <span class="hover mono" style:left="{Math.min(94, Math.max(4, pct(hoverT)))}%">{fmtTime(hoverT)}</span>
@@ -342,86 +372,85 @@
   {#if many}
     <EditStrip />
   {/if}
+  </section>
 
-  <div class="row">
-    <div class="group">
-      <button class="btn icon" disabled={!app.media || app.audioOnly} onclick={() => app.stepFrame(-1)} aria-label="Previous frame (<)"><Icon name="prevFrame" /></button>
-      <button class="btn icon" disabled={!app.media} onclick={() => app.togglePlay()} aria-label="Play or pause (Space)">
-        <Icon name={app.paused ? "play" : "pause"} />
-      </button>
-      <button class="btn icon" disabled={!app.media || app.audioOnly} onclick={() => app.stepFrame(1)} aria-label="Next frame (>)"><Icon name="nextFrame" /></button>
-    </div>
-
-    <div class="times">
-      <TimeField label="Time" value={app.media ? app.current : null} onset={(t) => app.seek(t)} />
-      <TimeField label={many ? `In (range ${app.sel + 1})` : "In"} value={app.selSeg?.start ?? null} placeholder="start" onset={(t) => app.setSelStart(t)} />
-      <TimeField label="Out" value={app.selSeg?.end ?? null} placeholder="end" onset={(t) => app.setSelEnd(t)} />
-      <TimeField label="Length" value={app.media ? (app.selSeg ? app.selSeg.end - app.selSeg.start : app.duration) : null} onset={(t) => app.setSelLength(t)} />
-    </div>
-    {#if many}
-      <div class="total">
-        <span class="lbl">Total</span>
-        <span class="mono">{fmtTime(app.clipLen)}</span>
+  <!-- the controls: playback, the range, the video tools -->
+  <section class="panel ctl">
+    <div class="sec play">
+      <header class="ph"><Icon name="playLine" size={14} /><span>Playback</span></header>
+      <div class="bigtime mono" title="The playhead">{app.media ? fmtTime(app.current) : "0:00.000"}</div>
+      <div class="transport">
+        <button class="btn icon" disabled={!app.media} onclick={() => app.seek(app.selSeg ? app.selSeg.start : 0)} aria-label="To the start of the range (Shift+I), or of the file"><Icon name="prevFrame" /></button>
+        <button class="btn icon" disabled={!app.media || app.audioOnly} onclick={() => app.stepFrame(-1)} aria-label="One frame back (,)"><Icon name="stepBack" /></button>
+        <button class="btn icon playbtn" disabled={!app.media} onclick={() => app.togglePlay()} aria-label="Play or pause (Space)"><Icon name={app.paused ? "play" : "pause"} /></button>
+        <button class="btn icon" disabled={!app.media || app.audioOnly} onclick={() => app.stepFrame(1)} aria-label="One frame forward (.)"><Icon name="stepFwd" /></button>
+        <button class="btn icon" disabled={!app.media} onclick={() => app.seek(app.selSeg ? app.selSeg.end : app.duration)} aria-label="To the end of the range (Shift+O), or of the file"><Icon name="nextFrame" /></button>
       </div>
-    {/if}
-    <div class="group zoom">
-      <button class="btn icon" disabled={!app.media || !zoomed} aria-label="Zoom out (Ctrl+wheel)" onclick={() => setZoom(zoom / 2)}><Icon name="zoomOut" size={15} /></button>
-      <button class="btn icon" disabled={!app.selSeg} aria-label="Zoom to the selected range" onclick={() => {
-        const g = app.selSeg;
-        if (!g || g.end <= g.start) return;
-        const pad = (g.end - g.start) * 0.08;
-        setZoom(dur / (g.end - g.start + 2 * pad), g.start - pad, 0);
-      }}><Icon name="fitSel" size={15} /></button>
-      <button class="btn zl mono" disabled={!app.media || !zoomed} aria-label="Show the whole file" onclick={() => setZoom(1)}>{zoomed ? `${zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}x` : "Fit"}</button>
-      <button class="btn icon" disabled={!app.media || zoom >= maxZoom} aria-label="Zoom in (Ctrl+wheel)" onclick={() => setZoom(zoom * 2)}><Icon name="zoomIn" size={15} /></button>
     </div>
-  </div>
-
-  <div class="row">
-    <div class="group">
-      <button class="btn" disabled={!app.media} onclick={() => app.markIn()}><Icon name="markIn" size={14} />In <kbd>I</kbd></button>
-      <button class="btn" disabled={!app.media} onclick={() => app.markOut()}><Icon name="markOut" size={14} />Out <kbd>O</kbd></button>
-      <button class="btn" disabled={!app.media} onclick={() => app.addRange()}><Icon name="plus" size={14} />Range <kbd>N</kbd></button>
-      <button class="btn" disabled={app.sel < 0} onclick={() => app.removeRange()} aria-label="Remove the selected range">
-        <Icon name="x" size={14} />Remove{#if many}&nbsp;<kbd>Del</kbd>{/if}
-      </button>
-      {#if many}
-        <label class="sep"><input type="checkbox" bind:checked={app.separate} /> Separate files</label>
-      {/if}
-    </div>
-    <div class="group">
-      <button
-        class="btn"
-        class:on={app.rampLane}
-        disabled={!app.media || app.audioOnly}
-        aria-pressed={app.rampLane}
-        title="Speed ramp: change the speed over the clip with points on a lane under the timeline (0.25x to 4x). With points it replaces the Speed setting."
-        onclick={() => (app.rampLane = !app.rampLane)}
-      >
-        <Icon name="speed" size={14} />Speed{#if app.speedRamp.length}<span class="cnt">{app.speedRamp.length}</span>{/if}
-      </button>
-      <button class="btn" class:on={app.cropMode} disabled={!app.media || app.audioOnly} aria-pressed={app.cropMode} onclick={() => (app.cropMode = !app.cropMode)}>
-        <Icon name="crop" size={14} />Crop <kbd>C</kbd>
-      </button>
-      <button class="btn" disabled={!app.media || app.audioOnly || app.ffmpegMissing || app.findingCuts} title="Find where the picture cuts to a new shot (also jump cuts, and fades through black; flashes and lights are not cuts). Range edges then snap to the cuts, and [ and ] jump between them. Reads the whole video once." onclick={() => app.findCuts()}><Icon name="cut" size={14} />{app.findingCuts ? `Finding ${Math.round(app.cutsFraction * 100)}%` : app.cuts ? `${app.cuts.length} cuts` : "Find cuts"}</button>
-      {#if app.cuts !== null}
-        <div class="sens" title="Fewer: only clear cuts. More: also cuts between similar shots. Changing it needs no second read.">
-          <Select
-            label="Cut sensitivity"
-            value={app.cutSensitivity}
-            onchange={(v) => app.setCutSensitivity(v)}
-            options={[
-              { value: "low", label: "Fewer cuts" },
-              { value: "normal", label: "Normal" },
-              { value: "high", label: "More cuts" },
-            ]}
-          />
+    <div class="sec rng">
+      <header class="ph"><Icon name="range" size={14} /><span>Range</span></header>
+      <div class="fieldrow">
+        <div class="times">
+          <TimeField label="Time" value={app.media ? app.current : null} onset={(t) => app.seek(t)} />
+          <TimeField label={many ? `In (range ${app.sel + 1})` : "In"} value={app.selSeg?.start ?? null} placeholder="start" onset={(t) => app.setSelStart(t)} />
+          <TimeField label="Out" value={app.selSeg?.end ?? null} placeholder="end" onset={(t) => app.setSelEnd(t)} />
+          <TimeField label="Length" value={app.media ? (app.selSeg ? app.selSeg.end - app.selSeg.start : app.duration) : null} onset={(t) => app.setSelLength(t)} />
         </div>
-      {/if}
-      <button class="btn" disabled={!app.media || app.ffmpegMissing} onclick={() => app.runSample()}><Icon name="film" size={14} />Sample <kbd>P</kbd></button>
-      <button class="btn" disabled={!app.media || app.ffmpegMissing} title="Save the frame at the playhead as PNG with the crop. Shift+click (Shift+S): as the encode sees it, with filters, adjustments and the output size." onclick={(e) => app.exportFrame(e.shiftKey)}><Icon name="image" size={14} />Frame <kbd>S</kbd></button>
+        {#if many}
+          <div class="total">
+            <span class="lbl">Total</span>
+            <span class="mono">{fmtTime(app.clipLen)}</span>
+          </div>
+        {/if}
+      </div>
+        <div class="btnrow">
+          <button class="btn" disabled={!app.media} onclick={() => app.markIn()}><Icon name="markIn" size={14} />In <kbd>I</kbd></button>
+          <button class="btn" disabled={!app.media} onclick={() => app.markOut()}><Icon name="markOut" size={14} />Out <kbd>O</kbd></button>
+          <button class="btn" disabled={!app.media} onclick={() => app.addRange()}><Icon name="plus" size={14} />Range <kbd>N</kbd></button>
+          <button class="btn" disabled={app.sel < 0} onclick={() => app.removeRange()} aria-label="Remove the selected range">
+            <Icon name="x" size={14} />Remove{#if many}&nbsp;<kbd>Del</kbd>{/if}
+          </button>
+          {#if many}
+            <label class="sep"><input type="checkbox" bind:checked={app.separate} /> Separate files</label>
+          {/if}
+        </div>
     </div>
-  </div>
+    <div class="sec tl-tools">
+      <header class="ph"><Icon name="stack" size={14} /><span>Video tools</span></header>
+        <div class="tools">
+          <button
+            class="btn"
+            class:on={app.rampLane}
+            disabled={!app.media || app.audioOnly}
+            aria-pressed={app.rampLane}
+            title="Speed ramp: change the speed over the clip with points on a lane under the timeline (0.25x to 4x). With points it replaces the Speed setting."
+            onclick={() => (app.rampLane = !app.rampLane)}
+          >
+            <Icon name="speed" size={14} />Speed{#if app.speedRamp.length}<span class="cnt">{app.speedRamp.length}</span>{/if}
+          </button>
+          <button class="btn" class:on={app.cropMode} disabled={!app.media || app.audioOnly} aria-pressed={app.cropMode} onclick={() => (app.cropMode = !app.cropMode)}>
+            <Icon name="crop" size={14} />Crop <kbd>C</kbd>
+          </button>
+          <button class="btn" disabled={!app.media || app.audioOnly || app.ffmpegMissing || app.findingCuts} title="Find where the picture cuts to a new shot (also jump cuts, and fades through black; flashes and lights are not cuts). Range edges then snap to the cuts, and [ and ] jump between them. Reads the whole video once." onclick={() => app.findCuts()}><Icon name="cut" size={14} />{app.findingCuts ? `Finding ${Math.round(app.cutsFraction * 100)}%` : app.cuts ? `${app.cuts.length} cuts` : "Find cuts"}</button>
+          {#if app.cuts !== null}
+            <div class="sens" title="Fewer: only clear cuts. More: also cuts between similar shots. Changing it needs no second read.">
+              <Select
+                label="Cut sensitivity"
+                value={app.cutSensitivity}
+                onchange={(v) => app.setCutSensitivity(v)}
+                options={[
+                  { value: "low", label: "Fewer cuts" },
+                  { value: "normal", label: "Normal" },
+                  { value: "high", label: "More cuts" },
+                ]}
+              />
+            </div>
+          {/if}
+          <button class="btn" disabled={!app.media || app.ffmpegMissing} onclick={() => app.runSample()}><Icon name="film" size={14} />Sample <kbd>P</kbd></button>
+          <button class="btn" disabled={!app.media || app.ffmpegMissing} title="Save the frame at the playhead as PNG with the crop. Shift+click (Shift+S): as the encode sees it, with filters, adjustments and the output size." onclick={(e) => app.exportFrame(e.shiftKey)}><Icon name="image" size={14} />Frame <kbd>S</kbd></button>
+        </div>
+    </div>
+  </section>
 
   {#if app.cropMode}
     <!-- the crop as shown: turned and flipped like the picture -->
@@ -446,15 +475,115 @@
     color: var(--accent-strong);
     font-size: 10px;
   }
+  /* two panels: the timeline (header with its zoom, ruler, track, lanes) and the controls
+     (playback, range, video tools), after the owner's mockup */
   .timeline {
+    position: relative;
     display: flex;
     flex-direction: column;
-    gap: 7px;
-    padding: 8px 10px 10px;
+    gap: 8px;
+    padding: 8px var(--pad-panel) 10px;
     border-top: 1px solid var(--border-muted);
+    background: var(--bg-app);
+  }
+  .panel {
+    position: relative;
+    border: 1px solid var(--border-muted);
+    border-radius: var(--radius, 8px);
     background: var(--bg-panel);
-    padding-left: var(--pad-panel);
-    padding-right: var(--pad-panel);
+  }
+  .tlp {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0 12px 10px;
+  }
+  .ph {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-secondary);
+    font-size: 11.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .tlhead {
+    margin: 0 -12px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border-muted);
+  }
+  .hgrow {
+    flex: 1;
+  }
+  .ctl {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    padding: 10px 0;
+  }
+  .sec {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 16px;
+  }
+  .sec + .sec {
+    border-left: 1px solid var(--border-muted);
+  }
+  .sec .ph {
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-muted);
+  }
+  .play {
+    flex: 0 0 auto;
+  }
+  .rng {
+    flex: 1 1 auto;
+  }
+  .tl-tools {
+    flex: 0 1 auto;
+  }
+  .bigtime {
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 21px;
+    text-align: center;
+    letter-spacing: 0.02em;
+  }
+  .transport {
+    display: flex;
+    gap: 5px;
+    justify-content: center;
+  }
+  .transport :global(.btn.icon) {
+    width: 32px;
+    height: 30px;
+  }
+  .transport .playbtn {
+    width: 42px !important;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .fieldrow {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+  }
+  .btnrow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .tools {
+    display: grid;
+    grid-template-columns: repeat(3, auto);
+    gap: 6px;
+    align-items: center;
   }
   .track {
     position: relative;
@@ -467,8 +596,8 @@
   }
   .ruler {
     position: relative;
-    height: 14px;
-    margin-bottom: -4px;
+    height: 22px;
+    margin-bottom: -2px;
     overflow: hidden;
     pointer-events: none;
   }
@@ -476,16 +605,26 @@
     position: absolute;
     bottom: 0;
     width: 1px;
-    height: 5px;
-    background: var(--border);
+    height: 7px;
+    background: var(--text-muted);
+    opacity: 0.7;
+  }
+  /* the label at the very left is not centred on its tick (it would be cut off) */
+  .tl.first {
+    transform: none;
+  }
+  .tick.minor {
+    height: 4px;
+    opacity: 0.4;
   }
   .tl {
     position: absolute;
-    bottom: 4px;
-    left: 3px;
-    font-size: 9.5px;
+    bottom: 9px;
+    left: 0;
+    transform: translateX(-50%);
+    font-size: 10px;
     line-height: 1;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     white-space: nowrap;
   }
   .hover {
@@ -613,16 +752,16 @@
   }
   .sel {
     position: absolute;
-    top: 6px;
-    bottom: 6px;
+    top: 0;
+    bottom: 0;
     cursor: grab;
-    border-radius: 2px;
-    background: color-mix(in srgb, var(--range) 18%, transparent);
-    border: 1px solid color-mix(in srgb, var(--range) 45%, transparent);
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--range) 12%, transparent);
+    border: 2px solid color-mix(in srgb, var(--range) 50%, transparent);
     overflow: hidden;
   }
   .sel.active {
-    background: color-mix(in srgb, var(--range) 38%, transparent);
+    background: color-mix(in srgb, var(--range) 22%, transparent);
     border-color: var(--range);
   }
   .num {
@@ -634,16 +773,26 @@
     color: var(--text-primary);
     pointer-events: none;
   }
+  /* the range's ends: a wider grip on its border */
   .handle {
     position: absolute;
-    top: 2px;
-    bottom: 2px;
-    width: 9px;
-    margin-left: -4.5px;
-    background: color-mix(in srgb, var(--range) 55%, var(--bg-panel));
+    top: 0;
+    bottom: 0;
+    width: 10px;
+    margin-left: -5px;
     cursor: ew-resize;
   }
-  .handle.active {
+  .handle::after {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--range) 55%, transparent);
+  }
+  .handle.active::after {
     background: var(--range);
   }
   .handle.in {
@@ -660,15 +809,17 @@
     margin-left: -1px;
     background: var(--playhead);
     pointer-events: none;
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
   }
-  /* the controls are centred under the picture */
-  .row {
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    gap: 6px 18px;
-    flex-wrap: wrap;
+  /* a marker on top of the playhead */
+  .head::before {
+    content: "";
+    position: absolute;
+    top: -1px;
+    left: -5px;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 8px solid var(--playhead);
   }
   .group {
     display: flex;
@@ -678,8 +829,8 @@
   }
   .times {
     display: grid;
-    grid-template-columns: repeat(4, 100px);
-    gap: 6px;
+    grid-template-columns: repeat(4, 104px);
+    gap: 8px;
   }
   .total {
     display: flex;

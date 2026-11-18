@@ -156,6 +156,15 @@ building it yourself. For an overview and the downloads, see
   stay. The window is drawn on the picture at the playhead (inside the crop,
   after rotation and flips); the caption and watermark are not zoomed. It
   applies to ranges of the open file (not Splits or a still picture).
+  **Follow...** (by Zoom while its lane is shown): draw a box around a person
+  on the picture; the app follows the box from the playhead to the end of the
+  range (or of the file) and makes zoom points every 0.25 s that keep it in
+  the middle, at a zoom where the box fills about 85% of the picture. It reads
+  the video small and grey once, looks for the box near where it was in each
+  frame (it learns slowly as the person turns), keeps the last position where
+  something covers it, and smooths the path over about half a second. The box
+  keeps its size; the points can be corrected in the lane and by dragging a
+  point's window. Esc cancels drawing; clicking the button again stops it.
 - **Speed ramp**: Speed under the timeline shows a lane where the speed changes
   over the clip (0.25x to 4x, up is faster, 1x in the middle). Click to add a
   point, drag it (time and speed), double-click to remove it; right-click a

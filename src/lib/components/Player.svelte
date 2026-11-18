@@ -192,7 +192,7 @@
   const zsel = $derived(app.zoomSel >= 0 ? app.zoomPoints[app.zoomSel] : null);
   const zedit = $derived(!!zsel && Math.abs(app.current - zsel.t) < 0.05);
   const zwin = $derived.by(() => {
-    if (!app.zoomPoints.length || app.cropMode || app.audioOnly || !app.viewW) return null;
+    if (!app.zoomPoints.length || app.cropMode || app.followMode || app.audioOnly || !app.viewW) return null;
     const z = zedit && zsel ? zsel : app.zoomAt(app.current);
     const w = windowOf(z, zframe.w, zframe.h);
     const k = shown.w / app.viewW;
@@ -375,6 +375,20 @@
         <span class="ztag mono">{Math.round(zwin.zoom * 100) / 100}x</span>
       </div>
     {/if}
+    {#if app.followMode}
+      <!-- draw the box to follow; letting go starts following it -->
+      <CropOverlay
+        rect={shown}
+        W={app.viewW}
+        H={app.viewH}
+        crop={app.followBox}
+        ratio={null}
+        active
+        onchange={(c) => (app.followBox = c)}
+        oncommit={(c) => (c ? void app.follow(c) : (app.followBox = null))}
+      />
+      <div class="followhint">Draw a box around the person to follow (Esc cancels)</div>
+    {/if}
     <!-- over the picture as shown (turned and flipped), so the crop is drawn on what you see -->
     <CropOverlay
       rect={shown}
@@ -382,7 +396,7 @@
       H={app.viewH}
       crop={app.viewCrop}
       ratio={ratioOf(app.aspect)}
-      active={app.cropMode}
+      active={app.cropMode && !app.followMode}
       onchange={(c) => app.setViewCrop(c, false)}
       oncommit={(c) => app.setViewCrop(c)}
     />
@@ -654,6 +668,18 @@
   .bar > div {
     height: 100%;
     background: var(--accent);
+  }
+  .followhint {
+    position: absolute;
+    left: 50%;
+    top: 10px;
+    transform: translateX(-50%);
+    padding: 3px 10px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.7);
+    color: #fff;
+    font-size: 12px;
+    pointer-events: none;
   }
   /* the zoom window and the dimmed picture around it */
   .zclip {

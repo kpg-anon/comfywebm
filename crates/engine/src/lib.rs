@@ -13,6 +13,7 @@ pub mod run;
 pub mod scenes;
 pub mod spec;
 pub mod strip;
+pub mod track;
 pub mod tools;
 pub mod ytdl;
 pub mod zoom;

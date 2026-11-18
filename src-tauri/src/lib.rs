@@ -5,7 +5,7 @@ mod winstate;
 use comfywebm_engine::config;
 use comfywebm_engine::run::{self, Cancel, RunError};
 use comfywebm_engine::{
-    naming, plan, proxy, quality, scenes, strip, ytdl, Codec, Container, Crop, DownloadProgress, EncodeSpec, Job, MediaInfo, PlanInfo, Preset,
+    naming, plan, proxy, quality, scenes, strip, track, ytdl, Codec, Container, Crop, DownloadProgress, EncodeSpec, Job, MediaInfo, PlanInfo, Preset,
     Segment, Settings, ToolsStatus, UrlInfo,
 };
 use serde::Serialize;
@@ -96,6 +96,31 @@ async fn quality_check(app: AppHandle, spec: EncodeSpec) -> Result<f64, String> 
         strip_job(&app, "quality", |c| quality::check(&ffmpeg, &spec, &info, state.zscale(), &dir, c))
     })
     .await
+}
+
+/// Follow a box (source display pixels, on the frame at `start`) to `end` (engine track.rs);
+/// "track-progress" events while it reads. A newer one stops one still running.
+#[tauri::command]
+async fn track_box(app: AppHandle, path: String, start: f64, end: f64, rect: comfywebm_engine::Rect) -> Result<Vec<track::TrackPoint>, String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let ffmpeg = state.ffmpeg()?;
+        let info = state.media(&path)?;
+        strip_job(&app, "track", |c| {
+            track::run(&ffmpeg, &info, start, end, rect, c, |fraction| {
+                let _ = app.emit("track-progress", CutsProgress { path: path.clone(), fraction });
+            })
+        })
+    })
+    .await
+}
+
+/// Stops following a box.
+#[tauri::command]
+fn track_cancel(strips: State<Strips>) {
+    if let Some(c) = strips.0.lock().unwrap().remove("track") {
+        c.cancel();
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -1047,6 +1072,8 @@ pub fn run() {
             timeline_wave,
             scene_cuts,
             quality_check,
+            track_box,
+            track_cancel,
             poster,
             proxy_cancel,
             cache_info,

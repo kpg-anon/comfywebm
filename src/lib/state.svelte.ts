@@ -65,6 +65,9 @@ export function splitArgs(text: string): string[] {
 export const TRACK_MIN = 26;
 export const TRACK_MAX = 240;
 
+/** "3.5 s", "1:05" */
+const fmtSecs = (s: number) => (s < 60 ? `${Math.round(s * 10) / 10} s` : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`);
+
 const numOrNull = (v: number | null | undefined): number | null =>
   v === null || v === undefined || !Number.isFinite(v) || v <= 0 ? null : v;
 
@@ -1386,6 +1389,70 @@ class AppState {
       y: cl(ch.y ?? q.y, 0, 1),
     };
     this.zoomPoints = p;
+  }
+
+  // ---------- follow a person (engine track.rs) ----------
+
+  /** Drawing the box to follow on the picture. */
+  followMode = $state(false);
+  /** the box being drawn, in picture-as-shown pixels */
+  followBox = $state<Crop | null>(null);
+  /** while following: how far, 0..1 */
+  following = $state<number | null>(null);
+
+  /** Follow the box drawn on the picture (as shown) from the playhead to the end of the
+   *  selected range (or of the file), and make zoom points that keep it in the picture. */
+  async follow(viewBox: Crop) {
+    const m = this.media;
+    if (!m || m.audioOnly || this.following !== null) return;
+    this.followMode = false;
+    this.followBox = null;
+    const start = this.current;
+    const s = this.selSeg;
+    const end = s && start >= s.start && start < s.end ? s.end : this.duration;
+    if (end - start < 0.2) {
+      this.toast({ kind: "info", title: "Nothing to follow", text: "Put the playhead before the end of the range first.", path: null });
+      return;
+    }
+    const src = fromView(viewBox, this.srcW, this.srcH, this.turn);
+    const rect = { x: Math.round(src.x), y: Math.round(src.y), w: Math.max(8, Math.round(src.w)), h: Math.max(8, Math.round(src.h)) };
+    this.following = 0;
+    try {
+      const pts = await ipc.trackBox(m.path, start, end, rect);
+      if (this.media?.path !== m.path || !pts.length) return;
+      // the zoom's frame: the crop (or the whole picture) as shown
+      const frame = this.viewCrop ?? { x: 0, y: 0, w: this.viewW, h: this.viewH };
+      const first = toView({ x: pts[0].x - pts[0].w / 2, y: pts[0].y - pts[0].h / 2, w: pts[0].w, h: pts[0].h }, this.srcW, this.srcH, this.turn);
+      // the box fills about 85% of the frame
+      const zoom = Math.round(Math.min(zoomMath.MAX_ZOOM, Math.max(zoomMath.MIN_ZOOM, 0.85 * Math.min(frame.w / first.w, frame.h / first.h))) * 100) / 100;
+      const made: ZoomPoint[] = [];
+      for (let t = start; t <= end + 1e-6; t += 0.25) {
+        const p = pts.reduce((a, b) => (Math.abs(b.t - t) < Math.abs(a.t - t) ? b : a));
+        const c = toView({ x: p.x, y: p.y, w: 0, h: 0 }, this.srcW, this.srcH, this.turn);
+        made.push({ t: Math.round(t * 1000) / 1000, zoom, x: (c.x - frame.x) / frame.w, y: (c.y - frame.y) / frame.h });
+      }
+      const keep = this.zoomPoints.filter((q) => q.t < start - 0.01 || q.t > end + 0.01);
+      this.zoomPoints = zoomMath.clean([...keep, ...made]);
+      this.zoomLane = true;
+      this.zoomSel = -1;
+      const weak = pts.filter((p) => p.score < 0.35).length;
+      this.toast({
+        kind: "info",
+        title: `Following for ${fmtSecs(end - start)}`,
+        text: `${made.length} zoom points at ${zoom}x.${weak ? ` In ${weak} of ${pts.length} frames the box was hard to find (something in front of it); it stayed where it was there.` : ""} Drag a point's window to correct it.`,
+        path: null,
+      });
+    } catch (e) {
+      if (ipc.errText(e) !== "Canceled") this.error = `Could not follow the box: ${ipc.errText(e)}`;
+    } finally {
+      this.following = null;
+    }
+  }
+
+  cancelFollow() {
+    this.followMode = false;
+    this.followBox = null;
+    if (this.following !== null) void ipc.trackCancel().catch(() => {});
   }
 
   removeZoomPoint(i: number) {

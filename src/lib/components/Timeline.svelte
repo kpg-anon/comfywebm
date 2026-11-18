@@ -412,6 +412,17 @@
       >
         <Icon name="zoomIn" size={14} />Zoom{#if app.zoomPoints.length}<span class="cnt">{app.zoomPoints.length}</span>{/if}
       </button>
+      {#if app.zoomLane}
+        <button
+          class="btn"
+          class:on={app.followMode || app.following !== null}
+          disabled={!app.media || app.audioOnly}
+          title="Follow a person: draw a box around them on the picture; zoom points that keep them in the picture are made from the playhead to the end of the range. Click again to stop."
+          onclick={() => (app.followMode || app.following !== null ? app.cancelFollow() : ((app.followMode = true), (app.cropMode = false)))}
+        >
+          {app.following !== null ? `Following ${Math.round(app.following * 100)}%` : app.followMode ? "Draw a box..." : "Follow..."}
+        </button>
+      {/if}
       <button
         class="btn"
         class:on={app.rampLane}

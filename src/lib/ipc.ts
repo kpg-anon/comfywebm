@@ -54,6 +54,13 @@ export const poster = (path: string) => invoke<string>("poster", { path });
 export const coverPicture = (path: string) => invoke<string>("cover_picture", { path });
 /** VMAF (0..100) of a 2 s probe encoded with the job's settings (engine quality.rs). */
 export const qualityCheck = (spec: EncodeSpec) => invoke<number>("quality_check", { spec });
+/** Where a followed box is at time t (source display pixels: centre and size) and how well it matched (engine track.rs). */
+export type TrackPoint = { t: number; x: number; y: number; w: number; h: number; score: number };
+export const trackBox = (path: string, start: number, end: number, rect: { x: number; y: number; w: number; h: number }) =>
+  invoke<TrackPoint[]>("track_box", { path, start, end, rect });
+export const trackCancel = () => invoke<void>("track_cancel");
+export const onTrackProgress = (cb: (p: ProxyProgress) => void): Promise<UnlistenFn> =>
+  listen<ProxyProgress>("track-progress", (e) => cb(e.payload));
 export type CutSensitivity = "low" | "normal" | "high";
 export const sceneCuts = (path: string, sensitivity: CutSensitivity) => invoke<number[]>("scene_cuts", { path, sensitivity });
 export const timelineWave = (path: string, track: number) => invoke<string>("timeline_wave", { path, track });

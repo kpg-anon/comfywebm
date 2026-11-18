@@ -151,6 +151,11 @@
       }),
     );
     keep(
+      ipc.onTrackProgress((p) => {
+        if (app.following !== null && p.path === app.media?.path) app.following = Math.min(1, Math.max(0, p.fraction));
+      }),
+    );
+    keep(
       ipc.onCutsProgress((p) => {
         if (app.findingCuts && p.path === app.media?.path) app.cutsFraction = Math.min(1, Math.max(0, p.fraction));
       }),

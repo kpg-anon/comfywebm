@@ -219,7 +219,8 @@ export function installKeys(actions: KeyActions): () => void {
           if (app.media && !app.audioOnly) app.cropMode = !app.cropMode;
           break;
         case "Escape":
-          if (app.cropMode) app.cropMode = false;
+          if (app.followMode) app.cancelFollow();
+          else if (app.cropMode) app.cropMode = false;
           else handled = false;
           break;
         default:

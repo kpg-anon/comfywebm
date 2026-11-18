@@ -7,7 +7,6 @@
   import CropBar from "./CropBar.svelte";
   import EditStrip from "./EditStrip.svelte";
   import SpeedLane from "./SpeedLane.svelte";
-  import ZoomLane from "./ZoomLane.svelte";
   import Select from "./Select.svelte";
 
   import { convertFileSrc } from "@tauri-apps/api/core";
@@ -313,9 +312,6 @@
     <div class="head" style:left="{pct(app.current)}%"></div>
   </div>
 
-  {#if app.media && !app.audioOnly && app.zoomLane}
-    <ZoomLane {viewStart} {viewLen} />
-  {/if}
   {#if app.media && !app.audioOnly && app.rampLane}
     <SpeedLane {viewStart} {viewLen} />
   {/if}
@@ -368,7 +364,6 @@
         <span class="mono">{fmtTime(app.clipLen)}</span>
       </div>
     {/if}
-    <span class="grow"></span>
     <div class="group zoom">
       <button class="btn icon" disabled={!app.media || !zoomed} aria-label="Zoom out (Ctrl+wheel)" onclick={() => setZoom(zoom / 2)}><Icon name="zoomOut" size={15} /></button>
       <button class="btn icon" disabled={!app.selSeg} aria-label="Zoom to the selected range" onclick={() => {
@@ -387,42 +382,14 @@
       <button class="btn" disabled={!app.media} onclick={() => app.markIn()}><Icon name="markIn" size={14} />In <kbd>I</kbd></button>
       <button class="btn" disabled={!app.media} onclick={() => app.markOut()}><Icon name="markOut" size={14} />Out <kbd>O</kbd></button>
       <button class="btn" disabled={!app.media} onclick={() => app.addRange()}><Icon name="plus" size={14} />Range <kbd>N</kbd></button>
-      <button class="btn icon" disabled={!app.canUndo} aria-label="Undo (Ctrl+Z)" onclick={() => app.undo()}><Icon name="undo" size={15} /></button>
-      <button class="btn icon" disabled={!app.canRedo} aria-label="Redo (Ctrl+Shift+Z)" onclick={() => app.redo()}><Icon name="redo" size={15} /></button>
-      <button class="btn icon" class:on={app.historyOpen} disabled={!app.media} aria-label="History (H): every edit, click one to go back to it" onclick={() => (app.historyOpen = !app.historyOpen)}><Icon name="history" size={15} /></button>
       <button class="btn" disabled={app.sel < 0} onclick={() => app.removeRange()} aria-label="Remove the selected range">
         <Icon name="x" size={14} />Remove{#if many}&nbsp;<kbd>Del</kbd>{/if}
-      </button>
-      <button class="btn" class:on={app.loop} disabled={!app.media} aria-pressed={app.loop} onclick={() => app.toggleLoop()}>
-        <Icon name="loop" size={14} />Loop <kbd>L</kbd>
       </button>
       {#if many}
         <label class="sep"><input type="checkbox" bind:checked={app.separate} /> Separate files</label>
       {/if}
     </div>
-    <span class="grow"></span>
     <div class="group">
-      <button
-        class="btn"
-        class:on={app.zoomLane}
-        disabled={!app.media || app.audioOnly}
-        aria-pressed={app.zoomLane}
-        title="Zoom: zoom in and move over the picture with points on a lane under the timeline (1x to 4x); between two points it moves smoothly."
-        onclick={() => (app.zoomLane = !app.zoomLane)}
-      >
-        <Icon name="zoomIn" size={14} />Zoom{#if app.zoomPoints.length}<span class="cnt">{app.zoomPoints.length}</span>{/if}
-      </button>
-      {#if app.zoomLane}
-        <button
-          class="btn"
-          class:on={app.followMode || app.following !== null}
-          disabled={!app.media || app.audioOnly}
-          title="Follow a person: draw a box around them on the picture; zoom points that keep them in the picture are made from the playhead to the end of the range. Click again to stop."
-          onclick={() => (app.followMode || app.following !== null ? app.cancelFollow() : ((app.followMode = true), (app.cropMode = false)))}
-        >
-          {app.following !== null ? `Following ${Math.round(app.following * 100)}%` : app.followMode ? "Draw a box..." : "Follow..."}
-        </button>
-      {/if}
       <button
         class="btn"
         class:on={app.rampLane}
@@ -695,10 +662,12 @@
     pointer-events: none;
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
   }
+  /* the controls are centred under the picture */
   .row {
     display: flex;
     align-items: flex-end;
-    gap: 6px 12px;
+    justify-content: center;
+    gap: 6px 18px;
     flex-wrap: wrap;
   }
   .group {
@@ -706,9 +675,6 @@
     flex-wrap: wrap;
     gap: 4px;
     align-items: center;
-  }
-  .grow {
-    flex: 1;
   }
   .times {
     display: grid;

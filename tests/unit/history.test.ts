@@ -39,4 +39,8 @@ test("picture changes", () => {
   assert.equal(describeEdit(a, { ...a, rotate: 90, mirror: true }), "Rotated to 90°, Flipped horizontally");
   assert.equal(describeEdit(a, { ...a, rotate: 90, mirror: true, vflip: true }), "Rotated to 90°, Flipped horizontally and more");
   assert.equal(describeEdit(a, a), "Edit");
+  // the zoom and the follow path
+  assert.equal(describeEdit({ ...a, zoomLevel: 1 }, { ...a, zoomLevel: 2 }), "Zoom 2x");
+  assert.equal(describeEdit(a, { ...a, zoom: [{ t: 1, zoom: 1, x: 0.5, y: 0.5 }] }), "Followed a person");
+  assert.equal(describeEdit({ ...a, zoom: [{ t: 1, zoom: 1, x: 0.5, y: 0.5 }] }, { ...a, zoom: [] }), "Removed the follow path");
 });

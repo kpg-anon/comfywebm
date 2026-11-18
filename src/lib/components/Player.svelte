@@ -8,7 +8,6 @@
   import * as ramp from "$lib/ramp";
   import type { SpeedPoint } from "$lib/types";
   import Icon from "./Icon.svelte";
-  import { windowOf } from "$lib/zoom";
 
   let video = $state<HTMLVideoElement>();
   let sw = $state(0);
@@ -148,30 +147,43 @@
   // computed here instead so the crop overlay and the rotate/mirror preview
   // share it. The source display size gives the aspect, so the proxy (smaller
   // pixel size, same aspect) maps to the same box. The picture is shown turned
-  // and flipped in crop mode too; the crop overlay works on it as shown.
+  // and flipped as the output will be. Outside crop mode the stage shows what
+  // the output shows (the crop with the zoom, or the follow window at the
+  // playhead), as large as it fits; the rest of the picture is off the stage.
   const turned = $derived(app.rotate === 90 || app.rotate === 270);
-  const box = $derived.by(() => {
+  /** the picture's size as shown, in its own pixels */
+  const vsize = $derived.by(() => {
     const m = app.media;
     // a sound file: the shape of its picture
     const still = app.stillSize;
     const aw = (m?.audioOnly ? still?.[0] : m?.video.width) || 16;
     const ah = (m?.audioOnly ? still?.[1] : m?.video.height) || 9;
+    return turned ? { w: ah, h: aw } : { w: aw, h: ah };
+  });
+  /** the part of the picture (as shown) the stage is fitted to */
+  const focus = $derived.by(() => {
+    const whole = { x: 0, y: 0, w: vsize.w, h: vsize.h };
+    if (app.cropMode || app.followMode || app.audioOnly || !app.viewW) return whole;
+    const o = app.outViewAt(app.current);
+    // outViewAt is in viewW pixels, the same as vsize for a video
+    const k = vsize.w / app.viewW;
+    return { x: o.x * k, y: o.y * k, w: Math.max(1, o.w * k), h: Math.max(1, o.h * k) };
+  });
+  /** the picture's box as shown on screen (may reach past the stage) */
+  const shown = $derived.by(() => {
     if (sw <= 0 || sh <= 0) return { x: 0, y: 0, w: 0, h: 0 };
-    const a = turned ? ah / aw : aw / ah; // aspect as shown on screen
-    let w = sw;
-    let h = sw / a;
-    if (h > sh) {
-      h = sh;
-      w = sh * a;
-    }
-    // the element itself keeps the unrotated shape; the transform turns it
-    if (turned) [w, h] = [h, w];
-    return { x: (sw - w) / 2, y: (sh - h) / 2, w, h };
+    const k = Math.min(sw / focus.w, sh / focus.h);
+    return { x: sw / 2 - (focus.x + focus.w / 2) * k, y: sh / 2 - (focus.y + focus.h / 2) * k, w: vsize.w * k, h: vsize.h * k };
+  });
+  /** the element's box: it keeps the unrotated shape; the transform turns it */
+  const box = $derived(turned ? { x: shown.x + (shown.w - shown.h) / 2, y: shown.y + (shown.h - shown.w) / 2, w: shown.h, h: shown.w } : shown);
+  /** the output's area on screen */
+  const outRect = $derived.by(() => {
+    const k = vsize.w > 0 ? shown.w / vsize.w : 0;
+    return { x: shown.x + focus.x * k, y: shown.y + focus.y * k, w: focus.w * k, h: focus.h * k };
   });
   // the flips apply after the rotation, as in the encode (rotate, then hflip, then vflip)
   const transform = $derived(`${app.vflip ? "scaleY(-1) " : ""}${app.mirror ? "scaleX(-1) " : ""}rotate(${app.rotate}deg)`);
-  // the picture's box as shown on screen (the element's box turned)
-  const shown = $derived(turned ? { x: box.x + (box.w - box.h) / 2, y: box.y + (box.h - box.w) / 2, w: box.h, h: box.w } : box);
 
   // Color adjustments on the picture: an SVG filter close to ffmpeg's eq,
   // hue and curves (not exact: eq works on YUV, this on RGB). Sample shows
@@ -184,44 +196,37 @@
   });
   const hasSound = $derived(!!app.media?.audio.length);
 
-  // The zoom window (engine zoom.rs): what shows at the playhead, inside the
-  // crop (or the whole picture) as shown. With a zoom point selected and the
-  // playhead on it, dragging the window moves that point's centre and the
-  // wheel changes its zoom.
-  const zframe = $derived(app.viewCrop ?? { x: 0, y: 0, w: app.viewW, h: app.viewH });
-  const zsel = $derived(app.zoomSel >= 0 ? app.zoomPoints[app.zoomSel] : null);
-  const zedit = $derived(!!zsel && Math.abs(app.current - zsel.t) < 0.05);
-  const zwin = $derived.by(() => {
-    if (!app.zoomPoints.length || app.cropMode || app.followMode || app.audioOnly || !app.viewW) return null;
-    const z = zedit && zsel ? zsel : app.zoomAt(app.current);
-    const w = windowOf(z, zframe.w, zframe.h);
-    const k = shown.w / app.viewW;
-    return { x: shown.x + (zframe.x + w.x) * k, y: shown.y + (zframe.y + w.y) * k, w: w.w * k, h: w.h * k, zoom: z.zoom };
-  });
-  let zdrag: { x0: number; y0: number; cx: number; cy: number; k: number } | null = null;
-  function zDown(e: PointerEvent) {
-    if (!zedit || !zsel || e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    // pointer pixels to centre fractions: the frame's size on screen
-    const k = (shown.w / app.viewW) * zframe.w;
-    zdrag = { x0: e.clientX, y0: e.clientY, cx: zsel.x, cy: zsel.y, k };
+  // With a follow path, dragging the picture moves the path point nearest the
+  // playhead (the picture moves with the pointer, the window the other way); a
+  // click without a drag plays and pauses as before.
+  let pan: { x0: number; y0: number; i: number; cx: number; cy: number; moved: boolean } | null = null;
+  let panned = false;
+  function panDown(e: PointerEvent) {
+    if (e.button !== 0 || !app.zoomPoints.length || app.cropMode || app.followMode) return;
+    const i = app.followPointAt(app.current);
+    const p = app.zoomPoints[i];
+    if (!p) return;
+    pan = { x0: e.clientX, y0: e.clientY, i, cx: p.x, cy: p.y, moved: false };
   }
-  function zMove(e: PointerEvent) {
-    if (!zdrag) return;
-    const kh = (shown.h / app.viewH) * zframe.h;
-    app.setZoomPoint(app.zoomSel, { x: zdrag.cx + (e.clientX - zdrag.x0) / zdrag.k, y: zdrag.cy + (e.clientY - zdrag.y0) / kh });
+  function panMove(e: PointerEvent) {
+    if (!pan) return;
+    const dx = e.clientX - pan.x0;
+    const dy = e.clientY - pan.y0;
+    if (!pan.moved) {
+      if (Math.abs(dx) + Math.abs(dy) < 4) return;
+      pan.moved = true;
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      app.video?.pause();
+    }
+    // screen pixels per frame width
+    const f = app.zoomFrame;
+    const k = (shown.w / app.viewW) * f.w;
+    const kh = (shown.h / app.viewH) * f.h;
+    app.setZoomPoint(pan.i, { x: pan.cx - dx / k, y: pan.cy - dy / kh });
   }
-  function zUp() {
-    zdrag = null;
-  }
-  function zWheel(e: WheelEvent) {
-    if (!zedit || !zsel) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const d = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
-    app.setZoomPoint(app.zoomSel, { zoom: Math.round(zsel.zoom * Math.pow(1.0015, -d) * 100) / 100 });
+  function panUp() {
+    if (pan?.moved) panned = true;
+    pan = null;
   }
   function soundWheel(e: WheelEvent) {
     // the wheel over the speaker sets the volume; elsewhere it steps frames
@@ -322,7 +327,7 @@
   }
 </script>
 
-<div class="stage" bind:clientWidth={sw} bind:clientHeight={sh} onwheel={onWheel}>
+<div class="stage" class:panning={app.zoomPoints.length > 0 && !app.cropMode} bind:clientWidth={sw} bind:clientHeight={sh} onwheel={onWheel} onpointerdown={panDown} onpointermove={panMove} onpointerup={panUp} onpointercancel={panUp} role="presentation">
   {#if app.videoSrc}
     <div class="pic" style:left="{box.x}px" style:top="{box.y}px" style:width="{box.w}px" style:height="{box.h}px" style:transform={transform}>
       <!-- svelte-ignore a11y_media_has_caption -->
@@ -345,6 +350,10 @@
       }}
       onended={() => app.onEnded()}
       onclick={() => {
+        if (panned) {
+          panned = false;
+          return;
+        }
         if (!app.cropMode) app.togglePlay();
       }}
       ></video>
@@ -352,28 +361,9 @@
         <img class="still" src={app.stillUrl} alt="" draggable="false" style:filter={showAdj ? "url(#cwm-adjust)" : null} />
       {/if}
     </div>
-    {#if zwin}
-      <!-- the zoom window: what the output shows at the playhead -->
-      <div class="zclip" style:left="{shown.x}px" style:top="{shown.y}px" style:width="{shown.w}px" style:height="{shown.h}px">
-        <div class="zdim" style:left="{zwin.x - shown.x}px" style:top="{zwin.y - shown.y}px" style:width="{zwin.w}px" style:height="{zwin.h}px"></div>
-      </div>
-      <div
-        class="zwin"
-        class:edit={zedit}
-        style:left="{zwin.x}px"
-        style:top="{zwin.y}px"
-        style:width="{zwin.w}px"
-        style:height="{zwin.h}px"
-        role="presentation"
-        title={zedit ? "Drag to choose what shows; the wheel zooms" : "Select a zoom point (click it in the zoom lane) to move its window"}
-        onpointerdown={zDown}
-        onpointermove={zMove}
-        onpointerup={zUp}
-        onpointercancel={zUp}
-        onwheel={zWheel}
-      >
-        <span class="ztag mono">{Math.round(zwin.zoom * 100) / 100}x</span>
-      </div>
+    {#if !app.cropMode && !app.followMode && !app.audioOnly}
+      <!-- outside the output's area: the stage's own colour, as the encode has nothing there -->
+      <div class="outmask" style:left="{outRect.x}px" style:top="{outRect.y}px" style:width="{outRect.w}px" style:height="{outRect.h}px"></div>
     {/if}
     {#if app.followMode}
       <!-- draw the box to follow; letting go starts following it -->
@@ -389,23 +379,25 @@
       />
       <div class="followhint">Draw a box around the person to follow (Esc cancels)</div>
     {/if}
-    <!-- over the picture as shown (turned and flipped), so the crop is drawn on what you see -->
+    <!-- over the picture as shown (turned and flipped), so the crop is drawn on what you see;
+         outside crop mode the stage shows the crop itself -->
+    {#if app.cropMode && !app.followMode}
     <CropOverlay
       rect={shown}
       W={app.viewW}
       H={app.viewH}
       crop={app.viewCrop}
       ratio={ratioOf(app.aspect)}
-      active={app.cropMode && !app.followMode}
+      active
       onchange={(c) => app.setViewCrop(c, false)}
       oncommit={(c) => app.setViewCrop(c)}
     />
+    {/if}
     {#if fadeDark > 0}
-      <div class="fade" style:left="{box.x}px" style:top="{box.y}px" style:width="{box.w}px" style:height="{box.h}px" style:opacity={fadeDark}></div>
+      <div class="fade" style:left="{outRect.x}px" style:top="{outRect.y}px" style:width="{outRect.w}px" style:height="{outRect.h}px" style:opacity={fadeDark}></div>
     {/if}
     {#if app.logoPath && app.plan && !app.cropMode && app.container !== "audio"}
-      {@const c = app.crop && !turned ? app.crop : null}
-      {@const r = c && app.srcW ? { x: box.x + (c.x / app.srcW) * box.w, y: box.y + (c.y / app.srcH) * box.h, w: (c.w / app.srcW) * box.w, h: (c.h / app.srcH) * box.h } : { x: box.x, y: box.y, w: box.w, h: box.h }}
+      {@const r = outRect}
       {@const src = convertFileSrc(app.logoPath)}
       {@const retry = () => logoTry < 5 && setTimeout(() => logoTry++, 400)}
       {#key logoTry}
@@ -467,8 +459,7 @@
       {/key}
     {/if}
     {#if app.captionText.trim() && !app.cropMode && app.container !== "audio"}
-      {@const c = app.crop && !turned ? app.crop : null}
-      {@const r = c && app.srcW ? { x: box.x + (c.x / app.srcW) * box.w, y: box.y + (c.y / app.srcH) * box.h, w: (c.w / app.srcW) * box.w, h: (c.h / app.srcH) * box.h } : { x: box.x, y: box.y, w: box.w, h: box.h }}
+      {@const r = outRect}
       {@const fs = (r.h * app.captionSize) / 100}
       <div class="caption" class:top={app.captionTop} class:custom={app.captionCustom} style:left="{r.x}px" style:top="{r.y}px" style:width="{r.w}px" style:height="{r.h}px">
         <span
@@ -522,7 +513,17 @@
       <button class="btn small" onclick={() => ipc.proxyCancel().catch(() => {})}>Cancel</button>
     </div>
   {/if}
-  {#if app.videoSrc && hasSound}
+  {#if app.videoSrc}
+    <div class="vctl">
+    <button
+      class="spk loopbtn"
+      class:on={app.loop}
+      aria-pressed={app.loop}
+      aria-label="Loop the selected range (L)"
+      title="Loop the selected range (L)"
+      onclick={() => app.toggleLoop()}
+    ><Icon name="loop" size={16} /></button>
+    {#if hasSound}
     <div class="sound" class:off={app.muted} onwheel={soundWheel}>
       <input
         type="range"
@@ -541,6 +542,8 @@
       >
         <Icon name={app.muted ? "volumeOff" : app.volume < 0.5 ? "volumeLow" : "volume"} size={18} />
       </button>
+    </div>
+    {/if}
     </div>
   {/if}
   {#if app.usingProxy}
@@ -681,42 +684,39 @@
     font-size: 12px;
     pointer-events: none;
   }
-  /* the zoom window and the dimmed picture around it */
-  .zclip {
+  .outmask {
     position: absolute;
-    overflow: hidden;
+    box-shadow: 0 0 0 9999px var(--bg-stage);
     pointer-events: none;
   }
-  .zdim {
-    position: absolute;
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+  .stage.panning {
+    cursor: grab;
   }
-  .zwin {
-    position: absolute;
-    border: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
-    pointer-events: none;
-  }
-  .zwin.edit {
-    border-color: var(--accent);
-    pointer-events: auto;
-    cursor: move;
-    touch-action: none;
-  }
-  .ztag {
-    position: absolute;
-    left: 4px;
-    top: 4px;
-    padding: 0 5px;
-    border-radius: 3px;
-    background: rgba(0, 0, 0, 0.65);
-    color: #fff;
-    font-size: 11px;
-  }
-  /* the preview's sound, bottom right: the speaker, and the volume slider beside it while the pointer is over it */
-  .sound {
+  /* the corner controls, bottom right: Loop and the speaker */
+  .vctl {
     position: absolute;
     right: 10px;
     bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .loopbtn {
+    background: rgb(0 0 0 / 0.55) !important;
+    color: #fff;
+    opacity: 0.7;
+  }
+  .loopbtn:hover {
+    opacity: 1;
+  }
+  .loopbtn.on {
+    opacity: 1;
+    color: var(--accent);
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+  /* the preview's sound, bottom right: the speaker, and the volume slider beside it while the pointer is over it */
+  .sound {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 6px;

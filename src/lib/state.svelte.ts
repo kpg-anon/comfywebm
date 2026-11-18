@@ -128,8 +128,9 @@ type EditSnap = {
   adjust: Adjust;
   speedRamp: SpeedPoint[];
   zoom: ZoomPoint[];
+  zoomLevel: number;
 };
-type EditMemory = { segments: Segment[]; order: number[] | null; crop: Crop | null; speedRamp?: SpeedPoint[]; zoom?: ZoomPoint[]; t: number };
+type EditMemory = { segments: Segment[]; order: number[] | null; crop: Crop | null; speedRamp?: SpeedPoint[]; zoom?: ZoomPoint[]; zoomLevel?: number; t: number };
 
 function loadRecent(): string[] {
   const r = load<unknown>("recent");
@@ -301,12 +302,11 @@ class AppState {
   speedRamp = $state<SpeedPoint[]>([]);
   /** the speed ramp lane is shown under the timeline */
   rampLane = $state(false);
-  /** zoom points (file time) of the open file (engine zoom.rs) */
+  /** Advanced > Zoom: 1 = the crop (or the whole picture); more is closer, less shows more of the picture around the crop */
+  zoomLevel = $state(1);
+  /** the follow path (Advanced > Zoom > Follow): centres over file time (engine zoom.rs); empty = none.
+   *  Their `zoom` is not used: the job gets zoomLevel at every point. */
   zoomPoints = $state<ZoomPoint[]>([]);
-  /** the zoom lane is shown under the timeline */
-  zoomLane = $state(false);
-  /** the zoom point whose window is moved on the picture (index), or -1 */
-  zoomSel = $state(-1);
   playback = $state<Playback>("forward");
   deinterlace = $state(false);
   denoise = $state(false);
@@ -555,7 +555,7 @@ class AppState {
     return {
       input: m.path,
       segments: segments.map((s) => ({ start: s.start, end: s.end })),
-      crop: own && this.crop ? { ...this.crop } : null,
+      crop: own ? this.jobCrop : null,
       rotate: this.rotate,
       mirror: this.mirror,
       vflip: this.vflip,
@@ -567,7 +567,7 @@ class AppState {
       speed: this.speed,
       // the ramp is the open file's own (file time): Batch and Splits items do not get it
       speedRamp: own ? (ramp.clean($state.snapshot(this.speedRamp) as SpeedPoint[])) : [],
-      zoom: own ? zoomMath.clean($state.snapshot(this.zoomPoints) as ZoomPoint[]) : [],
+      zoom: own && this.zoomPoints.length ? zoomMath.clean($state.snapshot(this.zoomPoints) as ZoomPoint[]).map((p) => ({ ...p, zoom: Math.max(1, this.zoomLevel) })) : [],
       playback: this.playback,
       deinterlace: own ? this.deinterlace : m.video.interlaced,
       denoise: this.denoise,
@@ -621,17 +621,18 @@ class AppState {
 
   /** The edit state as text; a change in it is an edit. The selection alone is not. */
   editKey(): string {
-    return JSON.stringify([this.segments, this.order, this.crop, this.rotate, this.mirror, this.vflip, this.adjust, this.speedRamp, this.zoomPoints]);
+    return JSON.stringify([this.segments, this.order, this.crop, this.rotate, this.mirror, this.vflip, this.adjust, this.speedRamp, this.zoomPoints, this.zoomLevel]);
   }
 
   private snap(): EditSnap {
     const { segments, order, sel, crop, rotate, mirror, vflip, adjust, speedRamp } = this;
     const zoom = this.zoomPoints;
-    return $state.snapshot({ segments, order, sel, crop, rotate, mirror, vflip, adjust, speedRamp, zoom }) as EditSnap;
+    const zoomLevel = this.zoomLevel;
+    return $state.snapshot({ segments, order, sel, crop, rotate, mirror, vflip, adjust, speedRamp, zoom, zoomLevel }) as EditSnap;
   }
 
   private static key(s: EditSnap): string {
-    return JSON.stringify([s.segments, s.order, s.crop, s.rotate, s.mirror, s.vflip, s.adjust, s.speedRamp, s.zoom]);
+    return JSON.stringify([s.segments, s.order, s.crop, s.rotate, s.mirror, s.vflip, s.adjust, s.speedRamp, s.zoom, s.zoomLevel]);
   }
 
   /**
@@ -687,7 +688,7 @@ class AppState {
     this.adjust = s.adjust;
     this.speedRamp = s.speedRamp ?? [];
     this.zoomPoints = s.zoom ?? [];
-    if (this.zoomSel >= this.zoomPoints.length) this.zoomSel = -1;
+    this.zoomLevel = s.zoomLevel ?? 1;
   }
 
   undo() {
@@ -892,7 +893,7 @@ class AppState {
     if (!m) return;
     const key = AppState.editMemoryKey(m);
     const all = (load<Record<string, EditMemory>>("edits") ?? {}) as Record<string, EditMemory>;
-    if (!s.segments.length && !s.crop && !s.speedRamp.length && !s.zoom.length) delete all[key];
+    if (!s.segments.length && !s.crop && !s.speedRamp.length && !s.zoom.length && s.zoomLevel === 1) delete all[key];
     else
       all[key] = {
         segments: s.segments,
@@ -900,6 +901,7 @@ class AppState {
         crop: s.crop,
         speedRamp: s.speedRamp.length ? s.speedRamp : undefined,
         zoom: s.zoom.length ? s.zoom : undefined,
+        zoomLevel: s.zoomLevel !== 1 ? s.zoomLevel : undefined,
         t: Date.now(),
       };
     const keep = Object.entries(all).sort((a, b) => b[1].t - a[1].t).slice(0, 40);
@@ -938,7 +940,8 @@ class AppState {
       this.adjust = { ...NEUTRAL_ADJUST, curve: [] };
       this.speedRamp = [];
       this.zoomPoints = [];
-      this.zoomSel = -1;
+      this.zoomLevel = 1;
+      this.zoomBeforeFollow = null;
       this.deinterlace = info.video.interlaced;
       this.tonemap = info.video.hdr && !!this.tools?.filters.zscale;
       this.audioTrack = info.audio[0]?.track ?? 0;
@@ -970,7 +973,7 @@ class AppState {
       }
       this.remember(path);
       const mem = load<Record<string, EditMemory>>("edits")?.[AppState.editMemoryKey(info)];
-      if (restoreEdit && mem && (mem.segments.length || mem.crop || mem.speedRamp?.length || mem.zoom?.length)) {
+      if (restoreEdit && mem && (mem.segments.length || mem.crop || mem.speedRamp?.length || mem.zoom?.length || (mem.zoomLevel ?? 1) !== 1)) {
         // the empty state is the first undo step, so Ctrl+Z drops the restored edit
         this.steps = [{ snap: this.snap(), label: "Opened the file", time: Date.now() }];
         this.at = 0;
@@ -981,14 +984,14 @@ class AppState {
         this.speedRamp = (mem.speedRamp ?? []).filter((p) => p.t <= info.duration + 0.5);
         if (this.speedRamp.length) this.rampLane = true;
         this.zoomPoints = info.audioOnly ? [] : (mem.zoom ?? []).filter((p) => p.t <= info.duration + 0.5);
-        if (this.zoomPoints.length) this.zoomLane = true;
+        this.zoomLevel = info.audioOnly ? 1 : (mem.zoomLevel ?? 1);
         this.sel = this.segments.length ? 0 : -1;
         if (this.segments.length) this.loop = true;
         const parts = [
           this.segments.length ? `${this.segments.length} range${this.segments.length > 1 ? "s" : ""}` : "",
           mem.crop ? "the crop" : "",
           this.speedRamp.length ? "the speed ramp" : "",
-          this.zoomPoints.length ? "the zoom" : "",
+          this.zoomPoints.length ? "the follow path" : this.zoomLevel !== 1 ? "the zoom" : "",
         ].filter(Boolean);
         const what = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
         this.toast({ kind: "info", title: "Restored your last edit", text: `${what} from the last time this file was open. Ctrl+Z removes them.`, path: null });
@@ -1355,22 +1358,61 @@ class AppState {
     this.speedRamp = [];
   }
 
-  // ---------- zoom (points in file time, kept sorted; engine zoom.rs) ----------
+  // ---------- zoom (Advanced > Zoom) and the follow path (engine zoom.rs) ----------
 
-  /** Zoom and centre at source time t. */
-  zoomAt(t: number) {
-    return zoomMath.at(this.zoomPoints, t);
+  /** The zoom's frame, as shown: the crop, or the whole picture. */
+  get zoomFrame(): Crop {
+    return this.viewCrop ?? { x: 0, y: 0, w: this.viewW, h: this.viewH };
   }
-
-  /** Adds a point at file time t (zoom and centre as they are there, or `zoom`); selects it and returns its index. */
-  addZoomPoint(t: number, zoom?: number): number {
-    const at = Math.min(Math.max(0, t), this.duration || t);
-    const here = this.zoomAt(at);
-    const p = zoomMath.clean([...this.zoomPoints.filter((q) => Math.abs(q.t - at) >= 0.01), { t: at, zoom: zoom ?? (this.zoomPoints.length ? here.zoom : 2), x: here.x, y: here.y }]);
-    this.zoomPoints = p;
-    this.zoomLane = true;
-    this.zoomSel = p.findIndex((q) => q.t === at);
-    return this.zoomSel;
+  /** The widest zoom: the crop grown around its middle until one side reaches the picture's (1 without a crop). */
+  get zoomMin(): number {
+    const c = this.viewCrop;
+    return c && this.viewW && this.viewH ? Math.min(1, Math.max(c.w / this.viewW, c.h / this.viewH)) : 1;
+  }
+  setZoomLevel(z: number) {
+    if (!Number.isFinite(z)) return;
+    this.zoomLevel = Math.round(Math.min(zoomMath.MAX_ZOOM, Math.max(this.zoomMin, z)) * 100) / 100;
+  }
+  /** Without a follow path: what the output shows, as shown (the frame scaled around its middle by the zoom, kept inside the picture). */
+  get zoomView(): Crop {
+    const f = this.zoomFrame;
+    const z = Math.max(this.zoomMin, this.zoomLevel);
+    if (Math.abs(z - 1) < 1e-9) return f;
+    const w = Math.min(this.viewW, f.w / z);
+    const h = Math.min(this.viewH, f.h / z);
+    return {
+      x: Math.min(Math.max(0, f.x + f.w / 2 - w / 2), this.viewW - w),
+      y: Math.min(Math.max(0, f.y + f.h / 2 - h / 2), this.viewH - h),
+      w,
+      h,
+    };
+  }
+  /** The crop the job gets (source pixels): the crop with the zoom in it; with a follow path the crop
+   *  alone (the zoom then moves along the path in the encode). */
+  get jobCrop(): Crop | null {
+    if (this.zoomPoints.length || Math.abs(this.zoomLevel - 1) < 1e-9 || !this.viewW) return this.crop ? { ...this.crop } : null;
+    const r = round(fromView(this.zoomView, this.srcW, this.srcH, this.turn), this.srcW, this.srcH);
+    return isFull(r, this.srcW, this.srcH) ? null : r;
+  }
+  /** What the output shows at source time t, as shown: the follow window there, or the zoom's view. */
+  outViewAt(t: number): Crop {
+    if (!this.zoomPoints.length) return this.zoomView;
+    const p = zoomMath.at(this.zoomPoints, t);
+    const f = this.zoomFrame;
+    const w = zoomMath.windowOf({ zoom: Math.max(1, this.zoomLevel), x: p.x, y: p.y }, f.w, f.h);
+    return { x: f.x + w.x, y: f.y + w.y, w: w.w, h: w.h };
+  }
+  /** The follow point nearest source time t (its index), or -1. */
+  followPointAt(t: number): number {
+    let best = -1;
+    let d = Infinity;
+    this.zoomPoints.forEach((p, i) => {
+      if (Math.abs(p.t - t) < d) {
+        d = Math.abs(p.t - t);
+        best = i;
+      }
+    });
+    return best;
   }
 
   /** Changes point i (time kept between its neighbours). */
@@ -1399,9 +1441,11 @@ class AppState {
   followBox = $state<Crop | null>(null);
   /** while following: how far, 0..1 */
   following = $state<number | null>(null);
+  /** the zoom before Follow set one (Remove puts it back), or null */
+  private zoomBeforeFollow: number | null = null;
 
   /** Follow the box drawn on the picture (as shown) from the playhead to the end of the
-   *  selected range (or of the file), and make zoom points that keep it in the picture. */
+   *  selected range (or of the file), and make the follow path that keeps it in the picture. */
   async follow(viewBox: Crop) {
     const m = this.media;
     if (!m || m.audioOnly || this.following !== null) return;
@@ -1421,7 +1465,7 @@ class AppState {
       const pts = await ipc.trackBox(m.path, start, end, rect);
       if (this.media?.path !== m.path || !pts.length) return;
       // the zoom's frame: the crop (or the whole picture) as shown
-      const frame = this.viewCrop ?? { x: 0, y: 0, w: this.viewW, h: this.viewH };
+      const frame = this.zoomFrame;
       const first = toView({ x: pts[0].x - pts[0].w / 2, y: pts[0].y - pts[0].h / 2, w: pts[0].w, h: pts[0].h }, this.srcW, this.srcH, this.turn);
       // the box fills about 85% of the frame
       const zoom = Math.round(Math.min(zoomMath.MAX_ZOOM, Math.max(zoomMath.MIN_ZOOM, 0.85 * Math.min(frame.w / first.w, frame.h / first.h))) * 100) / 100;
@@ -1433,13 +1477,16 @@ class AppState {
       }
       const keep = this.zoomPoints.filter((q) => q.t < start - 0.01 || q.t > end + 0.01);
       this.zoomPoints = zoomMath.clean([...keep, ...made]);
-      this.zoomLane = true;
-      this.zoomSel = -1;
+      // following needs a zoom past the frame; the box then fills about 85% of it
+      if (this.zoomLevel <= 1.001) {
+        this.zoomBeforeFollow = this.zoomLevel;
+        this.zoomLevel = zoom;
+      }
       const weak = pts.filter((p) => p.score < 0.35).length;
       this.toast({
         kind: "info",
         title: `Following for ${fmtSecs(end - start)}`,
-        text: `${made.length} zoom points at ${zoom}x.${weak ? ` In ${weak} of ${pts.length} frames the box was hard to find (something in front of it); it stayed where it was there.` : ""} Drag a point's window to correct it.`,
+        text: `At ${this.zoomLevel}x (Advanced > Zoom).${weak ? ` In ${weak} of ${pts.length} frames the box was hard to find (something in front of it); it stayed where it was there.` : ""} Drag the picture to correct the path where it is off; Remove takes it away.`,
         path: null,
       });
     } catch (e) {
@@ -1455,14 +1502,11 @@ class AppState {
     if (this.following !== null) void ipc.trackCancel().catch(() => {});
   }
 
-  removeZoomPoint(i: number) {
-    this.zoomPoints = this.zoomPoints.filter((_, k) => k !== i);
-    this.zoomSel = -1;
-  }
-
-  clearZoom() {
+  /** Remove the follow path, and the zoom Follow set (a zoom chosen by hand stays). */
+  clearFollow() {
     this.zoomPoints = [];
-    this.zoomSel = -1;
+    if (this.zoomBeforeFollow !== null) this.zoomLevel = this.zoomBeforeFollow;
+    this.zoomBeforeFollow = null;
   }
 
   /** Arrow keys in crop mode, as shown on screen: move, or with `grow` change the size from the top-left corner. */

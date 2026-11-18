@@ -50,17 +50,6 @@
     {#if app.ffmpegMissing}<ToolsMissing which="ffmpeg" />{/if}
     {#if app.ytdlpMissing}<ToolsMissing which="ytdlp" />{/if}
 
-    <div class="keys muted">
-      <span><kbd>Space</kbd> play</span>
-      <span><kbd>I</kbd> <kbd>O</kbd> in / out</span>
-      <span><kbd>N</kbd> new range</span>
-      <span><kbd>,</kbd> <kbd>.</kbd> frame</span>
-      <span><kbd>C</kbd> crop</span>
-      <span><kbd>P</kbd> sample</span>
-      <span><kbd>S</kbd> save frame</span>
-      <span><kbd>Ctrl+U</kbd> URL</span>
-      <span><kbd>?</kbd> all keys</span>
-    </div>
   </div>
 </div>
 
@@ -159,13 +148,6 @@
     white-space: nowrap;
     direction: rtl;
     text-align: left;
-    font-size: 11px;
-  }
-  .keys {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 6px 14px;
     font-size: 11px;
   }
 </style>

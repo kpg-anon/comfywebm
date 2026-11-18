@@ -1198,6 +1198,20 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     let crop = if still.is_some() || layout.is_some() { None } else { spec.crop };
     let rotate = if layout.is_some() { 0 } else { spec.rotate };
     let mut g = geometry(v.width, v.height, crop, rotate, spec.max_width, spec.max_height);
+    // a follow path (zoom points): the output is the size of the window it moves (the picture over
+    // the zoom), not the whole picture enlarged (a 2.89x path on 2160x3840 planned 2160x3840)
+    let zoom_k = if spec.zoom.is_empty() || still.is_some() || layout.is_some() || mixed {
+        1.0
+    } else {
+        crate::zoom::clean(&spec.zoom).iter().map(|p| p.zoom).reduce(f64::min).unwrap_or(1.0).max(1.0)
+    };
+    if zoom_k > 1.0 + 1e-9 {
+        g.rot_w = ((g.rot_w as f64 / zoom_k).round() as u32).max(2);
+        g.rot_h = ((g.rot_h as f64 / zoom_k).round() as u32).max(2);
+        let f = fit_factor(g.rot_w, g.rot_h, spec.max_width, spec.max_height);
+        g.out_w = even_down(g.rot_w as f64 * f);
+        g.out_h = even_down(g.rot_h as f64 * f);
+    }
     let mut auto_scaled = false;
     if let (true, true, Some(k)) = (size_mode, spec.auto_scale, video_kbps) {
         let (ng, ok) = auto_scale(g, spec.max_width, spec.max_height, k, out_fps, codec);
@@ -2687,6 +2701,16 @@ mod tests {
         assert_eq!((p.out_width, p.out_height), (2048, 1152));
         let s = strs(&p.passes[0]).join(" ");
         assert!(s.contains("crop=2160:1215:0:2625,scale=2048:1152:flags=lanczos,setsar=1"), "{s}");
+    }
+
+    #[test]
+    fn zoom_output_is_the_window_size() {
+        // a 2x path on 1280x720: the output is 640x360, not 1280x720 enlarged
+        let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
+        sp.zoom = vec![crate::spec::ZoomPoint { t: 10.0, zoom: 2.0, x: 0.5, y: 0.5 }, crate::spec::ZoomPoint { t: 12.0, zoom: 2.0, x: 0.3, y: 0.5 }];
+        let p = build(&sp, &media(), &opts()).unwrap();
+        assert_eq!((p.out_width, p.out_height), (640, 360));
+        assert!(strs(&p.passes[0]).join(" ").contains(":s=640x360:"));
     }
 
     #[test]

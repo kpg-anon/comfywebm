@@ -97,8 +97,9 @@ building it yourself. For an overview and the downloads, see
   (the picture comes back within 0.4 s) is not one either; a fade through
   black is one cut in its middle; shots are at least 0.5 s. Fewer cuts /
   Normal / More cuts beside the button changes the result at once. Undo and redo (Ctrl+Z, Ctrl+Shift+Z) cover ranges,
-  their order, the crop, rotation, flips, adjustments and the speed ramp. The
-  History panel (`H`, or the clock button by undo and redo) lists every step
+  their order, the crop, rotation, flips, adjustments, the speed ramp, the
+  zoom and the follow path. The History panel (`H`, or the clock button in the
+  top bar, with undo and redo in it) lists every step
   with what changed ("Moved range 2 to 12.5 s", "Crop 960x540") and when,
   newest first; click one to go back (or forward) to it. Undone steps stay
   greyed until a new edit replaces them. Reopening a file brings back its
@@ -106,7 +107,8 @@ building it yourself. For an overview and the downloads, see
 - **Edit strip**: with two or more ranges, a strip under the timeline shows the
   joined output in order. Drag a block to change the order, click it to jump to
   it, and "Play edit" plays the ranges one after another.
-- **Crop**: drawn on the picture with 8 handles, moved by dragging or with the
+- **Crop**: drawn on the picture with 8 handles (Crop, or `C`; Done goes back
+  to the picture, which then shows only the cropped part), moved by dragging or with the
   arrow keys, numeric x/y/w/h. Aspect lock: free, 1:1, 16:9, 9:16, 4:3, 4:5,
   a "More" list (3:4, 2:3, 3:2, 5:4, 2:1, 1.85:1, 2.39:1, 21:9, 32:9, 9:21, 1:2)
   and a custom ratio such as `5:3` or `1.66`. "Find bars" in the Video group crops black
@@ -146,25 +148,24 @@ building it yourself. For an overview and the downloads, see
   display's refresh rate (Settings, default 60 Hz). Speeds whose output plays
   evenly are listed and the speed slider snaps to them; a setting that judders
   or stutters is explained, with the nearest smooth speeds and caps as buttons.
-- **Zoom**: Zoom under the timeline shows a lane of zoom points (1x to 4x, up
-  is closer). Click to add a point; clicking a point selects it and moves the
-  playhead to it, and its window on the picture can then be dragged to choose
-  what shows (the wheel over it zooms). Drag a point for time and zoom,
-  double-click to remove it, right-click for 1x to 4x, "Centre the window" or
-  "Move to the playhead". Between two points the zoom and the window move
-  smoothly (they ease in and out); before the first and after the last they
-  stay. The window is drawn on the picture at the playhead (inside the crop,
-  after rotation and flips); the caption and watermark are not zoomed. It
+- **Zoom** (Advanced tab): a slider with 1x in the middle. 1x is the crop (or
+  the whole picture); right zooms in on its middle, up to 4x; with a crop, left
+  shows more of the picture around it, until one side reaches the picture's
+  edge. Double-click the slider or Reset for 1x. The zoom works like a crop:
+  the picture area shows exactly what the output will, and the caption and
+  watermark are not zoomed.
+- **Follow a person** (Advanced tab, under Zoom): click "Follow a person...",
+  then draw a box around the person on the picture; the app follows the box
+  from the playhead to the end of the range (or of the file), and the zoom
+  moves with them. Without a zoom yet, it sets one where the box fills about
+  85% of the picture; the zoom slider changes it. It reads the video small and
+  grey once, looks for the box near where it was in each frame (it learns
+  slowly as the person turns), keeps the last position where something covers
+  it, and smooths the path over about half a second. The picture area plays
+  the path; where it is off, drag the picture to move the path there. Remove
+  takes the path away (and the zoom it set); Esc cancels drawing. The output
+  is the size of the window it moves, not the whole picture enlarged. It
   applies to ranges of the open file (not Splits or a still picture).
-  **Follow...** (by Zoom while its lane is shown): draw a box around a person
-  on the picture; the app follows the box from the playhead to the end of the
-  range (or of the file) and makes zoom points every 0.25 s that keep it in
-  the middle, at a zoom where the box fills about 85% of the picture. It reads
-  the video small and grey once, looks for the box near where it was in each
-  frame (it learns slowly as the person turns), keeps the last position where
-  something covers it, and smooths the path over about half a second. The box
-  keeps its size; the points can be corrected in the lane and by dragging a
-  point's window. Esc cancels drawing; clicking the button again stops it.
 - **Speed ramp**: Speed under the timeline shows a lane where the speed changes
   over the clip (0.25x to 4x, up is faster, 1x in the middle). Click to add a
   point, drag it (time and speed), double-click to remove it; right-click a

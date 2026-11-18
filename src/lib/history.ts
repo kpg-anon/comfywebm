@@ -13,6 +13,7 @@ export type EditState = {
   adjust: Adjust;
   speedRamp: SpeedPoint[];
   zoom?: ZoomPoint[];
+  zoomLevel?: number;
 };
 
 /** "1:05.2", "12.5 s" */
@@ -85,15 +86,9 @@ export function describeEdit(a: EditState, b: EditState): string {
   const zb = b.zoom ?? [];
   if (JSON.stringify(za) !== JSON.stringify(zb)) {
     const n = zb.length - za.length;
-    if (n > 0) parts.push("Added a zoom point");
-    else if (n < 0) parts.push(zb.length ? "Removed a zoom point" : "Removed the zoom");
-    else {
-      const i = zb.findIndex((q, k) => JSON.stringify(q) !== JSON.stringify(za[k]));
-      const q = zb[i];
-      const o = za[i];
-      parts.push(q && o && q.zoom !== o.zoom ? `Zoom ${Math.round(q.zoom * 100) / 100}x` : q && o && q.t !== o.t ? "Moved a zoom point" : "Moved the zoom's centre");
-    }
+    parts.push(n > 0 ? "Followed a person" : !zb.length ? "Removed the follow path" : "Moved the follow path");
   }
+  if ((a.zoomLevel ?? 1) !== (b.zoomLevel ?? 1)) parts.push(`Zoom ${Math.round((b.zoomLevel ?? 1) * 100) / 100}x`);
   if (!parts.length) return "Edit";
   return parts.length > 2 ? `${parts.slice(0, 2).join(", ")} and more` : parts.join(", ");
 }

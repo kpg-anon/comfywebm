@@ -12,17 +12,16 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Settings > Look > Timeline, "Resizable": drag the edge above the timeline
   up to make its track taller (up to 240 px), with bigger thumbnails and
   waveform; double-click the edge for the standard height.
-- Zoom: a lane of zoom points under the timeline (Zoom button), like the
-  speed ramp. Each point has a zoom (1x to 4x) and the part of the picture
-  that shows, set by dragging its window on the picture; between two points
-  the zoom and the window move smoothly. The caption and watermark stay put.
-- Follow a person: by Zoom, draw a box around someone on the picture; the
-  app follows them to the end of the range and makes zoom points that keep
-  them in the middle (a 9.5 s 4K dance clip took about 2 s to follow). The
-  points can be corrected like any zoom point.
-- History panel (`H`, or the clock button by undo and redo): every edit of
-  the open file with what changed and when ("Moved range 2 to 12.5 s",
-  "Crop 960x540"), newest first; click one to go back or forward to it.
+- Zoom (Advanced tab): a slider with 1x in the middle; right zooms in on the
+  crop (or the picture), left shows more of the picture around the crop.
+- Follow a person (Advanced tab, under Zoom): draw a box around someone; the
+  app follows them to the end of the range and the zoom moves with them (a
+  9.5 s 4K dance clip took about 2 s to follow). Drag the picture to correct
+  the path; Remove takes it away. The output is the size of the window.
+- History panel (`H`, or the clock button in the top bar): undo, redo and
+  every edit of the open file with what changed and when ("Moved range 2 to
+  12.5 s", "Crop 960x540"), newest first; click one to go back or forward to
+  it.
 - Quality check: after the settings stop changing, the app encodes a 2 s
   piece with them and measures how close it looks to the source (VMAF, 0 to
   100). The output line shows "quality N" and a warning appears under 88
@@ -32,6 +31,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- The picture area shows only what the output will (the crop with the zoom)
+  once crop mode is done, instead of the whole picture with the rest dimmed.
+- Undo and redo moved from the bottom bar into the History panel; Loop moved
+  to the picture's bottom right, beside the speaker; the bottom bar's
+  controls are centred. The start screen no longer lists keys (Keys in the
+  top bar, or `?`, shows them all).
 - Auto resolution aims at about 0.10 bits per pixel for VP9 (3.3 times the
   old floor) and goes no smaller than 540 pixels on the short side unless the
   limit is very small. A sideways 4K fancam turned upright, 10 s in 4 MiB, now

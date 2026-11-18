@@ -54,6 +54,16 @@
       ? null
       : `Quality check: ${Math.round(qv)} of 100 (VMAF of a 2 s piece encoded with these settings; 90 and up looks like the source). ${qv >= 75 ? "Expect visible compression" : "Expect heavy compression"}. A shorter clip, a lower frame rate cap or a bigger size limit gives each frame more bits.`,
   );
+  // Advanced > Zoom: the slider runs from the widest zoom (left) through 1x (middle) to 4x (right)
+  const zoomPos = $derived(
+    app.zoomLevel >= 1 ? Math.round((100 * Math.log(app.zoomLevel)) / Math.log(4)) : app.zoomMin < 1 ? -Math.round((100 * Math.log(app.zoomLevel)) / Math.log(app.zoomMin)) : 0,
+  );
+  const zoomOfPos = (v: number) => (v >= 0 ? Math.pow(4, v / 100) : app.zoomMin < 1 ? Math.pow(app.zoomMin, -v / 100) : 1);
+  const zoomNote = $derived([app.zoomLevel !== 1 ? `${app.zoomLevel}x` : "", app.zoomPoints.length ? "following" : ""].filter(Boolean).join(" · "));
+  function startFollow() {
+    app.cropMode = false;
+    app.followMode = true;
+  }
   const warnings = $derived([
     ...app.uiWarnings,
     ...(app.plan?.warnings ?? []).filter((w) => qv === null || !w.includes("Expect a blurry picture")),
@@ -149,6 +159,8 @@
   /** Advanced settings that differ from what a fresh file gets. */
   const changed = $derived(
     [
+      app.zoomLevel !== 1 && `zoom ${app.zoomLevel}x`,
+      app.zoomPoints.length > 0 && "follow",
       app.deinterlace !== !!app.media?.video.interlaced && "deinterlace",
       app.denoise && "denoise",
       app.stabilize && "stabilize",
@@ -366,6 +378,52 @@
         <div class="path small muted">{app.outputPath ?? "Beside each source file"}</div>
       </Group>
     {:else}
+      <Group id="zoom" title="Zoom" note={zoomNote}>
+        <div class="row">
+          <span title="Zoom in on the picture (right) or, with a crop, show more of the picture around it (left). 1x in the middle is the crop, or the whole picture. Double-click the slider for 1x.">Zoom</span>
+          <input
+            class="zslider"
+            type="range"
+            min="-100"
+            max="100"
+            step="1"
+            aria-label="Zoom"
+            disabled={!app.media || app.audioOnly}
+            value={zoomPos}
+            oninput={(e) => app.setZoomLevel(zoomOfPos(Number((e.currentTarget as HTMLInputElement).value)))}
+            ondblclick={() => app.setZoomLevel(1)}
+          />
+          <span class="mono small zval">{app.zoomLevel}x</span>
+          <button class="btn small" disabled={app.zoomLevel === 1} onclick={() => app.setZoomLevel(1)}>Reset</button>
+        </div>
+        <div class="muted small">
+          {#if app.zoomPoints.length}
+            Following: the zoom is around the person ({app.zoomLevel}x of {app.crop ? "the crop" : "the picture"}).
+          {:else if app.crop}
+            1x is the crop. Right zooms in on its middle; left shows more of the picture around it.
+          {:else}
+            1x is the whole picture; right zooms in on its middle. Crop first to zoom out around a crop.
+          {/if}
+        </div>
+        <div class="row">
+          <span title="Keep a person in the picture: draw a box around them; the app follows them from the playhead to the end of the range and the zoom moves with them. Drag the picture afterwards to correct the path where it is off.">Follow</span>
+          {#if app.following !== null}
+            <span class="small grow">Following {Math.round(app.following * 100)}%</span>
+            <button class="btn small" onclick={() => app.cancelFollow()}>Stop</button>
+          {:else if app.followMode}
+            <span class="small grow">Draw a box around the person on the picture</span>
+            <button class="btn small" onclick={() => app.cancelFollow()}>Cancel</button>
+          {:else if app.zoomPoints.length}
+            <span class="small grow">On, {fmtLen(app.zoomPoints[app.zoomPoints.length - 1].t - app.zoomPoints[0].t)}</span>
+            <button class="btn small" disabled={!app.media} title="Draw a new box from the playhead" onclick={startFollow}>Again...</button>
+            <button class="btn small" onclick={() => app.clearFollow()}>Remove</button>
+          {:else}
+            <span class="muted small grow">off</span>
+            <button class="btn small" disabled={!app.media || app.audioOnly} onclick={startFollow}>Follow a person...</button>
+          {/if}
+        </div>
+      </Group>
+
       <Group id="encoder" title="Encoder" note={app.effort}>
         <div class="row">
           <span title="How hard the encoder works. Best gives a slightly better picture at the same size and takes several times longer; Fast is for quick tests.">Effort</span>
@@ -749,6 +807,14 @@
     flex: none;
     color: var(--text-secondary);
     font-size: 12px;
+  }
+  .zslider {
+    flex: 1;
+    min-width: 0;
+  }
+  .zval {
+    width: 3.2em;
+    text-align: right;
   }
   .row :global(.sel) {
     flex: 1;

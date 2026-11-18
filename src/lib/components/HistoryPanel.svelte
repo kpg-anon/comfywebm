@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The History panel (H, or the button by undo and redo): every edit of the
+  // The History panel (H, or the clock button in the top bar): undo and redo, and every edit of the
   // open file with what changed and when, newest first. Click a step to go
   // back (or forward) to it; steps after the current one are undone and stay
   // until a new edit replaces them.
@@ -28,6 +28,8 @@
     <Icon name="history" size={15} />
     <h2>History</h2>
     <span class="grow"></span>
+    <button class="btn small icon" disabled={!app.canUndo} aria-label="Undo (Ctrl+Z)" title="Undo (Ctrl+Z)" onclick={() => app.undo()}><Icon name="undo" size={14} /></button>
+    <button class="btn small icon" disabled={!app.canRedo} aria-label="Redo (Ctrl+Y)" title="Redo (Ctrl+Y)" onclick={() => app.redo()}><Icon name="redo" size={14} /></button>
     <button class="btn small icon" aria-label="Close (Esc)" onclick={() => (app.historyOpen = false)}><Icon name="x" size={12} /></button>
   </header>
   <div class="body">
@@ -54,7 +56,7 @@
     position: fixed;
     z-index: 56;
     right: 14px;
-    bottom: 120px;
+    top: 52px;
     width: 340px;
     max-height: 60vh;
     display: flex;

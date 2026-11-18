@@ -294,6 +294,12 @@
     {/if}
     {#if app.busy && app.media}<span class="muted">{app.busy}</span>{/if}
     <button class="btn icon" aria-label="Keys (? or F1)" onclick={() => (app.keysOpen = true)}><Icon name="keyboard" size={16} /></button>
+    <button
+      class="btn icon"
+      class:on={app.historyOpen}
+      disabled={!app.media || app.view !== "editor"}
+      aria-label="Edit history (H): undo, redo, and every edit to go back to"
+      onclick={() => (app.historyOpen = !app.historyOpen)}><Icon name="history" size={16} /></button>
     <button class="btn icon" aria-label="Settings" onclick={() => (app.settingsOpen = true)}><Icon name="gear" size={15} /></button>
   </header>
 

@@ -69,6 +69,8 @@
     ...(app.plan?.warnings ?? []).filter((w) => qv === null || !w.includes("Expect a blurry picture")),
     ...(qualityWarning ? [qualityWarning] : []),
   ]);
+  /** the output line beside Encode */
+  const outLine = $derived(app.plan ? outputParts(app.plan, app.rate, fmtLen, app.separate ? app.segments.length : 1).join(" · ") : "");
   /** the warnings beside the output line, one paragraph each, shown on hover */
   const warningText = $derived(warnings.join("\n\n"));
   /** the tooltip of the output line: bitrates, picture quality, file name */
@@ -677,7 +679,7 @@
     {#if app.view === "splits"}
       <div class="muted small">These settings apply to the combined clips{splits.clips.length ? ` (${splits.clips.length})` : ""}. The choices for combining them are on the left.</div>
       {#if splits.plan && splits.clips.length > 1}
-        <div class="outrow">{#each outputParts(splits.plan, app.rate, fmtLen) as p, i (i)}{#if i}<span class="dot">{" · "}</span>{/if}<span>{p}</span>{/each}</div>
+        <div class="outbox"><div class="outrow">{outputParts(splits.plan, app.rate, fmtLen).join(" · ")}</div></div>
       {/if}
       <div class="actions">
         <button class="btn primary big" disabled={splits.clips.length < 2 || app.ffmpegMissing || !!splits.planError} onclick={() => splits.enqueue(true)}>Encode</button>
@@ -695,15 +697,27 @@
       {:else if !app.media}
         <div class="muted small">Open a video to see the output size.</div>
       {/if}
-      {#if !app.plan && warnings.length}
-        <div class="outrow"><span class="wicon" title={warningText}><Icon name="warn" size={13} />{#if warnings.length > 1}<span class="wn">{warnings.length}</span>{/if}</span><span class="muted">{warnings.length > 1 ? "warnings" : "a warning"} (point at the icon)</span></div>
-      {/if}
-      {#if app.plan}
-        <!-- the bitrates, picture quality and file name are in the tooltip -->
-        <div class="outrow" title={details}>
-          {#if warnings.length}<span class="wicon" title={warningText} aria-label="{warnings.length} warning{warnings.length > 1 ? 's' : ''}: {warnings.join(' ')}"><Icon name="warn" size={13} />{#if warnings.length > 1}<span class="wn">{warnings.length}</span>{/if}</span>{/if}
-          {#each outputParts(app.plan, app.rate, fmtLen, app.separate ? app.segments.length : 1) as p, i (i)}{#if i}<span class="dot">{" · "}</span>{/if}<span>{p}</span>{/each}{#if app.quality?.busy}<span class="dot">{" · "}</span><span class="muted" title="Encoding 2 s with these settings to measure how close they look to the source">checking quality...</span>
-          {:else if qv !== null}<span class="dot">{" · "}</span><span class="q {qClass}" title="VMAF of a 2 s piece encoded with these settings, against the source (0 to 100; 90 and up looks like the source, 75 to 88 shows compression)">quality {Math.round(qv)}</span>{/if}
+      {#if app.plan || warnings.length}
+        <!-- the output on one line (the bitrates, picture quality and file name in its tooltip);
+             the warnings and the quality check stacked on the right -->
+        <div class="outbox">
+          <div class="outrow" title={app.plan ? `${outLine}\n\n${details}` : ""}>
+            {#if app.plan}{outLine}{:else}<span class="muted">The output could not be planned.</span>{/if}
+          </div>
+          {#if warnings.length || qv !== null || app.quality?.busy}
+            <div class="outside">
+              {#if warnings.length}
+                <span class="wicon" title={warningText} aria-label="{warnings.length} warning{warnings.length > 1 ? 's' : ''}: {warnings.join(' ')}"
+                  ><Icon name="warn" size={17} />{#if warnings.length > 1}<span class="wn">{warnings.length}</span>{/if}</span
+                >
+              {/if}
+              {#if app.quality?.busy}
+                <span class="qv muted" title="Checking the quality: encoding 2 s with these settings to compare with the source">...</span>
+              {:else if qv !== null}
+                <span class="qv {qClass}" title="Quality {Math.round(qv)} of 100: VMAF of a 2 s piece encoded with these settings, against the source (90 and up looks like the source, 75 to 88 shows compression)">{Math.round(qv)}</span>
+              {/if}
+            </div>
+          {/if}
         </div>
       {/if}
       <div class="actions">
@@ -889,40 +903,55 @@
     word-break: break-all;
     text-align: right;
   }
-  /* the output beside Encode: size, frame rate, sound, length, expected file size */
+  /* the output beside Encode: one line (size, frame rate, sound, length, file size) and,
+     on the right, the warning icon over the quality check's score */
+  .outbox {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
   .outrow {
+    flex: 1;
+    min-width: 0;
     color: var(--text-primary);
     font-size: 12px;
     text-align: center;
-  }
-  /* a line break falls between the parts, not inside one */
-  .outrow span:not(.dot) {
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .outrow .dot {
-    color: var(--text-muted);
+  .outside {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    min-width: 30px;
   }
-  .outrow .q.good {
+  .qv {
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.1;
+    cursor: help;
+  }
+  .qv.good {
     color: var(--green);
   }
-  .outrow .q.fair {
+  .qv.fair {
     color: var(--yellow);
   }
-  .outrow .q.poor {
+  .qv.poor {
     color: var(--red);
   }
-  /* the warnings: an icon beside the output line, the text on hover */
   .wicon {
     display: inline-flex;
     align-items: center;
     gap: 2px;
-    margin-right: 6px;
-    vertical-align: -2px;
     color: var(--yellow);
     cursor: help;
   }
   .wn {
-    font-size: 10.5px;
+    font-size: 11px;
     font-weight: 700;
   }
   .cmd {

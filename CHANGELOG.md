@@ -37,9 +37,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   to the picture's bottom right, beside the speaker; the bottom bar's
   controls are centred. The start screen no longer lists keys (Keys in the
   top bar, or `?`, shows them all).
-- Warnings above Encode are a yellow icon at the start of the output line
-  (with how many there are); pointing at it shows them. In the Advanced tab,
-  Flip is above Rotate.
+- Above Encode: the output on one line, and on its right the warning icon
+  (pointing at it shows the warnings) over the quality check's score. In the
+  Advanced tab, Flip is above Rotate.
 - Auto resolution aims at about 0.10 bits per pixel for VP9 (3.3 times the
   old floor) and goes no smaller than 540 pixels on the short side unless the
   limit is very small. A sideways 4K fancam turned upright, 10 s in 4 MiB, now

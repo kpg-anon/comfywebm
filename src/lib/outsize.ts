@@ -50,7 +50,7 @@ export function outputParts(plan: PlanInfo, rate: Rate, fmtLength: (secs: number
   const unit = sizeUnit(rate);
   const parts: string[] = [];
   if (plan.outWidth > 0) {
-    parts.push(`${plan.outWidth}x${plan.outHeight}${plan.autoScaled ? " (auto)" : ""}`, fmtFps(plan.outFps), plan.audioKbps > 0 ? "audio" : "no audio");
+    parts.push(`${plan.outWidth}x${plan.outHeight}`, fmtFps(plan.outFps), plan.audioKbps > 0 ? "audio" : "no audio");
   } else parts.push("sound only");
   if (files > 1) {
     parts.push(rate.mode === "size" ? `${files} files, each up to ${fmtSize(rate.maxBytes, unit)}` : `${files} files`);
@@ -58,6 +58,6 @@ export function outputParts(plan: PlanInfo, rate: Rate, fmtLength: (secs: number
   }
   parts.push(fmtLength(plan.durationOut));
   const e = expectedSize(plan, rate);
-  parts.push(e ? `${e.atMost ? "up to" : "about"} ${fmtSize(e.bytes, unit)}` : "size known after encoding");
+  parts.push(e ? `${e.atMost ? "up to" : "about"} ${fmtSize(e.bytes, unit)}` : "size unknown");
   return parts;
 }

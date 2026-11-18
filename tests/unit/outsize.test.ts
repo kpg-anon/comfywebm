@@ -54,10 +54,10 @@ test("expected size: an upper bound from the bitrates (at most the limit), or th
 });
 
 test("output line", () => {
-  assert.equal(outputLine(plan({ audioKbps: 0, autoScaled: true }), { mode: "size", maxBytes: 4_194_304 }), "1280x720 (auto) · 30 fps · no audio · 10.0 s · up to 3.58 MiB");
+  assert.equal(outputLine(plan({ audioKbps: 0, autoScaled: true }), { mode: "size", maxBytes: 4_194_304 }), "1280x720 · 30 fps · no audio · 10.0 s · up to 3.58 MiB");
   assert.equal(outputLine(plan({ outFps: 29.97 }), { mode: "size", maxBytes: 4_194_304 }), "1280x720 · 29.97 fps · audio · 10.0 s · up to 3.69 MiB");
   assert.equal(outputLine(plan(), { mode: "size", maxBytes: 20_000_000 }), "1280x720 · 30 fps · audio · 10.0 s · up to 3.87 MB");
-  assert.equal(outputLine(plan({ videoKbps: null }), { mode: "crf", crf: 20, maxBitrateK: null }), "1280x720 · 30 fps · audio · 10.0 s · size known after encoding");
+  assert.equal(outputLine(plan({ videoKbps: null }), { mode: "crf", crf: 20, maxBitrateK: null }), "1280x720 · 30 fps · audio · 10.0 s · size unknown");
   assert.equal(outputLine(plan(), { mode: "size", maxBytes: 4_194_304 }, 3), "1280x720 · 30 fps · audio · 3 files, each up to 4.00 MiB");
   assert.equal(outputLine(plan({ outWidth: 0, outHeight: 0, videoKbps: null, audioKbps: 128 }), { mode: "crf", crf: 30, maxBitrateK: null }), "sound only · 10.0 s · about 0.15 MiB");
 });

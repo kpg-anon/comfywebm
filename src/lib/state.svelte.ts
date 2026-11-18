@@ -58,6 +58,10 @@ export function splitArgs(text: string): string[] {
   return out;
 }
 
+/** The timeline track's height: standard and tallest, px. */
+export const TRACK_MIN = 26;
+export const TRACK_MAX = 240;
+
 const numOrNull = (v: number | null | undefined): number | null =>
   v === null || v === undefined || !Number.isFinite(v) || v <= 0 ? null : v;
 
@@ -148,6 +152,21 @@ class AppState {
   setSideResize(on: boolean) {
     this.sideResize = on;
     save("sideResize", on);
+  }
+  /** Settings > Look: the timeline can be made taller by dragging its top edge (per machine). */
+  timelineResize = $state(load<boolean>("timelineResize") ?? false);
+  setTimelineResize(on: boolean) {
+    this.timelineResize = on;
+    save("timelineResize", on);
+  }
+  /** The timeline track's height when it is resizable, px (26 is the standard). */
+  trackHeight = $state(Math.min(TRACK_MAX, Math.max(TRACK_MIN, load<number>("trackHeight") ?? TRACK_MIN)));
+  setTrackHeight(h: number, remember = true) {
+    this.trackHeight = Math.round(Math.min(TRACK_MAX, Math.max(TRACK_MIN, h)));
+    if (remember) save("trackHeight", this.trackHeight);
+  }
+  get trackH(): number {
+    return this.timelineResize ? this.trackHeight : TRACK_MIN;
   }
   /** Settings > Files: keep and show the recent files list (per machine). */
   showRecent = $state(load<boolean>("showRecent") ?? true);

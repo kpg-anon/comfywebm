@@ -17,13 +17,13 @@
   // Filmstrip and waveform behind the track. Made in the background after a
   // file opens (cached on disk); a newer file or track replaces the request.
   let filmUrl = $state<string | null>(null);
-  // Slots across the whole (zoomed) strip at the picture's aspect ratio, 26 px
-  // high; each shows the sprite tile nearest its middle.
+  // Slots across the whole (zoomed) strip at the picture's aspect ratio, as
+  // high as the track; each shows the sprite tile nearest its middle.
   const THUMBS = 60;
   const film = $derived.by(() => {
     const m = app.media;
     if (!m || m.audioOnly || !trackW || !m.video.height) return null;
-    const slotW = (26 * m.video.width) / m.video.height;
+    const slotW = (app.trackH * m.video.width) / m.video.height;
     const count = Math.max(1, Math.min(400, Math.round((trackW * zoom) / Math.max(12, slotW))));
     return {
       n: THUMBS,
@@ -258,6 +258,7 @@
   </div>
   <div
     class="track"
+    style:height="{app.trackH}px"
     class:disabled={!app.media}
     class:zoomed
     bind:this={track}
@@ -608,7 +609,7 @@
     position: absolute;
     left: 0;
     right: 0;
-    top: 10px;
+    top: calc(50% - 3px);
     height: 6px;
     border-radius: 3px;
     background: var(--border);
@@ -620,7 +621,7 @@
   .sel {
     position: absolute;
     top: 6px;
-    height: 14px;
+    bottom: 6px;
     cursor: grab;
     border-radius: 2px;
     background: color-mix(in srgb, var(--range) 18%, transparent);
@@ -643,8 +644,8 @@
   .handle {
     position: absolute;
     top: 2px;
+    bottom: 2px;
     width: 9px;
-    height: 22px;
     margin-left: -4.5px;
     background: color-mix(in srgb, var(--range) 55%, var(--bg-panel));
     cursor: ew-resize;
@@ -661,8 +662,8 @@
   .head {
     position: absolute;
     top: 0;
+    bottom: 0;
     width: 2px;
-    height: 26px;
     margin-left: -1px;
     background: var(--playhead);
     pointer-events: none;

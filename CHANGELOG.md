@@ -9,6 +9,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- Settings > Look > Timeline, "Resizable": drag the edge above the timeline
+  up to make its track taller (up to 240 px), with bigger thumbnails and
+  waveform; double-click the edge for the standard height.
 - Quality check: after the settings stop changing, the app encodes a 2 s
   piece with them and measures how close it looks to the source (VMAF, 0 to
   100). The output line shows "quality N" and a warning appears under 88

@@ -82,6 +82,7 @@
     timelineWave: app.showWave,
     showRecent: app.showRecent,
     sideResize: app.sideResize,
+    timelineResize: app.timelineResize,
     updateCheck: updater.auto,
   });
 
@@ -96,6 +97,7 @@
     if (typeof o.timelineFilm === "boolean" && typeof o.timelineWave === "boolean") app.setTimelinePics(o.timelineFilm, o.timelineWave);
     if (typeof o.showRecent === "boolean") app.setShowRecent(o.showRecent);
     if (typeof o.sideResize === "boolean") app.setSideResize(o.sideResize);
+    if (typeof o.timelineResize === "boolean") app.setTimelineResize(o.timelineResize);
     if (typeof o.updateCheck === "boolean") updater.setAuto(o.updateCheck);
   }
 
@@ -339,6 +341,14 @@
         <label><input type="checkbox" checked={app.sideResize} onchange={(e) => app.setSideResize((e.currentTarget as HTMLInputElement).checked)} /> Resizable: drag its left edge to change its width</label>
       </div>
       <span class="hint">Off: the sidebar has its standard width. Double-click the edge to go back to it. Applies at once.</span>
+    </div>
+
+    <div class="col">
+      <span>Timeline</span>
+      <div class="line cacheline">
+        <label><input type="checkbox" checked={app.timelineResize} onchange={(e) => app.setTimelineResize((e.currentTarget as HTMLInputElement).checked)} /> Resizable: drag its top edge up to make it taller</label>
+      </div>
+      <span class="hint">A taller timeline shows bigger thumbnails and waveform. Off: the standard height. Double-click the edge to go back to it.</span>
     </div>
 
     <div class="col">

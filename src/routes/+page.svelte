@@ -13,7 +13,7 @@
   import SplitsView from "$lib/components/SplitsView.svelte";
   import { splits } from "$lib/splits.svelte";
   import Logo from "$lib/components/Logo.svelte";
-  import { app } from "$lib/state.svelte";
+  import { app, TRACK_MIN } from "$lib/state.svelte";
   import * as ipc from "$lib/ipc";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { pickVideos } from "$lib/dialogs";
@@ -60,6 +60,24 @@
     el.addEventListener("pointerup", up);
   }
   import Queue from "$lib/components/Queue.svelte";
+
+  // Timeline height: dragged on the edge above it (Settings > Look > Timeline, "Resizable");
+  // the track grows, the picture above gets smaller (it keeps at least 160 px).
+  function tlSplitDown(e: PointerEvent) {
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const y0 = e.clientY;
+    const h0 = app.trackHeight;
+    const room = (preview?.getBoundingClientRect().height ?? 400) - 160;
+    const move = (ev: PointerEvent) => app.setTrackHeight(h0 + Math.min(room, y0 - ev.clientY), false);
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      app.setTrackHeight(app.trackHeight);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+  }
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import DropZone from "$lib/components/DropZone.svelte";
   import UrlDialog from "$lib/components/UrlDialog.svelte";
@@ -310,6 +328,16 @@
         {/if}
       </div>
       {#if app.media}
+        {#if app.timelineResize}
+          <div
+            class="tlsplit"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Timeline height (double-click resets)"
+            onpointerdown={tlSplitDown}
+            ondblclick={() => app.setTrackHeight(TRACK_MIN)}
+          ></div>
+        {/if}
         <Timeline />
       {/if}
     </div>
@@ -461,6 +489,18 @@
     position: relative;
     z-index: 3;
     cursor: col-resize;
+  }
+  /* the edge above the timeline (resizable timeline) */
+  .tlsplit {
+    flex: none;
+    height: 5px;
+    margin-bottom: -5px;
+    position: relative;
+    z-index: 3;
+    cursor: row-resize;
+  }
+  .tlsplit:hover {
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
   }
   .splitter:hover {
     background: color-mix(in srgb, var(--accent) 35%, transparent);

@@ -360,7 +360,11 @@ files).
   Recent files turns the start screen's recent files list off (which also
   clears it) or on.
   Settings > Look > Sidebar makes the sidebar resizable by dragging its
-  left edge (off by default; off, it has its standard width).
+  left edge (off by default; off, it has its standard width). Settings > Look
+  > Timeline does the same for the timeline: drag its top edge up to make the
+  track taller, with bigger thumbnails and waveform (up to 240 px; the
+  picture keeps at least 160 px; double-click the edge for the standard
+  height).
 - `config.toml` in the same folder: the resolution steps (heights and widths),
   percentages, frame rate caps and audio bitrates the app offers, and whether
   steps are heights or widths by default. Written once with comments; edit it

@@ -78,7 +78,7 @@ Windows, Linux and macOS.
 ## Screenshots
 
 <div align="center">
-  <img src="screenshots/editor.webp" alt="The editor: player, timeline with two ranges, thumbnails, waveform and scene cuts, a speed ramp lane under it, and the settings sidebar" width="860">
+  <img src="screenshots/editor.webp" alt="The editor: player, timeline with two ranges, thumbnails and scene cuts, a speed ramp lane under it, the playback, range and video tools controls, and the settings sidebar" width="860">
   <br><sub>The editor: preview, timeline with ranges, thumbnails, waveform and scene cuts, a speed ramp, and the settings on the right</sub>
 </div>
 

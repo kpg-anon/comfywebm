@@ -526,7 +526,7 @@ dependencies = [
 
 [[package]]
 name = "comfywebm"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "comfywebm-engine",
  "serde",
@@ -542,7 +542,7 @@ dependencies = [
 
 [[package]]
 name = "comfywebm-engine"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "serde",
  "serde_json",

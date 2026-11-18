@@ -34,8 +34,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 - The picture area shows only what the output will (the crop with the zoom)
   once crop mode is done, instead of the whole picture with the rest dimmed.
-- The area under the picture is two panels: Timeline (a header with the
-  timeline zoom, a ruler with small ticks, a taller thumbnail track (48 px),
+- The area under the picture is two panels: Timeline (the timeline zoom on
+  the ruler's right end, a ruler with small ticks, a taller thumbnail track (48 px),
   the selected range framed in yellow, a marker on the playhead) and the
   controls in three sections: Playback (a large time, start, frame back,
   play, frame forward, end), Range (Time, In, Out, Length and the range

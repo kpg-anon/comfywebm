@@ -245,21 +245,6 @@
 
 <div class="timeline">
   <section class="panel tlp">
-  <header class="ph tlhead">
-    <Icon name="film" size={14} /><span>Timeline</span>
-    <span class="hgrow"></span>
-        <div class="group zoom">
-          <button class="btn icon" disabled={!app.media || !zoomed} aria-label="Zoom out (Ctrl+wheel)" onclick={() => setZoom(zoom / 2)}><Icon name="zoomOut" size={15} /></button>
-          <button class="btn icon" disabled={!app.selSeg} aria-label="Zoom to the selected range" onclick={() => {
-            const g = app.selSeg;
-            if (!g || g.end <= g.start) return;
-            const pad = (g.end - g.start) * 0.08;
-            setZoom(dur / (g.end - g.start + 2 * pad), g.start - pad, 0);
-          }}><Icon name="fitSel" size={15} /></button>
-          <button class="btn zl mono" disabled={!app.media || !zoomed} aria-label="Show the whole file" onclick={() => setZoom(1)}>{zoomed ? `${zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}x` : "Fit"}</button>
-          <button class="btn icon" disabled={!app.media || zoom >= maxZoom} aria-label="Zoom in (Ctrl+wheel)" onclick={() => setZoom(zoom * 2)}><Icon name="zoomIn" size={15} /></button>
-        </div>
-  </header>
   {#if filmUrl && hoverT !== null && !drag && app.media && dur > 0}
     {@const ph = 96}
     {@const pw = Math.round((ph * app.media.video.width) / Math.max(1, app.media.video.height))}
@@ -275,6 +260,20 @@
       style:background-position="{-k * pw}px 0"
     ></div>
   {/if}
+  <!-- the timeline zoom, on the ruler's right end -->
+  <div class="rzoom">
+    <div class="group zoom">
+      <button class="btn icon" disabled={!app.media || !zoomed} aria-label="Zoom out (Ctrl+wheel)" onclick={() => setZoom(zoom / 2)}><Icon name="zoomOut" size={13} /></button>
+      <button class="btn icon" disabled={!app.selSeg} aria-label="Zoom to the selected range" onclick={() => {
+        const g = app.selSeg;
+        if (!g || g.end <= g.start) return;
+        const pad = (g.end - g.start) * 0.08;
+        setZoom(dur / (g.end - g.start + 2 * pad), g.start - pad, 0);
+      }}><Icon name="fitSel" size={13} /></button>
+      <button class="btn zl mono" disabled={!app.media || !zoomed} aria-label="Show the whole file" onclick={() => setZoom(1)}>{zoomed ? `${zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}x` : "Fit"}</button>
+      <button class="btn icon" disabled={!app.media || zoom >= maxZoom} aria-label="Zoom in (Ctrl+wheel)" onclick={() => setZoom(zoom * 2)}><Icon name="zoomIn" size={13} /></button>
+    </div>
+  </div>
   <div class="ruler" aria-hidden="true">
     {#each minorTicks as t (t)}
       <span class="tick minor" style:left="{pct(t)}%"></span>
@@ -495,8 +494,24 @@
   .tlp {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 0 12px 10px;
+    gap: 4px;
+    padding: 2px 10px 8px;
+  }
+  /* the timeline zoom sits on the ruler's right end, over the labels there */
+  .rzoom {
+    position: absolute;
+    top: 2px;
+    right: 8px;
+    z-index: 3;
+    padding-left: 6px;
+    background: var(--bg-panel);
+  }
+  .rzoom :global(.btn) {
+    height: 20px;
+    min-height: 0;
+  }
+  .rzoom :global(.btn.icon) {
+    width: 24px;
   }
   .ph {
     display: flex;
@@ -507,14 +522,6 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-  }
-  .tlhead {
-    margin: 0 -12px;
-    padding: 6px 12px;
-    border-bottom: 1px solid var(--border-muted);
-  }
-  .hgrow {
-    flex: 1;
   }
   .ctl {
     display: flex;

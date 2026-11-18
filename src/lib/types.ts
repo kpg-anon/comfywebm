@@ -263,7 +263,7 @@ export type ToolsStatus = {
   ytdlp: string | null;
   ytdlpVersion: string | null;
   encoders: { vp8: boolean; vp9: boolean; av1: boolean; h264: boolean; hevc: boolean; gif: boolean; webp?: boolean; mp3?: boolean; opus: boolean; vorbis: boolean; aac: boolean };
-  filters: { zscale: boolean; subtitles: boolean };
+  filters: { zscale: boolean; subtitles: boolean; libvmaf?: boolean };
 };
 
 export type UrlInfo = {

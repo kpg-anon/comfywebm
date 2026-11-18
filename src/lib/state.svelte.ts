@@ -5,7 +5,7 @@ import { load, save } from "./persist";
 import { siteOf, refusal } from "./sites";
 import * as ramp from "./ramp";
 import { AUDIO_LABEL, BUILTIN_PRESETS, CODECS_BY_CONTAINER, CRF_RANGE, audioCodecFor } from "./presets";
-import { fitRatio, isFull, move, ratioOf, round, type AspectLock } from "./crop";
+import { fitRatio, fromView, isFull, move, ratioOf, round, toView, viewSize, type AspectLock, type View as Turn } from "./crop";
 import * as seg from "./segments";
 import { fmtTime } from "./time";
 import { motionWarnings } from "./motion";
@@ -1227,12 +1227,34 @@ class AppState {
     this.crop = isFull(r, this.srcW, this.srcH) ? null : r;
   }
 
+  // The crop as shown: the picture turned and flipped as the encode will (crop
+  // mode shows it that way). The crop itself stays in source pixels.
+  get turn(): Turn {
+    return { rotate: this.rotate, mirror: this.mirror, vflip: this.vflip };
+  }
+  get viewW() {
+    return viewSize(this.srcW, this.srcH, this.turn)[0];
+  }
+  get viewH() {
+    return viewSize(this.srcW, this.srcH, this.turn)[1];
+  }
+  get viewCrop(): Crop | null {
+    return this.crop ? toView(this.crop, this.srcW, this.srcH, this.turn) : null;
+  }
+  /** Set the crop from one drawn on the shown picture; `commit` false while dragging (no rounding). */
+  setViewCrop(c: Crop | null, commit = true) {
+    const s = c ? fromView(c, this.srcW, this.srcH, this.turn) : null;
+    if (commit) this.setCrop(s);
+    else this.crop = s;
+  }
+
+  /** The aspect lock is the shape of the crop as shown (9:16 is upright on screen). */
   setAspect(a: AspectLock) {
     this.aspect = a;
     const r = ratioOf(a);
     if (r && this.media) {
-      const base = this.crop ?? { x: 0, y: 0, w: this.srcW, h: this.srcH };
-      this.setCrop(fitRatio(base, r, this.srcW, this.srcH));
+      const base = this.viewCrop ?? { x: 0, y: 0, w: this.viewW, h: this.viewH };
+      this.setViewCrop(fitRatio(base, r, this.viewW, this.viewH));
     }
   }
 
@@ -1267,15 +1289,16 @@ class AppState {
     this.speedRamp = [];
   }
 
-  /** Arrow keys in crop mode: move, or with `grow` change the size from the top-left corner. */
+  /** Arrow keys in crop mode, as shown on screen: move, or with `grow` change the size from the top-left corner. */
   nudgeCrop(dx: number, dy: number, grow: boolean) {
-    const c = this.crop;
+    const c = this.viewCrop;
     if (!c || !this.media) return;
+    const [W, H] = [this.viewW, this.viewH];
     if (grow) {
-      const w = Math.min(Math.max(1, c.w + dx), this.srcW - c.x);
-      const h = Math.min(Math.max(1, c.h + dy), this.srcH - c.y);
-      this.crop = { x: c.x, y: c.y, w, h };
-    } else this.crop = move(c, dx, dy, this.srcW, this.srcH);
+      const w = Math.min(Math.max(1, c.w + dx), W - c.x);
+      const h = Math.min(Math.max(1, c.h + dy), H - c.y);
+      this.setViewCrop({ x: c.x, y: c.y, w, h }, false);
+    } else this.setViewCrop(move(c, dx, dy, W, H), false);
   }
 
   // ---------- container and codec ----------
@@ -1528,6 +1551,56 @@ class AppState {
       if (seq !== this.planSeq) return;
       this.plan = null;
       this.planError = ipc.errText(e);
+    }
+  }
+
+  // ---------- quality check (engine quality.rs) ----------
+
+  /** The check of the current settings: VMAF of a 2 s probe, null while it runs or when it failed. */
+  quality = $state<{ key: string; vmaf: number | null; busy: boolean; error: string | null } | null>(null);
+  private qualityCache = new Map<string, number>();
+  private qualitySeq = 0;
+
+  /** Whether the current output can be checked (a video encode, ffmpeg with libvmaf). */
+  get qualityCheckable(): boolean {
+    return (
+      !!this.media &&
+      !this.audioOnly &&
+      !this.ffmpegMissing &&
+      !!this.tools?.filters.libvmaf &&
+      !this.streamCopy &&
+      !["gif", "webp", "audio"].includes(this.container)
+    );
+  }
+
+  /** Runs automatically 1.5 s after the settings stop changing (+page.svelte); not while the queue encodes. */
+  async runQualityCheck(spec: EncodeSpec | null) {
+    const seq = ++this.qualitySeq;
+    if (!spec || !this.qualityCheckable || !this.plan) {
+      this.quality = null;
+      return;
+    }
+    const snap = $state.snapshot(spec) as EncodeSpec;
+    const key = JSON.stringify(snap);
+    const cached = this.qualityCache.get(key);
+    if (cached !== undefined) {
+      this.quality = { key, vmaf: cached, busy: false, error: null };
+      return;
+    }
+    if (this.runningJob) {
+      // the check would slow the encode down; it runs when the queue is done
+      if (this.quality?.key !== key) this.quality = null;
+      return;
+    }
+    this.quality = { key, vmaf: null, busy: true, error: null };
+    try {
+      const v = await ipc.qualityCheck(snap);
+      this.qualityCache.set(key, v);
+      if (seq === this.qualitySeq) this.quality = { key, vmaf: v, busy: false, error: null };
+    } catch (e) {
+      if (seq !== this.qualitySeq) return;
+      const msg = ipc.errText(e);
+      this.quality = msg === "Canceled" ? null : { key, vmaf: null, busy: false, error: msg };
     }
   }
 

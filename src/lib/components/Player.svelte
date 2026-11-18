@@ -146,9 +146,9 @@
   // The picture box inside the stage. object-fit would letterbox; the box is
   // computed here instead so the crop overlay and the rotate/mirror preview
   // share it. The source display size gives the aspect, so the proxy (smaller
-  // pixel size, same aspect) maps to the same box. In crop mode the preview is
-  // shown unrotated, because the crop is stored in unrotated source pixels.
-  const turned = $derived(!app.cropMode && (app.rotate === 90 || app.rotate === 270));
+  // pixel size, same aspect) maps to the same box. The picture is shown turned
+  // and flipped in crop mode too; the crop overlay works on it as shown.
+  const turned = $derived(app.rotate === 90 || app.rotate === 270);
   const box = $derived.by(() => {
     const m = app.media;
     // a sound file: the shape of its picture
@@ -168,9 +168,9 @@
     return { x: (sw - w) / 2, y: (sh - h) / 2, w, h };
   });
   // the flips apply after the rotation, as in the encode (rotate, then hflip, then vflip)
-  const transform = $derived(
-    app.cropMode ? "none" : `${app.vflip ? "scaleY(-1) " : ""}${app.mirror ? "scaleX(-1) " : ""}rotate(${app.rotate}deg)`,
-  );
+  const transform = $derived(`${app.vflip ? "scaleY(-1) " : ""}${app.mirror ? "scaleX(-1) " : ""}rotate(${app.rotate}deg)`);
+  // the picture's box as shown on screen (the element's box turned)
+  const shown = $derived(turned ? { x: box.x + (box.w - box.h) / 2, y: box.y + (box.h - box.w) / 2, w: box.h, h: box.w } : box);
 
   // Color adjustments on the picture: an SVG filter close to ffmpeg's eq,
   // hue and curves (not exact: eq works on YUV, this on RGB). Sample shows
@@ -310,17 +310,18 @@
       {#if app.audioOnly && app.stillUrl}
         <img class="still" src={app.stillUrl} alt="" draggable="false" style:filter={showAdj ? "url(#cwm-adjust)" : null} />
       {/if}
-      <CropOverlay
-        rect={{ x: 0, y: 0, w: box.w, h: box.h }}
-        W={app.srcW}
-        H={app.srcH}
-        crop={app.crop}
-        ratio={ratioOf(app.aspect)}
-        active={app.cropMode}
-        onchange={(c) => (app.crop = c)}
-        oncommit={(c) => app.setCrop(c)}
-      />
     </div>
+    <!-- over the picture as shown (turned and flipped), so the crop is drawn on what you see -->
+    <CropOverlay
+      rect={shown}
+      W={app.viewW}
+      H={app.viewH}
+      crop={app.viewCrop}
+      ratio={ratioOf(app.aspect)}
+      active={app.cropMode}
+      onchange={(c) => app.setViewCrop(c, false)}
+      oncommit={(c) => app.setViewCrop(c)}
+    />
     {#if fadeDark > 0}
       <div class="fade" style:left="{box.x}px" style:top="{box.y}px" style:width="{box.w}px" style:height="{box.h}px" style:opacity={fadeDark}></div>
     {/if}

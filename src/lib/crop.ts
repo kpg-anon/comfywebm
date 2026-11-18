@@ -24,6 +24,47 @@ export const MORE_ASPECTS: { value: AspectLock; hint: string }[] = [
   { value: "1:2", hint: "tall" },
 ];
 
+/** How the picture is shown: turned clockwise, then mirrored, then flipped (the encode's order). */
+export type View = { rotate: number; mirror: boolean; vflip: boolean };
+
+/** The size of a W x H picture as shown. */
+export function viewSize(W: number, H: number, v: View): [number, number] {
+  return v.rotate % 180 === 90 ? [H, W] : [W, H];
+}
+
+/** A point of the source picture where it is shown. */
+function toViewPt(x: number, y: number, W: number, H: number, v: View): [number, number] {
+  let [px, py] = v.rotate === 90 ? [H - y, x] : v.rotate === 180 ? [W - x, H - y] : v.rotate === 270 ? [y, W - x] : [x, y];
+  const [vw, vh] = viewSize(W, H, v);
+  if (v.mirror) px = vw - px;
+  if (v.vflip) py = vh - py;
+  return [px, py];
+}
+
+/** A point as shown back in the source picture. */
+function fromViewPt(px: number, py: number, W: number, H: number, v: View): [number, number] {
+  const [vw, vh] = viewSize(W, H, v);
+  if (v.vflip) py = vh - py;
+  if (v.mirror) px = vw - px;
+  return v.rotate === 90 ? [py, H - px] : v.rotate === 180 ? [W - px, H - py] : v.rotate === 270 ? [W - py, px] : [px, py];
+}
+
+function corners(c: Crop, f: (x: number, y: number) => [number, number]): Crop {
+  const [ax, ay] = f(c.x, c.y);
+  const [bx, by] = f(c.x + c.w, c.y + c.h);
+  return { x: Math.min(ax, bx), y: Math.min(ay, by), w: Math.abs(bx - ax), h: Math.abs(by - ay) };
+}
+
+/** A crop in source pixels as it is shown (rotated and flipped). */
+export function toView(c: Crop, W: number, H: number, v: View): Crop {
+  return corners(c, (x, y) => toViewPt(x, y, W, H, v));
+}
+
+/** A crop drawn on the shown picture, in source pixels (what the encode cuts). */
+export function fromView(c: Crop, W: number, H: number, v: View): Crop {
+  return corners(c, (x, y) => fromViewPt(x, y, W, H, v));
+}
+
 /** width / height for a lock, or null for free or text that is not a ratio. */
 export function ratioOf(a: AspectLock): number | null {
   const t = a.trim().toLowerCase().replace(/\s+/g, "");

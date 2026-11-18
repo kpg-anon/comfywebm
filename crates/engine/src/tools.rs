@@ -243,6 +243,7 @@ pub fn parse_filters(text: &str) -> Filters {
         match name {
             "zscale" => f.zscale = true,
             "subtitles" => f.subtitles = true,
+            "libvmaf" => f.libvmaf = true,
             _ => {}
         }
     }

@@ -105,7 +105,17 @@ building it yourself. For an overview and the downloads, see
   arrow keys, numeric x/y/w/h. Aspect lock: free, 1:1, 16:9, 9:16, 4:3, 4:5,
   a "More" list (3:4, 2:3, 3:2, 5:4, 2:1, 1.85:1, 2.39:1, 21:9, 32:9, 9:21, 1:2)
   and a custom ratio such as `5:3` or `1.66`. "Find bars" in the Video group crops black
-  bars automatically.
+  bars automatically. Crop mode shows the picture turned and flipped as the
+  output will be, and the crop, its shape lock (9:16 is upright on screen),
+  x/y/w/h and the arrow keys work on it as shown.
+- **Quality check**: about 1.5 s after the settings stop changing, a 2 s
+  piece from the middle of the longest range is encoded with them (two passes
+  when the job has two) and compared with the source by VMAF (0 to 100; needs
+  ffmpeg with libvmaf). The output line shows "quality N"; under 88 a warning
+  says what to expect and what helps. The piece reads 2 to 6 points under the
+  full encode (measured on a fancam at 1, 2 and 4 MiB), so 88 is about 90 in
+  the file. It waits while the queue encodes, and a result is kept for the
+  same settings. Not for GIF, WebP, sound only, Cut only or Splits.
 - **Output line**: above Encode (in Splits also beside its own Encode): the
   picture size, frame rate, sound or no sound, length and file size. In size
   limit mode the size is "up to" the bitrate's size (a simple picture comes out
@@ -118,8 +128,10 @@ building it yourself. For an overview and the downloads, see
   it, is encoded again at a bitrate aimed at 99% of the limit (interpolated
   between earlier attempts when one was over and one under). At most 4
   attempts; the largest result that fits is kept.
-- **Resolution**: Auto (in size limit mode, the largest size whose bitrate still
-  gives a clean picture), Source, Steps (output heights such as 720p, or
+- **Resolution**: Auto (in size limit mode: the largest size, at least 540
+  pixels on its short side, with about 0.10 bits per pixel for VP9 (0.07 AV1,
+  0.15 H.264); if none has that, the 540 size; only for very small limits
+  smaller), Source, Steps (output heights such as 720p, or
   widths), a percentage, or one exact edge with the other following the aspect
   ratio. In size limit mode each choice shows a good / fair / poor dot; the
   output line's tooltip shows bits per pixel. The step and percentage lists are in

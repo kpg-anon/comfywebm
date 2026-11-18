@@ -228,26 +228,56 @@ pub fn geometry(
 /// Heights autoScale tries below the source, largest first.
 pub const LADDER: [u32; 11] = [1440, 1080, 900, 720, 600, 540, 480, 432, 360, 288, 240];
 
-/// autoScale: the largest size from {source, LADDER} within max_w/max_h whose
-/// bits per pixel reach the codec's floor. The ladder applies to the shorter
-/// side, so a portrait clip at "720" is 720 pixels wide. Returns the smallest
-/// candidate and false when none qualifies.
+/// Auto picks a size with at least this many times the codec's floor of bits
+/// per pixel (VP9: 0.03 x 3.3 = 0.10). Measured on a 4K fancam with LED
+/// walls (VMAF against the source, scored at 1080x1920): at 4 MiB for 10 s the
+/// sizes from 648x1152 to 1152x2048 scored 81.7 to 83.2 and all showed
+/// compression, where the floor alone had called 1152x2048 (0.047) good; at
+/// 0.10 the picture is a size where the blocking shows less.
+pub const AUTO_TARGET: f64 = 3.3;
+/// When even the smallest size does not reach the target, Auto goes no lower than
+/// this short side: at 1, 2 and 4 MiB every size under it scored worse (540x960
+/// 49.5, 480x854 48.4, 360x640 44.1 at 1 MiB).
+pub const AUTO_MIN_SHORT: f64 = 540.0;
+
+/// autoScale, from {source, LADDER} within max_w/max_h:
+/// 1. the largest size at least AUTO_MIN_SHORT on its short side whose bits
+///    per pixel reach AUTO_TARGET x the codec's floor;
+/// 2. else the AUTO_MIN_SHORT size, if it reaches the floor;
+/// 3. else (a very small limit) the largest size of any kind that reaches the
+///    floor, or the smallest with the flag false.
+/// GIF and WebP have no bitrate (the size is what meets the limit): the largest
+/// that reaches the floor. The ladder applies to the shorter side, so a
+/// portrait clip at "720" is 720 pixels wide.
 pub fn auto_scale(g: Geometry, max_w: Option<u32>, max_h: Option<u32>, kbps: f64, fps: f64, codec: Codec) -> (Geometry, bool) {
     let (rw, rh) = (g.rot_w as f64, g.rot_h as f64);
     let short = rw.min(rh);
     let limit = fit_factor(g.rot_w, g.rot_h, max_w, max_h);
     let mut factors = vec![1.0f64];
     factors.extend(LADDER.iter().map(|h| *h as f64).filter(|h| *h < short).map(|h| h / short));
-    let mut last = g;
-    for f in factors {
-        let f = f.min(limit);
-        let cand = Geometry { out_w: even_down(rw * f), out_h: even_down(rh * f), ..g };
-        last = cand;
-        if bits_per_pixel(kbps, cand.out_w, cand.out_h, fps) >= bpp_floor(codec) {
-            return (cand, true);
-        }
+    let cands: Vec<Geometry> = factors
+        .into_iter()
+        .map(|f| {
+            let f = f.min(limit);
+            Geometry { out_w: even_down(rw * f), out_h: even_down(rh * f), ..g }
+        })
+        .collect();
+    let bpp = |c: &Geometry| bits_per_pixel(kbps, c.out_w, c.out_h, fps);
+    let floor = bpp_floor(codec);
+    let last = *cands.last().unwrap_or(&g);
+    if codec.is_image() {
+        return cands.iter().find(|c| bpp(c) >= floor).map_or((last, false), |c| (*c, true));
     }
-    (last, false)
+    // sizes at least AUTO_MIN_SHORT on the short side (all of them for a smaller source)
+    let big = |c: &&Geometry| c.out_w.min(c.out_h) as f64 >= AUTO_MIN_SHORT.min(short) - 1.0;
+    if let Some(c) = cands.iter().filter(big).find(|c| bpp(c) >= floor * AUTO_TARGET) {
+        return (*c, true);
+    }
+    if let Some(c) = cands.iter().filter(big).last().filter(|c| bpp(c) >= floor) {
+        return (*c, true);
+    }
+    // a very small limit: as small as the floor needs, as before
+    cands.iter().find(|c| bpp(c) >= floor).map_or((last, false), |c| (*c, true))
 }
 
 /// Number formatting for arguments: at most 3 decimals, no trailing zeros.
@@ -2393,6 +2423,22 @@ mod tests {
         let p = build(&sp, &m, &opts()).unwrap();
         assert_eq!((p.out_width, p.out_height), (426, 240));
         assert!(p.warnings.iter().any(|w| w.starts_with("Even at 426x240")));
+        // a sideways 4K fancam turned upright, 5 s at half speed (10 s), 4 MiB, at most 2048x2048:
+        // 3305 kbps reaches 0.10 bits per pixel at 720x1280 (it was 1152x2048 at 0.047)
+        (m.video.width, m.video.height, m.video.fps) = (3840, 2160, 59.94);
+        sp.rate = Rate::Size { max_bytes: 4_194_304.0 };
+        sp.segments = vec![Segment { start: 10.0, end: 15.0 }];
+        sp.speed = 0.5;
+        sp.rotate = 90;
+        (sp.max_width, sp.max_height) = (Some(2048), Some(2048));
+        let p = build(&sp, &m, &opts()).unwrap();
+        assert_eq!((p.out_width, p.out_height), (720, 1280));
+        // a 60 s 1080p clip in 4 MiB stays at 540p (smaller only looked worse in the tests)
+        (m.video.width, m.video.height, m.video.fps) = (1920, 1080, 30.0);
+        (sp.speed, sp.rotate, sp.max_width, sp.max_height) = (1.0, 0, None, None);
+        sp.segments = vec![Segment { start: 0.0, end: 60.0 }];
+        let p = build(&sp, &m, &opts()).unwrap();
+        assert_eq!((p.out_width, p.out_height), (960, 540));
     }
 
     #[test]

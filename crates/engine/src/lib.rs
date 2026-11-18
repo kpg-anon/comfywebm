@@ -7,6 +7,7 @@ pub mod naming;
 pub mod plan;
 pub mod probe;
 pub mod proxy;
+pub mod quality;
 pub mod ramp;
 pub mod run;
 pub mod scenes;

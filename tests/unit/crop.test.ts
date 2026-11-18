@@ -1,7 +1,25 @@
 // @ts-nocheck
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ratioOf, resize, draw, move, fitRatio, round, isFull } from "../../src/lib/crop.ts";
+import { ratioOf, resize, draw, move, fitRatio, round, isFull, toView, fromView, viewSize } from "../../src/lib/crop.ts";
+
+test("a crop as shown turned and flipped, and back", () => {
+  // a 1920x1080 picture, the crop in its top-left corner
+  const c = { x: 0, y: 0, w: 400, h: 200 };
+  const v = (rotate, mirror = false, vflip = false) => ({ rotate, mirror, vflip });
+  // turned clockwise: the top-left corner goes to the top right of a 1080x1920 picture
+  assert.deepEqual(viewSize(1920, 1080, v(90)), [1080, 1920]);
+  assert.deepEqual(toView(c, 1920, 1080, v(90)), { x: 880, y: 0, w: 200, h: 400 });
+  assert.deepEqual(toView(c, 1920, 1080, v(180)), { x: 1520, y: 880, w: 400, h: 200 });
+  assert.deepEqual(toView(c, 1920, 1080, v(270)), { x: 0, y: 1520, w: 200, h: 400 });
+  assert.deepEqual(toView(c, 1920, 1080, v(0, true)), { x: 1520, y: 0, w: 400, h: 200 });
+  assert.deepEqual(toView(c, 1920, 1080, v(90, true)), { x: 0, y: 0, w: 200, h: 400 });
+  // every turn and flip goes back to the same crop
+  const d = { x: 123, y: 45, w: 678, h: 321 };
+  for (const r of [0, 90, 180, 270])
+    for (const m of [false, true])
+      for (const f of [false, true]) assert.deepEqual(fromView(toView(d, 1920, 1080, v(r, m, f)), 1920, 1080, v(r, m, f)), d, `${r} ${m} ${f}`);
+});
 
 test("ratioOf parses W:H, WxH and plain numbers", () => {
   assert.equal(ratioOf("16:9"), 16 / 9);

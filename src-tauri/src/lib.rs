@@ -5,7 +5,7 @@ mod winstate;
 use comfywebm_engine::config;
 use comfywebm_engine::run::{self, Cancel, RunError};
 use comfywebm_engine::{
-    naming, plan, proxy, scenes, strip, ytdl, Codec, Container, Crop, DownloadProgress, EncodeSpec, Job, MediaInfo, PlanInfo, Preset,
+    naming, plan, proxy, quality, scenes, strip, ytdl, Codec, Container, Crop, DownloadProgress, EncodeSpec, Job, MediaInfo, PlanInfo, Preset,
     Segment, Settings, ToolsStatus, UrlInfo,
 };
 use serde::Serialize;
@@ -80,6 +80,20 @@ async fn cover_picture(app: AppHandle, path: String) -> Result<String, String> {
         let ffmpeg = state.ffmpeg()?;
         let info = state.media(&path)?;
         Ok(strip::cover(&ffmpeg, &info, &state.cache_dir)?.to_string_lossy().into_owned())
+    })
+    .await
+}
+
+/// The quality check (engine quality.rs): VMAF of a 2 s probe of the job, 0..100.
+/// A newer check stops one still running.
+#[tauri::command]
+async fn quality_check(app: AppHandle, spec: EncodeSpec) -> Result<f64, String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let ffmpeg = state.ffmpeg()?;
+        let info = state.media(&spec.input)?;
+        let dir = state.cache_dir.join("quality");
+        strip_job(&app, "quality", |c| quality::check(&ffmpeg, &spec, &info, state.zscale(), &dir, c))
     })
     .await
 }
@@ -1032,6 +1046,7 @@ pub fn run() {
             timeline_thumbs,
             timeline_wave,
             scene_cuts,
+            quality_check,
             poster,
             proxy_cancel,
             cache_info,

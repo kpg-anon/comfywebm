@@ -430,19 +430,16 @@
   </div>
 
   {#if app.cropMode}
+    <!-- the crop as shown: turned and flipped like the picture -->
     <CropBar
       aspect={app.aspect}
-      crop={app.crop}
-      W={app.srcW}
-      H={app.srcH}
+      crop={app.viewCrop}
+      W={app.viewW}
+      H={app.viewH}
       onaspect={(a) => app.setAspect(a)}
-      oncrop={(c) => app.setCrop(c)}
+      oncrop={(c) => app.setViewCrop(c)}
       ondone={() => (app.cropMode = false)}
-    >
-      {#if app.rotate !== 0 || app.mirror}
-        <span class="crop-warn">The picture is shown unrotated while cropping; rotate and mirror apply after the crop.</span>
-      {/if}
-    </CropBar>
+    />
   {/if}
 </div>
 
@@ -454,11 +451,6 @@
     background: var(--accent-bg);
     color: var(--accent-strong);
     font-size: 10px;
-  }
-  .crop-warn {
-    order: 10;
-    font-size: 11px;
-    color: var(--yellow);
   }
   .timeline {
     display: flex;

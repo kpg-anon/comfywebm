@@ -52,6 +52,8 @@ export const proxyCancel = () => invoke<void>("proxy_cancel");
 export const poster = (path: string) => invoke<string>("poster", { path });
 /** The embedded cover picture of a sound file, as a PNG in the cache dir. */
 export const coverPicture = (path: string) => invoke<string>("cover_picture", { path });
+/** VMAF (0..100) of a 2 s probe encoded with the job's settings (engine quality.rs). */
+export const qualityCheck = (spec: EncodeSpec) => invoke<number>("quality_check", { spec });
 export type CutSensitivity = "low" | "normal" | "high";
 export const sceneCuts = (path: string, sensitivity: CutSensitivity) => invoke<number[]>("scene_cuts", { path, sensitivity });
 export const timelineWave = (path: string, track: number) => invoke<string>("timeline_wave", { path, track });

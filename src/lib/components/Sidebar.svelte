@@ -45,7 +45,20 @@
 
   let copied = $state(false);
 
-  const warnings = $derived([...app.uiWarnings, ...(app.plan?.warnings ?? [])]);
+  // The quality check's score (VMAF of a 2 s probe; it reads 2 to 6 under the full two-pass encode,
+  // so 88 here is about 90 in the file). Its warning replaces the bits-per-pixel guess.
+  const qv = $derived(app.quality?.vmaf ?? null);
+  const qClass = $derived(qv === null ? "" : qv >= 88 ? "good" : qv >= 75 ? "fair" : "poor");
+  const qualityWarning = $derived(
+    qv === null || qv >= 88
+      ? null
+      : `Quality check: ${Math.round(qv)} of 100 (VMAF of a 2 s piece encoded with these settings; 90 and up looks like the source). ${qv >= 75 ? "Expect visible compression" : "Expect heavy compression"}. A shorter clip, a lower frame rate cap or a bigger size limit gives each frame more bits.`,
+  );
+  const warnings = $derived([
+    ...app.uiWarnings,
+    ...(app.plan?.warnings ?? []).filter((w) => qv === null || !w.includes("Expect a blurry picture")),
+    ...(qualityWarning ? [qualityWarning] : []),
+  ]);
   /** the tooltip of the output line: bitrates, picture quality, file name */
   const details = $derived.by(() => {
     const p = app.plan;
@@ -632,7 +645,8 @@
       {#if app.plan}
         <!-- the bitrates, picture quality and file name are in the tooltip -->
         <div class="outrow" title={details}>
-          {#each outputParts(app.plan, app.rate, fmtLen, app.separate ? app.segments.length : 1) as p, i (i)}{#if i}<span class="dot">{" · "}</span>{/if}<span>{p}</span>{/each}
+          {#each outputParts(app.plan, app.rate, fmtLen, app.separate ? app.segments.length : 1) as p, i (i)}{#if i}<span class="dot">{" · "}</span>{/if}<span>{p}</span>{/each}{#if app.quality?.busy}<span class="dot">{" · "}</span><span class="muted" title="Encoding 2 s with these settings to measure how close they look to the source">checking quality...</span>
+          {:else if qv !== null}<span class="dot">{" · "}</span><span class="q {qClass}" title="VMAF of a 2 s piece encoded with these settings, against the source (0 to 100; 90 and up looks like the source, 75 to 88 shows compression)">quality {Math.round(qv)}</span>{/if}
         </div>
       {/if}
       <div class="actions">
@@ -822,6 +836,15 @@
   }
   .outrow .dot {
     color: var(--text-muted);
+  }
+  .outrow .q.good {
+    color: var(--green);
+  }
+  .outrow .q.fair {
+    color: var(--yellow);
+  }
+  .outrow .q.poor {
+    color: var(--red);
   }
   .warnings {
     max-height: 88px;

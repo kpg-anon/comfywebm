@@ -7,6 +7,27 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- Quality check: after the settings stop changing, the app encodes a 2 s
+  piece with them and measures how close it looks to the source (VMAF, 0 to
+  100). The output line shows "quality N" and a warning appears under 88
+  (visible compression). Before, the good/fair/poor label came from bits per
+  pixel alone: a fancam at 4 MiB for 10 s was "good" at 1152x2048 while it
+  measured about 82 (visible compression). Needs ffmpeg with libvmaf.
+
+### Changed
+
+- Auto resolution aims at about 0.10 bits per pixel for VP9 (3.3 times the
+  old floor) and goes no smaller than 540 pixels on the short side unless the
+  limit is very small. A sideways 4K fancam turned upright, 10 s in 4 MiB, now
+  gets 720x1280 instead of 1152x2048. Measured at 1, 2 and 4 MiB, the sizes
+  from 648x1152 to 1152x2048 looked about the same by VMAF and everything
+  under 540x960 looked worse.
+- Crop mode shows the picture turned and flipped as the output will be (it
+  was shown unrotated), and the crop is drawn on it; a 9:16 lock is upright on
+  screen.
+
 ## [1.0.8] - 2026-11-17
 
 ### Changed

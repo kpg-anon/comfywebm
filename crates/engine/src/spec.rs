@@ -772,6 +772,9 @@ pub struct Filters {
     /// needed for tonemap
     pub zscale: bool,
     pub subtitles: bool,
+    /// needed for the quality check (quality.rs)
+    #[serde(default)]
+    pub libvmaf: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

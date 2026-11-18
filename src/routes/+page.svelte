@@ -173,6 +173,16 @@
     return () => clearTimeout(t);
   });
 
+  // the quality check, 1.5 s after the spec stops changing (and again when the queue is done)
+  $effect(() => {
+    const spec = app.spec;
+    void JSON.stringify(spec);
+    void app.plan;
+    void app.runningJob;
+    const t = setTimeout(() => void app.runQualityCheck(spec), 1500);
+    return () => clearTimeout(t);
+  });
+
   // an undo step once the edit (ranges, order, crop, rotation, flips, adjustments) has stopped
   // changing for a moment, so a drag is one step
   $effect(() => {

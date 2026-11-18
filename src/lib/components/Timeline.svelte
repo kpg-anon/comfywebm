@@ -7,7 +7,6 @@
   import CropBar from "./CropBar.svelte";
   import EditStrip from "./EditStrip.svelte";
   import SpeedLane from "./SpeedLane.svelte";
-  import Select from "./Select.svelte";
 
   import { convertFileSrc } from "@tauri-apps/api/core";
   import * as ipc from "$lib/ipc";
@@ -431,22 +430,8 @@
             <Icon name="crop" size={14} />Crop <kbd>C</kbd>
           </button>
           <button class="btn" disabled={!app.media || app.audioOnly || app.ffmpegMissing || app.findingCuts} title="Find where the picture cuts to a new shot (also jump cuts, and fades through black; flashes and lights are not cuts). Range edges then snap to the cuts, and [ and ] jump between them. Reads the whole video once." onclick={() => app.findCuts()}><Icon name="cut" size={14} />{app.findingCuts ? `Finding ${Math.round(app.cutsFraction * 100)}%` : app.cuts ? `${app.cuts.length} cuts` : "Find cuts"}</button>
-          {#if app.cuts !== null}
-            <div class="sens" title="Fewer: only clear cuts. More: also cuts between similar shots. Changing it needs no second read.">
-              <Select
-                label="Cut sensitivity"
-                value={app.cutSensitivity}
-                onchange={(v) => app.setCutSensitivity(v)}
-                options={[
-                  { value: "low", label: "Fewer cuts" },
-                  { value: "normal", label: "Normal" },
-                  { value: "high", label: "More cuts" },
-                ]}
-              />
-            </div>
-          {/if}
-          <button class="btn" class:wide={app.cuts === null} disabled={!app.media || app.ffmpegMissing} onclick={() => app.runSample()}><Icon name="film" size={14} />Sample <kbd>P</kbd></button>
-          <button class="btn" class:wide={app.cuts === null} disabled={!app.media || app.ffmpegMissing} title="Save the frame at the playhead as PNG with the crop. Shift+click (Shift+S): as the encode sees it, with filters, adjustments and the output size." onclick={(e) => app.exportFrame(e.shiftKey)}><Icon name="image" size={14} />Frame <kbd>S</kbd></button>
+          <button class="btn wide" disabled={!app.media || app.ffmpegMissing} onclick={() => app.runSample()}><Icon name="film" size={14} />Sample <kbd>P</kbd></button>
+          <button class="btn wide" disabled={!app.media || app.ffmpegMissing} title="Save the frame at the playhead as PNG with the crop. Shift+click (Shift+S): as the encode sees it, with filters, adjustments and the output size." onclick={(e) => app.exportFrame(e.shiftKey)}><Icon name="image" size={14} />Frame <kbd>S</kbd></button>
         </div>
     </div>
   </section>
@@ -590,8 +575,8 @@
     align-items: center;
     gap: 6px;
   }
-  /* six equal columns: Speed, Crop and Find cuts take two each; Sample and Frame take three
-     each, so the two rows are the same width (with the cut sensitivity menu, all take two) */
+  /* six equal columns: Speed, Crop and Find cuts take two each, Sample and Frame three each,
+     so the two rows are the same width */
   .tools {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
@@ -604,11 +589,8 @@
   .tools > :global(.btn) {
     justify-content: center;
   }
-  .tools > :global(.wide) {
+  .tools > .wide {
     grid-column: span 3;
-  }
-  .tools .sens {
-    width: auto;
   }
   .track {
     position: relative;
@@ -770,10 +752,6 @@
     height: 6px;
     border-radius: 3px;
     background: var(--border);
-  }
-  /* the cut sensitivity beside Find cuts */
-  .sens {
-    width: 112px;
   }
   .sel {
     position: absolute;

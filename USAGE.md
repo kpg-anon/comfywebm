@@ -96,7 +96,7 @@ building it yourself. For an overview and the downloads, see
   around it, so camera moves and light shows are not cuts; a flash or strobe
   (the picture comes back within 0.4 s) is not one either; a fade through
   black is one cut in its middle; shots are at least 0.5 s. Fewer cuts /
-  Normal / More cuts beside the button changes the result at once. Undo and redo (Ctrl+Z, Ctrl+Shift+Z) cover ranges,
+  Normal / More cuts in Settings > Look > Find cuts changes the result at once. Undo and redo (Ctrl+Z, Ctrl+Shift+Z) cover ranges,
   their order, the crop, rotation, flips, adjustments, the speed ramp, the
   zoom and the follow path. The History panel (`H`, or the clock button in the
   top bar, with undo and redo in it) lists every step

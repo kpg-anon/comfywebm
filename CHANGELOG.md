@@ -39,7 +39,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   the selected range framed in yellow, a marker on the playhead) and the
   controls in three sections: Playback (a large time, start, frame back,
   play, frame forward, end), Range (Time, In, Out, Length and the range
-  buttons) and Video tools (Speed, Crop, Find cuts, Sample, Frame). Undo and
+  buttons) and Video tools (Speed, Crop, Find cuts, Sample, Frame). The
+  Fewer cuts / Normal / More cuts choice moved from beside Find cuts to
+  Settings > Look > Find cuts. Undo and
   redo moved into the History panel; Loop moved to the picture's bottom
   right, beside the speaker. The start screen no longer lists keys (Keys in
   the top bar, or `?`, shows them all).

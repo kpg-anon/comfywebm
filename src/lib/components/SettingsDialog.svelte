@@ -83,6 +83,7 @@
     showRecent: app.showRecent,
     sideResize: app.sideResize,
     timelineResize: app.timelineResize,
+    cutSensitivity: app.cutSensitivity,
     updateCheck: updater.auto,
   });
 
@@ -98,6 +99,7 @@
     if (typeof o.showRecent === "boolean") app.setShowRecent(o.showRecent);
     if (typeof o.sideResize === "boolean") app.setSideResize(o.sideResize);
     if (typeof o.timelineResize === "boolean") app.setTimelineResize(o.timelineResize);
+    if (o.cutSensitivity === "low" || o.cutSensitivity === "normal" || o.cutSensitivity === "high") app.setCutSensitivity(o.cutSensitivity);
     if (typeof o.updateCheck === "boolean") updater.setAuto(o.updateCheck);
   }
 
@@ -391,6 +393,23 @@
         <label><input type="checkbox" checked={app.showWave} onchange={(e) => app.setTimelinePics(app.showFilm, (e.currentTarget as HTMLInputElement).checked)} /> Audio waveform</label>
       </div>
       <span class="hint">Drawn behind the ranges (the waveform is off to start with, so the thumbnails show clearly). Made once per file in the background and kept in the cache. Applies at once.</span>
+    </div>
+
+    <div class="col">
+      <span>Find cuts</span>
+      <div class="line">
+        <Select
+          label="Cut sensitivity"
+          value={app.cutSensitivity}
+          onchange={(v) => app.setCutSensitivity(v)}
+          options={[
+            { value: "low", label: "Fewer cuts" },
+            { value: "normal", label: "Normal" },
+            { value: "high", label: "More cuts" },
+          ]}
+        />
+      </div>
+      <span class="hint">Fewer: only clear cuts. More: also cuts between similar shots. Found cuts change at once, without reading the video again.</span>
     </div>
     {:else if section === "tools"}
     <label class="col">

@@ -7,6 +7,22 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- A speaker at the bottom right of the picture mutes the preview (or `M`);
+  pointing at it shows a volume slider, and the wheel over it sets the
+  volume. Both are remembered. They change only what you hear while
+  editing, not the encode's sound.
+- Formats and codecs the preset's site does not accept are grayed out, with
+  the reason on hover: 4chan takes WebM (VP8, VP9), MP4 (H.264) and GIF, not
+  AV1, HEVC, WebP or sound-only files; X takes MP4 (H.264) and GIF. The site
+  comes from the preset's name. A warning shows when the current choice is
+  one the site refuses.
+- Drag a range on the timeline to move it, keeping its length; the picture
+  shows its first frame while it moves. Its ends snap to the other ranges,
+  scene cuts and the file's ends (Alt: no snapping). A click on it still
+  seeks.
+
 ## [1.0.6] - 2026-11-17
 
 ### Changed

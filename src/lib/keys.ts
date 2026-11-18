@@ -30,6 +30,7 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["Shift + Left / Shift + Right", "seek 5 s"],
       [", / .", "one frame back / forward (or the mouse wheel over the picture)"],
       ["L", "loop the selected range"],
+      ["M", "mute / unmute the preview (the speaker at the bottom right of the picture)"],
     ],
   },
   {
@@ -42,7 +43,8 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["Ctrl + Z", "undo a range, order or crop change"],
       ["Ctrl + Shift + Z / Ctrl + Y", "redo"],
       ["Ctrl + wheel", "zoom the timeline (wheel pans while zoomed)"],
-      ["Alt + drag", "move a range edge without snapping"],
+      ["Drag a range", "move it, keeping its length (a click seeks)"],
+      ["Alt + drag", "move a range or its edge without snapping"],
       ["[ / ]", "previous / next scene cut (after Find cuts)"],
     ],
   },
@@ -199,6 +201,9 @@ export function installKeys(actions: KeyActions): () => void {
           break;
         case "l":
           app.toggleLoop();
+          break;
+        case "m":
+          app.toggleMute();
           break;
         case "q":
           app.setView(app.view === "queue" ? "editor" : "queue");

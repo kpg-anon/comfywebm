@@ -88,4 +88,16 @@ export function setEdge(list: Segment[], i: number, edge: "start" | "end", t: nu
   return out;
 }
 
+/** Move range i so it starts at `start`, keeping its length, between its neighbors. */
+export function moveTo(list: Segment[], i: number, start: number, duration: number): Segment[] {
+  const b = bounds(list, i, duration);
+  const s = { ...list[i] };
+  const len = s.end - s.start;
+  s.start = Math.min(Math.max(start, b.min), Math.max(b.min, b.max - len));
+  s.end = s.start + len;
+  const out = [...list];
+  out[i] = s;
+  return out;
+}
+
 export const totalLength = (list: Segment[]) => list.reduce((n, s) => n + (s.end - s.start), 0);

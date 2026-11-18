@@ -7,6 +7,7 @@
   import { ratioOf } from "$lib/crop";
   import * as ramp from "$lib/ramp";
   import type { SpeedPoint } from "$lib/types";
+  import Icon from "./Icon.svelte";
 
   let video = $state<HTMLVideoElement>();
   let sw = $state(0);
@@ -174,6 +175,21 @@
   // Color adjustments on the picture: an SVG filter close to ffmpeg's eq,
   // hue and curves (not exact: eq works on YUV, this on RGB). Sample shows
   // the real result.
+  // the preview's mute and volume (the speaker in the corner, M)
+  $effect(() => {
+    if (!video) return;
+    video.muted = app.muted;
+    video.volume = app.volume;
+  });
+  const hasSound = $derived(!!app.media?.audio.length);
+  function soundWheel(e: WheelEvent) {
+    // the wheel over the speaker sets the volume; elsewhere it steps frames
+    e.preventDefault();
+    e.stopPropagation();
+    const d = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
+    app.setVolume((app.muted ? 0 : app.volume) - Math.sign(d) * 0.05);
+  }
+
   // the speed setting plays in the preview too (pitch kept, as atempo does)
   // (defaultPlaybackRate too: loading a new source resets the rate to it)
   $effect(() => {
@@ -427,6 +443,27 @@
       <button class="btn small" onclick={() => ipc.proxyCancel().catch(() => {})}>Cancel</button>
     </div>
   {/if}
+  {#if app.videoSrc && hasSound}
+    <div class="sound" class:off={app.muted} onwheel={soundWheel}>
+      <input
+        type="range"
+        min="0"
+        max="1"
+        step="0.01"
+        aria-label="Preview volume"
+        value={app.muted ? 0 : app.volume}
+        oninput={(e) => app.setVolume(Number((e.currentTarget as HTMLInputElement).value))}
+      />
+      <button
+        class="spk"
+        aria-label={app.muted ? "Unmute the preview (M)" : "Mute the preview (M)"}
+        title="{app.muted ? 'Unmute' : 'Mute'} the preview (M). The encode's sound is set in the sidebar."
+        onclick={() => app.toggleMute()}
+      >
+        <Icon name={app.muted ? "volumeOff" : app.volume < 0.5 ? "volumeLow" : "volume"} size={18} />
+      </button>
+    </div>
+  {/if}
   {#if app.usingProxy}
     <span class="badge" title={app.proxyRemuxed ? "The source's own video and audio, copied into an MP4 the player can read" : "A 480p H.264 copy for the player; encoding uses the original"}>{app.proxyRemuxed ? "Preview copy (full quality)" : "Preview copy (480p)"}</span>
   {/if}
@@ -552,6 +589,56 @@
   .bar > div {
     height: 100%;
     background: var(--accent);
+  }
+  /* the preview's sound, bottom right: the speaker, and the volume slider beside it while the pointer is over it */
+  .sound {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px;
+    border-radius: 18px;
+    background: rgb(0 0 0 / 0.55);
+    color: #fff;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+  }
+  .sound:hover {
+    opacity: 1;
+  }
+  .sound.off {
+    opacity: 0.95;
+  }
+  .sound input {
+    width: 0;
+    opacity: 0;
+    margin: 0;
+    transition:
+      width 0.15s,
+      opacity 0.15s;
+  }
+  .sound:hover input {
+    width: 90px;
+    opacity: 1;
+    margin-left: 6px;
+  }
+  .spk {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+  }
+  .spk:hover {
+    background: rgb(255 255 255 / 0.15);
   }
   .badge {
     position: absolute;

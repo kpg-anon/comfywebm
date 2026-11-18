@@ -78,7 +78,8 @@ building it yourself. For an overview and the downloads, see
   and keep it, without a look-up first. It goes to your Downloads folder (or the
   folder set in Settings) in its own container (MP4, WebM, else MKV).
 - **Ranges**: one or more ranges on the timeline, set with `I` / `O` at the
-  playhead or by dragging handles. Several ranges are joined into one file, or
+  playhead or by dragging handles; drag a range itself to move it with its
+  length kept (a click on it seeks). Several ranges are joined into one file, or
   sent as separate jobs with "Separate files". Play plays the selected range:
   from its start when the playhead is outside it, stopping at its end (with
   Loop, `L`, again from its start). Click past the end while playing to keep
@@ -246,6 +247,7 @@ Keys do nothing while a text field has focus.
 | `N` | add a range at the playhead |
 | Delete | remove the selected range (when there is more than one) |
 | `L` | loop the selected range |
+| `M` | mute / unmute the preview (also the speaker at the bottom right of the picture; the wheel over it sets the volume) |
 | `C` | crop mode on / off |
 | Esc | leave crop mode |
 | Arrows (crop mode) | move the crop 1 px; with Shift 10 px |
@@ -290,6 +292,14 @@ MiB limits are binary: 1 MiB = 1,048,576 bytes.
 | GIF (4 MiB) | GIF | 4,194,304 bytes | none | at most 640x640, 15 fps, auto size | none |
 
 The longest clip is advisory: the app warns when the output is longer.
+
+Formats and codecs the preset's site does not accept are grayed out in the
+sidebar, with the reason on hover; the site is read from the preset's name, so
+your own presets named "4chan ..." or "X ..." get the same rules. 4chan: WebM
+with VP8 or VP9, MP4 with H.264 and GIF are allowed; AV1, HEVC, WebP and
+sound-only files are not. X: MP4 with H.264 and GIF. Sources (2026-11-18):
+community guides (4chan's own FAQ was not found), which say 4chan refuses AV1
+and takes MP4 only with H.264 and AAC; X's MP4 with H.264 and AAC.
 
 ## Requirements
 

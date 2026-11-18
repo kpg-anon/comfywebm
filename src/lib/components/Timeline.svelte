@@ -49,7 +49,13 @@
     ipc.timelineWave(path, t).then((p) => live && (waveUrl = convertFileSrc(p))).catch(() => {});
     return () => (live = false);
   });
-  let drag = $state<{ kind: "seek" } | { kind: "start" | "end"; i: number; snaps: number[] } | null>(null);
+  let drag = $state<
+    | { kind: "seek" }
+    | { kind: "start" | "end"; i: number; snaps: number[] }
+    // a range's body: a click seeks; past a few pixels the drag moves the range, keeping its length
+    | { kind: "move"; i: number; x0: number; t0: number; start0: number; moved: boolean; snaps: number[] }
+    | null
+  >(null);
   /** Snap distance in pixels for range edges; Alt while dragging turns snapping off. */
   const SNAP_PX = 7;
   let trackW = $state(0);
@@ -152,8 +158,14 @@
     e.preventDefault();
     e.stopPropagation();
     track.setPointerCapture(e.pointerId);
-    if (kind === "seek" || kind === "body") {
-      if (kind === "body") app.sel = i;
+    if (kind === "body") {
+      app.sel = i;
+      const t = timeAt(e);
+      app.seek(t);
+      const snaps = [0, dur, ...(app.cuts ?? [])];
+      app.segments.forEach((g, k) => k !== i && snaps.push(g.start, g.end));
+      drag = { kind: "move", i, x0: e.clientX, t0: t, start0: app.segments[i].start, moved: false, snaps };
+    } else if (kind === "seek") {
       drag = { kind: "seek" };
       app.seek(timeAt(e));
     } else {
@@ -170,7 +182,32 @@
     if (!drag) return;
     let t = timeAt(e);
     if (drag.kind === "seek") app.seek(t);
-    else {
+    else if (drag.kind === "move") {
+      if (!drag.moved) {
+        if (Math.abs(e.clientX - drag.x0) < 3) return;
+        drag.moved = true;
+      }
+      const s0 = app.segments[drag.i];
+      if (!s0) return;
+      const len = s0.end - s0.start;
+      let start = drag.start0 + (t - drag.t0);
+      // either end snaps to the other ranges' edges, scene cuts and the file's ends (Alt: no snapping)
+      if (!e.altKey && trackW > 0) {
+        let best = (SNAP_PX / trackW) * viewLen;
+        for (const p of drag.snaps) {
+          for (const [edge, off] of [[start, 0], [start + len, len]] as const) {
+            if (Math.abs(p - edge) < best) {
+              best = Math.abs(p - edge);
+              start = p - off;
+            }
+          }
+        }
+      }
+      app.moveRange(drag.i, start);
+      // the picture shows the range's first frame
+      const s = app.segments[drag.i];
+      if (s) app.seek(s.start);
+    } else {
       if (!e.altKey && trackW > 0) {
         const reach = (SNAP_PX / trackW) * viewLen;
         let best = reach;
@@ -573,6 +610,7 @@
     position: absolute;
     top: 6px;
     height: 14px;
+    cursor: grab;
     border-radius: 2px;
     background: color-mix(in srgb, var(--range) 18%, transparent);
     border: 1px solid color-mix(in srgb, var(--range) 45%, transparent);

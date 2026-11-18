@@ -2,6 +2,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import * as ipc from "./ipc";
 import { load, save } from "./persist";
+import { siteOf, refusal } from "./sites";
 import * as ramp from "./ramp";
 import { AUDIO_LABEL, BUILTIN_PRESETS, CODECS_BY_CONTAINER, CRF_RANGE, audioCodecFor } from "./presets";
 import { fitRatio, isFull, move, ratioOf, round, type AspectLock } from "./crop";
@@ -197,6 +198,23 @@ class AppState {
   paused = $state(true);
   loop = $state(false);
   private loopTouched = false;
+  /** the preview's sound (not the encode's): muted, and the volume 0..1; remembered */
+  muted = $state(load<boolean>("muted") === true);
+  volume = $state(Math.min(1, Math.max(0, load<number>("volume") ?? 1)));
+
+  toggleMute() {
+    // unmuting at volume 0 would still be silent
+    if (this.muted && this.volume === 0) this.setVolume(0.5);
+    this.muted = !this.muted;
+    save("muted", this.muted);
+  }
+
+  setVolume(v: number) {
+    this.volume = Math.min(1, Math.max(0, Math.round(v * 100) / 100));
+    this.muted = this.volume === 0;
+    save("volume", this.volume);
+    save("muted", this.muted);
+  }
 
   // ranges on the source timeline, sorted by start; empty = whole file
   segments = $state<Segment[]>([]);
@@ -452,6 +470,9 @@ class AppState {
   /** Warnings the UI adds on top of the ones from `plan`. */
   uiWarnings = $derived.by((): string[] => {
     const w: string[] = [];
+    // the preset's site does not take this format or codec (sites.ts)
+    const no = refusal(siteOf(this.presetName), this.container, this.codec);
+    if (no) w.push(`${no} Pick another format or codec, or another preset.`);
     const t = this.tools;
     if (t) {
       if (!this.codecAvailable(this.codec)) w.push(`This ffmpeg has no ${this.codec.toUpperCase()} encoder.`);
@@ -1143,6 +1164,13 @@ class AppState {
   setEdge(i: number, edge: "start" | "end", t: number) {
     if (i < 0 || i >= this.segments.length) return;
     this.segments = seg.setEdge(this.segments, i, edge, t, this.duration, this.minLen);
+    this.sel = i;
+  }
+
+  /** Drag a range's body: move it so it starts at `start`, keeping its length. */
+  moveRange(i: number, start: number) {
+    if (i < 0 || i >= this.segments.length) return;
+    this.segments = seg.moveTo(this.segments, i, start, this.duration);
     this.sel = i;
   }
 

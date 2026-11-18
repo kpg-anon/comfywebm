@@ -11,6 +11,7 @@
   import { CODECS_BY_CONTAINER, CODEC_LABEL } from "$lib/presets";
   import { fmtLen } from "$lib/time";
   import { outputParts } from "$lib/outsize";
+  import { siteOf, refusal } from "$lib/sites";
   import type { Rotate } from "$lib/types";
   import AdjustPanel from "./AdjustPanel.svelte";
   import FileInfo from "./FileInfo.svelte";
@@ -25,8 +26,20 @@
   import SizeField from "./SizeField.svelte";
 
 
+  // grayed out: this ffmpeg lacks the encoder, or the preset's site does not accept it (sites.ts)
+  const site = $derived(siteOf(app.presetName));
   const codecs = $derived(
-    CODECS_BY_CONTAINER[app.container].map((c) => ({ value: c, label: CODEC_LABEL[c], disabled: !app.codecAvailable(c) })),
+    CODECS_BY_CONTAINER[app.container].map((c) => {
+      const no = refusal(site, app.container, c);
+      const missing = !app.codecAvailable(c);
+      return { value: c, label: CODEC_LABEL[c], disabled: missing || !!no, title: no ?? (missing ? "This ffmpeg has no encoder for it." : undefined) };
+    }),
+  );
+  const containers = $derived(
+    ([["webm", "WebM"], ["mp4", "MP4"], ["gif", "GIF"], ["webp", "WebP"], ["audio", "Audio"]] as const).map(([value, label]) => {
+      const no = refusal(site, value);
+      return { value, label, disabled: !!no, title: no ?? undefined };
+    }),
   );
   const zscale = $derived(!app.tools || app.tools.filters.zscale);
 
@@ -234,10 +247,10 @@
       <Group id="output" title="Video" note="{app.container.toUpperCase()} · {CODEC_LABEL[app.codec]}">
         <div class="row">
           <span title="WebM plays on 4chan and in browsers; MP4 plays nearly everywhere, including phones and Discord.">Format</span>
-          <Seg label="Container" value={app.container} onchange={(v) => app.setContainer(v)} options={[{ value: "webm", label: "WebM" }, { value: "mp4", label: "MP4" }, { value: "gif", label: "GIF" }, { value: "webp", label: "WebP" }, { value: "audio", label: "Audio" }]} />
+          <Seg label="Container" value={app.container} onchange={(v) => app.setContainer(v)} options={containers} />
         </div>
         <div class="row">
-          <span title="VP9 and AV1 give the best picture per MB (AV1 encodes slowest). VP8 and H.264 are for old players. HEVC is H.265, smaller than H.264 but not supported everywhere. Grayed out: your ffmpeg lacks it.">Codec</span>
+          <span title="VP9 and AV1 give the best picture per MB (AV1 encodes slowest). VP8 and H.264 are for old players. HEVC is H.265, smaller than H.264 but not supported everywhere. Grayed out: your ffmpeg lacks it, or the preset's site does not accept it.">Codec</span>
           <Seg label="Codec" value={app.codec} onchange={(v) => app.setCodec(v)} options={codecs} />
         </div>
         {#if app.container === "audio"}

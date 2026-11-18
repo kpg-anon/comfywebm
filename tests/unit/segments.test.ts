@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { rangeAt, setIn, setOut, addAt, bounds, setEdge, totalLength } from "../../src/lib/segments.ts";
+import { rangeAt, setIn, setOut, addAt, bounds, setEdge, moveTo, totalLength } from "../../src/lib/segments.ts";
 
 const L = () => [
   { start: 2, end: 4 },
@@ -49,6 +49,15 @@ test("addAt stops at the next range and refuses short or overlapping ranges", ()
   assert.deepEqual(addAt([], 1, 10, 3, 0.5).list, [{ start: 1, end: 4 }]);
   assert.equal(addAt(L(), 3, 10, 5, 0.5), null);
   assert.equal(addAt(L(), 5.8, 10, 5, 0.5), null);
+});
+
+test("moveTo keeps the length and stops at the neighbours and the file's ends", () => {
+  assert.deepEqual(moveTo(L(), 0, 0.5, 10)[0], { start: 0.5, end: 2.5 });
+  // the next range starts at 6: a 2 s range ends there at the latest
+  assert.deepEqual(moveTo(L(), 0, 5, 10)[0], { start: 4, end: 6 });
+  assert.deepEqual(moveTo(L(), 0, -3, 10)[0], { start: 0, end: 2 });
+  assert.deepEqual(moveTo(L(), 1, 9, 10)[1], { start: 8, end: 10 });
+  assert.deepEqual(moveTo(L(), 1, 1, 10)[1], { start: 4, end: 6 });
 });
 
 test("bounds and setEdge clamp between neighbours and keep minLen", () => {

@@ -445,8 +445,8 @@
               />
             </div>
           {/if}
-          <button class="btn" disabled={!app.media || app.ffmpegMissing} onclick={() => app.runSample()}><Icon name="film" size={14} />Sample <kbd>P</kbd></button>
-          <button class="btn" disabled={!app.media || app.ffmpegMissing} title="Save the frame at the playhead as PNG with the crop. Shift+click (Shift+S): as the encode sees it, with filters, adjustments and the output size." onclick={(e) => app.exportFrame(e.shiftKey)}><Icon name="image" size={14} />Frame <kbd>S</kbd></button>
+          <button class="btn" class:wide={app.cuts === null} disabled={!app.media || app.ffmpegMissing} onclick={() => app.runSample()}><Icon name="film" size={14} />Sample <kbd>P</kbd></button>
+          <button class="btn" class:wide={app.cuts === null} disabled={!app.media || app.ffmpegMissing} title="Save the frame at the playhead as PNG with the crop. Shift+click (Shift+S): as the encode sees it, with filters, adjustments and the output size." onclick={(e) => app.exportFrame(e.shiftKey)}><Icon name="image" size={14} />Frame <kbd>S</kbd></button>
         </div>
     </div>
   </section>
@@ -539,6 +539,7 @@
     border-left: 1px solid var(--border-muted);
   }
   .sec .ph {
+    justify-content: center;
     padding-bottom: 3px;
     border-bottom: 1px solid var(--border-muted);
   }
@@ -578,20 +579,36 @@
   }
   .fieldrow {
     display: flex;
+    justify-content: center;
     align-items: flex-end;
     gap: 10px;
   }
   .btnrow {
     display: flex;
+    justify-content: center;
     flex-wrap: wrap;
     align-items: center;
     gap: 6px;
   }
+  /* six equal columns: Speed, Crop and Find cuts take two each; Sample and Frame take three
+     each, so the two rows are the same width (with the cut sensitivity menu, all take two) */
   .tools {
     display: grid;
-    grid-template-columns: repeat(3, auto);
+    grid-template-columns: repeat(6, 1fr);
     gap: 6px;
     align-items: center;
+  }
+  .tools > :global(*) {
+    grid-column: span 2;
+  }
+  .tools > :global(.btn) {
+    justify-content: center;
+  }
+  .tools > :global(.wide) {
+    grid-column: span 3;
+  }
+  .tools .sens {
+    width: auto;
   }
   .track {
     position: relative;

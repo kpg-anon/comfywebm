@@ -7,6 +7,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+
+- The quality check scored MP4 jobs far too low (a CRF 18 H.264 encode got
+  68 instead of 99.7; a 4 MiB one 66 instead of 83): every third frame of the
+  MP4 probe was compared with the next frame of the reference. Frames are now
+  paired by their number. WebM jobs were measured correctly.
+
 ## [1.1.0] - 2026-11-18
 
 ### Added

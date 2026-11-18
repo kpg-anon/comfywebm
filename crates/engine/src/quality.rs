@@ -140,8 +140,11 @@ fn to_matroska(args: &mut Vec<String>) {
 /// VMAF of `dist` against `reference` (`dist` scaled up to the reference's size).
 fn vmaf(ffmpeg: &Path, dist: &Path, reference: &Path, (w, h): (u32, u32), cancel: &Cancel) -> Result<f64, RunError> {
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(16);
+    // frames are paired by their number, not their timestamps: both files come from the same
+    // filters and have the same frames, but an MP4 probe (exact 1/30 s steps) beside the Matroska
+    // reference (rounded to ms) paired every third frame with its neighbour and scored 68 for 99.7
     let graph = format!(
-        "[0:v]setpts=PTS-STARTPTS,scale={w}:{h}:flags=bicubic,format=yuv420p[d];[1:v]setpts=PTS-STARTPTS,format=yuv420p[r];[d][r]libvmaf=n_threads={threads}"
+        "[0:v]settb=1/1000,setpts=N*40,scale={w}:{h}:flags=bicubic,format=yuv420p[d];[1:v]settb=1/1000,setpts=N*40,format=yuv420p[r];[d][r]libvmaf=n_threads={threads}"
     );
     let mut cmd = crate::tools::command(ffmpeg);
     cmd.args(["-hide_banner", "-nostdin", "-nostats", "-i"])

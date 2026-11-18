@@ -251,7 +251,7 @@ class AppState {
   streamCopy = $state(false);
   /** Timeline pictures (Settings), remembered. */
   showFilm = $state(load<boolean>("timelineFilm") ?? true);
-  showWave = $state(load<boolean>("timelineWave") ?? true);
+  showWave = $state(load<boolean>("timelineWave") ?? false);
   setTimelinePics(film: boolean, wave: boolean) {
     this.showFilm = film;
     this.showWave = wave;

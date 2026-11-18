@@ -390,7 +390,7 @@
         <label><input type="checkbox" checked={app.showFilm} onchange={(e) => app.setTimelinePics((e.currentTarget as HTMLInputElement).checked, app.showWave)} /> Thumbnails</label>
         <label><input type="checkbox" checked={app.showWave} onchange={(e) => app.setTimelinePics(app.showFilm, (e.currentTarget as HTMLInputElement).checked)} /> Audio waveform</label>
       </div>
-      <span class="hint">Drawn behind the ranges. Made once per file in the background and kept in the cache. Applies at once.</span>
+      <span class="hint">Drawn behind the ranges (the waveform is off to start with, so the thumbnails show clearly). Made once per file in the background and kept in the cache. Applies at once.</span>
     </div>
     {:else if section === "tools"}
     <label class="col">

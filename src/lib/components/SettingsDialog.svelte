@@ -556,9 +556,9 @@
       {#if fileMsg}<span class="hint">{fileMsg}</span>{/if}
     </div>
 
-    {#if msg}<div class="err">{msg}</div>{/if}
-
+    <!-- a bar on the dialog's bottom edge: stays in view while the settings scroll -->
     <div class="actions">
+      {#if msg}<div class="err">{msg}</div>{/if}
       <button class="btn" onclick={close}>Cancel</button>
       <button class="btn primary" disabled={saving} onclick={save}>Save</button>
     </div>
@@ -744,8 +744,20 @@
     margin-right: 8px;
   }
   .actions {
+    position: sticky;
+    bottom: -16px;
+    z-index: 2;
     display: flex;
+    align-items: center;
     justify-content: flex-end;
     gap: 6px;
+    margin: 0 -18px -16px;
+    padding: 10px 18px;
+    border-top: 1px solid var(--border-muted);
+    background: var(--bg-panel);
+  }
+  .actions .err {
+    flex: 1;
+    min-width: 0;
   }
 </style>

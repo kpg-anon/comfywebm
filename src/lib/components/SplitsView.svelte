@@ -12,9 +12,10 @@
   import { app } from "$lib/state.svelte";
   import { splits, frameOf, SHAPES, SIZES, type Shape, type SplitClip } from "$lib/splits.svelte";
   import { pickSplitClips } from "$lib/dialogs";
-  import { fmtTime } from "$lib/time";
+  import { fmtLen, fmtTime } from "$lib/time";
   import { showMenu, type MenuItem } from "$lib/menu.svelte";
   import * as ipc from "$lib/ipc";
+  import { outputParts } from "$lib/outsize";
   import type { Rect } from "$lib/types";
   import Icon from "./Icon.svelte";
   import Seg from "./Seg.svelte";
@@ -100,7 +101,9 @@
       if (!v || c.still || v.readyState < 1) return;
       const { local, active } = splits.at(i, splits.time);
       const run = splits.playing && active;
-      if (hard || Math.abs(v.currentTime - local) > (run ? 0.3 : 0.04)) v.currentTime = local;
+      // outside the clip's range: a looping clip has played past its end
+      const out = v.currentTime < c.start - 0.05 || v.currentTime > c.end + 0.05;
+      if (hard || out || Math.abs(v.currentTime - local) > (run ? 0.3 : 0.04)) v.currentTime = local;
       if (run && v.paused) v.play().catch(() => {});
       else if (!run && !v.paused) v.pause();
     });
@@ -110,8 +113,17 @@
     if (!splits.playing) return;
     const t = t0 + (performance.now() - wall0) / 1000;
     if (t >= total) {
-      splits.time = total;
-      stop();
+      if (!splits.loopPreview) {
+        splits.time = total;
+        stop();
+        return;
+      }
+      // again from the start
+      splits.time = 0;
+      t0 = 0;
+      wall0 = performance.now();
+      sync(true);
+      raf = requestAnimationFrame(frame);
       return;
     }
     splits.time = t;
@@ -165,9 +177,13 @@
     if (v && v.readyState >= 1) v.currentTime = p.t;
   });
   // leaving the tab stops playback
-  $effect(() => () => {
-    cancelAnimationFrame(raf);
-    splits.playing = false;
+  $effect(() => {
+    splits.togglePlay = play;
+    return () => {
+      splits.togglePlay = null;
+      cancelAnimationFrame(raf);
+      splits.playing = false;
+    };
   });
 
   // seek bar
@@ -464,9 +480,15 @@
             bind:value={splits.length}
             options={[
               { value: "shortest", label: "Shortest clip" },
-              { value: "longest", label: "Longest clip", title: "the shorter clips hold their last frame" },
+              { value: "longest", label: "Longest clip", title: "the shorter clips stop on their last frame" },
+              { value: "loop", label: "Longest, loop", title: "the shorter clips start again until the longest one ends" },
             ]}
           />
+          {#if splits.length === "longest"}
+            <div class="muted small">The shorter clips stop on their last frame.</div>
+          {:else if splits.length === "loop"}
+            <div class="muted small">The shorter clips start again until the longest one ends.</div>
+          {/if}
           <div class="q">Gap between parts</div>
           <div class="line">
             <Seg
@@ -632,6 +654,13 @@
 
         <div class="pbar">
           <button class="btn small" onclick={play} disabled={n < 2 || total <= 0}><Icon name={splits.playing ? "pause" : "play"} size={12} />{splits.playing ? "Pause" : "Play"}</button>
+          <button
+            class="btn small"
+            class:on={splits.loopPreview}
+            aria-pressed={splits.loopPreview}
+            title="Play the preview again from the start when it ends"
+            onclick={() => (splits.loopPreview = !splits.loopPreview)}
+          ><Icon name="loop" size={12} />Loop</button>
           <span class="mono small time">{fmtTime(splits.time)} / {fmtTime(total)}</span>
           <div
             class="seek"
@@ -723,6 +752,7 @@
     <div class="foot">
       <span class="muted small">The sidebar's settings (preset, size limit, format, caption, watermark) apply to the result.</span>
       <span class="grow"></span>
+      {#if splits.plan && n > 1}<span class="outrow">{outputParts(splits.plan, app.rate, fmtLen).join(" · ")}</span>{/if}
       <button class="btn" disabled={n < 2 || app.ffmpegMissing || !!splits.planError} onclick={() => splits.enqueue(false)}>Add to queue</button>
       <button class="btn primary" disabled={n < 2 || app.ffmpegMissing || !!splits.planError} onclick={() => splits.enqueue(true)}>Encode</button>
     </div>
@@ -758,6 +788,10 @@
   }
   .grow {
     flex: 1;
+  }
+  .outrow {
+    color: var(--text-primary);
+    font-size: 12px;
   }
   .small {
     font-size: 11.5px;

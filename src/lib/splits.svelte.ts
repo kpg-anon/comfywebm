@@ -73,7 +73,8 @@ class Splits {
   fill = $state<Fill>("bars");
   /** split screen */
   sound = $state<"mix" | "none" | number>(0);
-  length = $state<"shortest" | "longest">("shortest");
+  /** split screen: as long as the shortest clip, or the longest (the shorter ones hold their last frame, or loop) */
+  length = $state<"shortest" | "longest" | "loop">("shortest");
   gap = $state<keyof typeof GAPS>("none");
   gapColor = $state("#000000");
   /** side by side / stacked: each part as wide (tall) as its clip's shape needs, equal parts, the first clip twice
@@ -87,6 +88,10 @@ class Splits {
   // the preview's place in the output, in seconds; seekSeq changes on every seek
   time = $state(0);
   playing = $state(false);
+  /** the preview starts again from the beginning when it reaches the end */
+  loopPreview = $state(true);
+  /** play / pause of the preview, set while the Splits tab shows it (the Space key) */
+  togglePlay: (() => void) | null = null;
   seekSeq = $state(0);
   /** while an end of a clip's range is dragged: that clip shows that moment of its file */
   peek = $state<{ id: number; t: number } | null>(null);
@@ -188,6 +193,12 @@ class Splits {
     return this.length === "shortest" ? Math.min(...lens) : Math.max(...lens);
   }
 
+  /** split screen: clip i starts again from its start when it ends, until the output ends */
+  loops(i: number): boolean {
+    const c = this.clips[i];
+    return !!c && this.split && this.length === "loop" && !c.still && own(c) > 0 && own(c) < this.length_ - 1e-3;
+  }
+
   /** how long clip i shows in the output (split screen: before it holds its last frame) */
   lenOf(i: number): number {
     const c = this.clips[i];
@@ -209,8 +220,9 @@ class Splits {
   at(i: number, t: number): { local: number; active: boolean } {
     const c = this.clips[i];
     if (!c) return { local: 0, active: false };
-    const d = t - (this.split ? 0 : this.offsets[i]);
+    let d = t - (this.split ? 0 : this.offsets[i]);
     const len = own(c);
+    if (d >= len && d < this.length_ && this.loops(i)) d %= len;
     return { local: c.start + Math.min(Math.max(0, d), len), active: d >= 0 && d < len };
   }
 

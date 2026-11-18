@@ -18,7 +18,8 @@ export type Layout = {
   /** split screen: one clip's sound, all mixed, or none */
   sound: "clip" | "mix" | "none";
   soundClip: number;
-  length: "shortest" | "longest";
+  /** split screen: the shortest clip's length, or the longest (the others hold their last frame, or loop) */
+  length: "shortest" | "longest" | "loop";
   /** split screen: space between the parts, canvas pixels */
   gap: number;
   gapColor: string;
@@ -194,6 +195,8 @@ export type PlanInfo = {
   outWidth: number;
   outHeight: number;
   durationOut: number;
+  /** frames per second of the output (0 for sound only) */
+  outFps: number;
   videoKbps: number | null;
   audioKbps: number;
   bitsPerPixel: number | null;

@@ -9,7 +9,8 @@
   import { splits } from "$lib/splits.svelte";
   import { pickAudio, pickFolder, pickImage, pickSubtitle } from "$lib/dialogs";
   import { CODECS_BY_CONTAINER, CODEC_LABEL } from "$lib/presets";
-  import { fmtBytes, fmtTime } from "$lib/time";
+  import { fmtLen } from "$lib/time";
+  import { outputParts } from "$lib/outsize";
   import type { Rotate } from "$lib/types";
   import AdjustPanel from "./AdjustPanel.svelte";
   import FileInfo from "./FileInfo.svelte";
@@ -32,6 +33,21 @@
   let copied = $state(false);
 
   const warnings = $derived([...app.uiWarnings, ...(app.plan?.warnings ?? [])]);
+  /** the tooltip of the output line: bitrates, picture quality, file name */
+  const details = $derived.by(() => {
+    const p = app.plan;
+    if (!p) return "";
+    const lines: string[] = [];
+    if (app.container === "audio") lines.push(`${app.audioCodecName} ${Math.round(p.videoKbps ?? p.audioKbps)} kbps`);
+    else if (app.audioOnly) lines.push(`still picture, audio ${Math.round(p.audioKbps)} kbps`);
+    else {
+      // a still picture is one frame repeated; its bitrate and bits per pixel say nothing
+      lines.push(`video ${p.videoKbps === null ? "CRF" : `${Math.round(p.videoKbps)} kbps`}, audio ${p.audioKbps > 0 ? `${Math.round(p.audioKbps)} kbps` : "off"}`);
+      if (p.bitsPerPixel !== null) lines.push(`${p.bitsPerPixel.toFixed(3)} bits per pixel${p.quality ? ` (${p.quality})` : ""}`);
+    }
+    if (p.output) lines.push(`file: ${baseName(p.output)}${app.separate && app.segments.length > 1 ? " (the first of them)" : ""}`);
+    return lines.join("\n");
+  });
 
   function trackLabel(t: { track: number; codec: string; lang: string | null; title: string | null }, extra = "") {
     return [`#${t.track + 1}`, t.codec, extra, t.lang, t.title].filter(Boolean).join(" · ");
@@ -574,6 +590,9 @@
   <div class="fixed bottom">
     {#if app.view === "splits"}
       <div class="muted small">These settings apply to the combined clips{splits.clips.length ? ` (${splits.clips.length})` : ""}. The choices for combining them are on the left.</div>
+      {#if splits.plan && splits.clips.length > 1}
+        <div class="outrow">{#each outputParts(splits.plan, app.rate, fmtLen) as p, i (i)}{#if i}<span class="dot">{" · "}</span>{/if}<span>{p}</span>{/each}</div>
+      {/if}
       <div class="actions">
         <button class="btn primary big" disabled={splits.clips.length < 2 || app.ffmpegMissing || !!splits.planError} onclick={() => splits.enqueue(true)}>Encode</button>
         <button class="btn big" disabled={splits.clips.length < 2 || app.ffmpegMissing || !!splits.planError} onclick={() => splits.enqueue(false)}>Add to queue</button>
@@ -585,33 +604,7 @@
         <button class="btn big" disabled={!batch.included.length || app.ffmpegMissing} onclick={() => batch.enqueue(false)}>Add to queue</button>
       </div>
     {:else}
-      {#if app.plan}
-        <div class="summary">
-          <span class="mono small">
-            {#if app.container === "audio"}audio only{:else}{app.plan.outWidth}x{app.plan.outHeight}{app.plan.autoScaled ? " (auto)" : ""}{/if} · {fmtTime(app.plan.durationOut)}
-          </span>
-          {#if app.plan.quality && !app.audioOnly}
-            <span class="badge {app.plan.quality}">{app.plan.quality}</span>
-          {/if}
-        </div>
-        <div class="mono small muted">
-          {#if app.container === "audio"}
-            {app.audioCodecName} {Math.round(app.plan.videoKbps ?? app.plan.audioKbps)} kbps
-          {:else if app.audioOnly}
-            <!-- a still picture is one frame repeated; its bitrate and bits per pixel say nothing -->
-            still picture · audio {Math.round(app.plan.audioKbps)} kbps
-          {:else}
-            video {app.plan.videoKbps === null ? "CRF" : `${Math.round(app.plan.videoKbps)} kbps`}
-            · audio {app.plan.audioKbps > 0 ? `${Math.round(app.plan.audioKbps)} kbps` : "off"}
-          {/if}
-          {#if app.plan.bitsPerPixel !== null && !app.audioOnly}· {app.plan.bitsPerPixel.toFixed(3)} bpp{/if}
-          {#if app.rateMode === "size"}· at most {fmtBytes(app.maxBytes)}{/if}
-          {#if app.separate && app.segments.length > 1}· {app.segments.length} files{/if}
-        </div>
-        {#if app.plan.output}
-          <div class="mono small muted outname" title={app.plan.output}>→ {baseName(app.plan.output)}{app.separate && app.segments.length > 1 ? " (first of them)" : ""}</div>
-        {/if}
-      {:else if app.planError}
+      {#if app.planError}
         <div class="err small">{app.planError}</div>
       {:else if !app.media}
         <div class="muted small">Open a video to see the output size.</div>
@@ -621,6 +614,12 @@
           {#each warnings as w, i (i)}
             <div class="warn small wline"><Icon name="warn" size={12} /><span>{w}</span></div>
           {/each}
+        </div>
+      {/if}
+      {#if app.plan}
+        <!-- the bitrates, picture quality and file name are in the tooltip -->
+        <div class="outrow" title={details}>
+          {#each outputParts(app.plan, app.rate, fmtLen, app.separate ? app.segments.length : 1) as p, i (i)}{#if i}<span class="dot">{" · "}</span>{/if}<span>{p}</span>{/each}
         </div>
       {/if}
       <div class="actions">
@@ -798,39 +797,18 @@
     word-break: break-all;
     text-align: right;
   }
-  .btns {
-    display: flex;
-    gap: 4px;
+  /* the output beside Encode: size, frame rate, sound, length, expected file size */
+  .outrow {
+    color: var(--text-primary);
+    font-size: 12px;
+    text-align: center;
   }
-  .outname {
-    overflow: hidden;
-    text-overflow: ellipsis;
+  /* a line break falls between the parts, not inside one */
+  .outrow span:not(.dot) {
     white-space: nowrap;
   }
-  .summary {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .badge {
-    padding: 0 6px;
-    border-radius: 3px;
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .badge.good {
-    background: color-mix(in srgb, var(--green) 20%, transparent);
-    color: var(--green);
-  }
-  .badge.fair {
-    background: color-mix(in srgb, var(--yellow) 20%, transparent);
-    color: var(--yellow);
-  }
-  .badge.poor {
-    background: color-mix(in srgb, var(--red) 20%, transparent);
-    color: var(--red);
+  .outrow .dot {
+    color: var(--text-muted);
   }
   .warnings {
     max-height: 88px;

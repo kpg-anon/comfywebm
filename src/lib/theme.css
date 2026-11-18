@@ -311,6 +311,13 @@ textarea {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* Tab moves focus only inside dialogs (appfeel.ts). Elsewhere focus can only
+   be left over from a click (keys.ts drops it), so it gets no outline; a text
+   field being typed in keeps one. */
+:focus-visible:not([role="dialog"] *, input, textarea),
+input:is([type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="color"]):focus-visible:not([role="dialog"] *) {
+  outline: none;
+}
 
 /* shared controls */
 .btn {

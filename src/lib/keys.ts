@@ -1,5 +1,6 @@
 // Global keyboard shortcuts (USAGE.md, "Keys") and URL paste.
 import { app } from "./state.svelte";
+import { splits } from "./splits.svelte";
 
 const NOT_TEXT = new Set(["checkbox", "radio", "button", "submit", "reset", "color", "file"]);
 
@@ -24,7 +25,7 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
   {
     group: "Playback",
     keys: [
-      ["Space", "play / pause"],
+      ["Space", "play / pause (in Splits: the preview)"],
       ["Left / Right", "seek 1 s"],
       ["Shift + Left / Shift + Right", "seek 5 s"],
       ["< / >", "one frame back / forward (or the mouse wheel over the picture)"],
@@ -76,18 +77,28 @@ export type KeyActions = { openFile: () => void; openUrl: (url?: string) => void
 const URL_RE = /^https?:\/\/\S+$/i;
 
 export function installKeys(actions: KeyActions): () => void {
-  // After a mouse click, a button, checkbox or slider keeps focus and would
-  // swallow Space and the arrows; drop focus so the shortcuts work.
+  // A mouse click leaves focus on what was clicked (a button, checkbox,
+  // slider, the video, the timeline); it would then take Space, Enter and the
+  // arrows, and a key press would show its focus outline. Tab only moves focus
+  // inside dialogs (appfeel.ts), so outside them nothing needs focus after a
+  // click: it is dropped. Inside a dialog focus goes to the dialog itself, so
+  // its own keys (Escape) still reach it. Text fields keep focus.
+  // The focused element is used, not the event target: a click on a button's
+  // icon or label has the <span> as target.
   // A native <select> must never be blurred on click: in WebView2 its list
   // opens on mouse-down and the click (mouse-up) that follows would close it
   // before an option can be picked. The app uses Select.svelte instead, whose
   // open list takes the keyboard itself.
   let pointer = false;
   const onPointer = () => (pointer = true);
-  const blurAfterPointer = (e: Event) => {
-    const t = e.target;
+  const dropFocus = () => {
     if (!pointer) return;
-    if (t instanceof HTMLButtonElement || (t instanceof HTMLInputElement && ["checkbox", "radio", "range"].includes(t.type))) t.blur();
+    const el = document.activeElement;
+    if (!(el instanceof HTMLElement) || el === document.body || isTextField(el)) return;
+    const dlg = el.closest<HTMLElement>("[role=dialog]");
+    if (dlg === el) return;
+    if (dlg) dlg.focus({ preventScroll: true });
+    else el.blur();
   };
 
   const onKey = (e: KeyboardEvent) => {
@@ -108,7 +119,14 @@ export function installKeys(actions: KeyActions): () => void {
       e.preventDefault();
       return;
     }
-    if (isPressable(e.target) && (e.key === " " || e.key === "Enter")) return;
+    if (isPressable(e.target) && (e.key === " " || e.key === "Enter")) {
+      // in a dialog, Tab and Space or Enter press buttons; outside one a
+      // focused button is left over from a click and must not take the key
+      if ((e.target as Element).closest("[role=dialog]")) return;
+      (e.target as HTMLElement).blur();
+      e.preventDefault();
+      if (e.key === "Enter") return;
+    }
 
     const ctrl = e.ctrlKey || e.metaKey;
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
@@ -121,6 +139,8 @@ export function installKeys(actions: KeyActions): () => void {
       else if (k === "u") actions.openUrl();
       else if (e.key === "Enter") void app.enqueue(!e.shiftKey);
       else handled = false;
+    } else if (app.view === "splits" && k === " ") {
+      splits.togglePlay?.();
     } else if (app.view !== "editor" && k !== "q" && k !== "b") {
       // the editor is hidden: its keys do nothing
       handled = false;
@@ -210,14 +230,16 @@ export function installKeys(actions: KeyActions): () => void {
 
   window.addEventListener("pointerdown", onPointer, true);
   window.addEventListener("paste", onPaste);
-  window.addEventListener("click", blurAfterPointer);
-  window.addEventListener("change", blurAfterPointer);
+  // pointerup: focus came with the mouse-down. click: a click on a <label>
+  // focuses its checkbox only then.
+  window.addEventListener("pointerup", dropFocus, true);
+  window.addEventListener("click", dropFocus);
   window.addEventListener("keydown", onKey);
   return () => {
     window.removeEventListener("pointerdown", onPointer, true);
     window.removeEventListener("paste", onPaste);
-    window.removeEventListener("click", blurAfterPointer);
-    window.removeEventListener("change", blurAfterPointer);
+    window.removeEventListener("pointerup", dropFocus, true);
+    window.removeEventListener("click", dropFocus);
     window.removeEventListener("keydown", onKey);
   };
 }

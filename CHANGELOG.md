@@ -7,6 +7,40 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- Splits: Length "Longest, loop": the shorter clips start again from their
+  start until the longest one ends; a clip's sound loops with its picture.
+- Splits: a Loop button beside Play, on to start with: the preview plays
+  again from the start when it reaches the end.
+- Splits: Space plays and pauses the preview.
+- A line above Encode (and beside Encode in Splits) with the output's picture
+  size, frame rate, sound or no sound, length and file size. The size is in
+  the unit of the size limit: MB for a limit in decimal megabytes (Discord),
+  MiB otherwise (4chan). It replaces the summary lines; the bitrates, bits per
+  pixel, quality and file name are in its tooltip.
+
+### Changed
+
+- The window title is "comfywebm — file.mp4" (it was "file.mp4 ·
+  comfywebm"); while a job runs its percentage is still in front.
+
+### Fixed
+
+- Splits: the frame rate used for bits per pixel, automatic picture size and
+  speed changes was the first clip's, not the combined picture's.
+- After a click on a button (on its icon or label), Space pressed that button
+  again instead of playing the video. Focus left over from a click is now
+  dropped everywhere outside dialogs, and Space and Enter never press a
+  button outside a dialog.
+- A click on the video or the timeline left a focus outline (the accent
+  color) around it after the next key press.
+- When a dialog closed, focus went back to the last button clicked before
+  it, with a focus outline; now it only goes back to a text field that had
+  it when the dialog opened.
+- In Settings, Escape did not close the dialog after a click on one of its
+  buttons.
+
 ## [1.0.4] - 2026-11-17
 
 ### Added

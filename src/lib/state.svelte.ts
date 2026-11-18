@@ -23,6 +23,7 @@ import type {
   Playback,
   Preset,
   PresetEntry,
+  Rate,
   Rotate,
   Segment,
   Settings,
@@ -475,6 +476,13 @@ class AppState {
       (this.streamCopy || ((!this.tools || this.codecAvailable(this.codec)) && (this.rateMode !== "size" || this.maxBytes > 0))),
   );
 
+  /** The size limit or quality setting, as a job gets it. */
+  get rate(): Rate {
+    return this.rateMode === "size"
+      ? { mode: "size", maxBytes: this.maxBytes }
+      : { mode: "crf", crf: this.crf, maxBitrateK: numOrNull(this.maxBitrateK) };
+  }
+
   /** Build a spec from the current fields for one source. `own` = the open file (crop, subs, title apply). */
   specFor(m: MediaInfo, segments: Segment[], own: boolean): EncodeSpec {
     let subs: EncodeSpec["subs"] = null;
@@ -512,10 +520,7 @@ class AppState {
       fadeOut: Math.max(0, this.fadeOut || 0),
       container: this.container,
       codec: this.codec,
-      rate:
-        this.rateMode === "size"
-          ? { mode: "size", maxBytes: this.maxBytes }
-          : { mode: "crf", crf: this.crf, maxBitrateK: numOrNull(this.maxBitrateK) },
+      rate: this.rate,
       twoPass: this.rateMode === "size" ? true : this.twoPass,
       effort: this.effort,
       audio: audioOk ? { track, bitrateK: this.audioBitrateK, volumeDb: this.volumeDb || 0, normalize: this.normalize } : null,

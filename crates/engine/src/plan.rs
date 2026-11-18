@@ -41,6 +41,8 @@ pub struct Planned {
     pub out_width: u32,
     pub out_height: u32,
     pub duration_out: f64,
+    /// frames per second of the output (0 for sound only)
+    pub out_fps: f64,
     /// video bitrate passed to the encoder (size mode), or the cap (crf mode)
     pub video_kbps: Option<f64>,
     pub audio_kbps: f64,
@@ -62,6 +64,7 @@ impl Planned {
             out_width: self.out_width,
             out_height: self.out_height,
             duration_out: self.duration_out,
+            out_fps: (self.out_fps * 1000.0).round() / 1000.0,
             video_kbps: self.video_kbps.map(|k| k.round()),
             audio_kbps: self.audio_kbps,
             bits_per_pixel: self.bits_per_pixel.map(|b| (b * 10000.0).round() / 10000.0),
@@ -433,11 +436,37 @@ fn filter_color(c: &str) -> String {
     }
 }
 
+/// Split screen, length Loop: how a clip shorter than the output is repeated.
+/// Either way one pass through the clip is exactly `frames` frames at the
+/// layout's rate, and its sound is cut or padded to the same length, so
+/// picture and sound stay together over any number of repeats.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ClipLoop {
+    /// the frames are kept in memory (at the size of the clip's part) by the `loop` filter
+    Frames { frames: u32 },
+    /// the range is read `copies` times from the file (extra inputs) and joined:
+    /// for a clip too large to keep in memory
+    Inputs { frames: u32, copies: usize },
+}
+
+impl ClipLoop {
+    fn frames(self) -> u32 {
+        match self {
+            ClipLoop::Frames { frames } | ClipLoop::Inputs { frames, .. } => frames,
+        }
+    }
+}
+
+/// A looping clip whose frames take more memory than this is read again from the file instead.
+const LOOP_MEMORY: f64 = 512.0 * 1024.0 * 1024.0;
+/// More copies than this would make the command line too long (Windows: 32767 characters).
+const LOOP_MAX_COPIES: usize = 60;
+
 /// Splits: one clip's graph fragment, `[src]` (after its own source filters,
-/// in `pre`) fitted into `bx` x `by` with `fill`, at `fps`, placed in its tile
-/// (`pad`: tile size, offset, color), held on its last frame up to `hold`
-/// seconds and cut to `len` seconds, ending in `[out]`. Labels made here start
-/// with `tag`.
+/// in `pre`) fitted into `bx` x `by` with `fill`, at `fps`, repeated every
+/// `repeat` frames, placed in its tile (`pad`: tile size, offset, color), held
+/// on its last frame up to `hold` seconds and cut to `len` seconds, ending in
+/// `[out]`. Labels made here start with `tag`.
 #[allow(clippy::too_many_arguments)]
 pub fn fit_fragment(
     src: &str,
@@ -448,6 +477,7 @@ pub fn fit_fragment(
     bx: u32,
     by: u32,
     fps: f64,
+    repeat: Option<u32>,
     pad: Option<(crate::spec::Rect, crate::spec::Rect, &str)>,
     hold: Option<f64>,
     len: Option<f64>,
@@ -455,6 +485,10 @@ pub fn fit_fragment(
     use crate::spec::Fill;
     let pre = if pre.is_empty() { "null".to_string() } else { pre.to_string() };
     let mut tail = vec![format!("fps={}", fmt_num(fps)), "format=yuv420p".to_string()];
+    if let Some(n) = repeat {
+        // exactly n frames (one more copy of the last one covers a frame lost to rounding), then again and again
+        tail.push(format!("tpad=stop_mode=clone:stop=1,trim=end_frame={n},loop=loop=-1:size={n}"));
+    }
     if let Some((tile, inner, color)) = pad {
         tail.push(format!("pad={}:{}:{}:{}:color={color}", tile.w, tile.h, inner.x - tile.x, inner.y - tile.y));
     }
@@ -978,7 +1012,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     let lens: Vec<f64> = segs.iter().map(|(s, e)| e - s).collect();
     let clip: f64 = match split.map(|l| l.length) {
         Some(crate::spec::SplitLength::Shortest) => lens.iter().cloned().fold(f64::INFINITY, f64::min),
-        Some(crate::spec::SplitLength::Longest) => lens.iter().cloned().fold(0.0, f64::max),
+        Some(crate::spec::SplitLength::Longest | crate::spec::SplitLength::Loop) => lens.iter().cloned().fold(0.0, f64::max),
         None => lens.iter().sum(),
     };
     // a speed ramp: points in the file time of `input`, so only for ranges of it
@@ -1001,7 +1035,9 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     let forward_out = ramp.as_ref().map_or(clip / speed, |r| r.duration());
     let duration_out = forward_out * if boomerang { 2.0 } else { 1.0 };
 
-    let src_fps_out = v.fps * speed;
+    // splits: every clip is brought to the layout's rate first
+    let base_fps = layout.map_or(v.fps, |l| l.fps);
+    let src_fps_out = base_fps * speed;
     let fps_cap = spec
         .fps
         .filter(|f| f.is_finite() && *f > 0.0)
@@ -1012,8 +1048,8 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     let fps_cap = if codec.is_image() && fps_cap.unwrap_or(src_fps_out) > 50.0 { Some(50.0) } else { fps_cap };
     // interpolation (slow motion): frames are made up to the source rate (or the cap)
     let slowest = ramp.as_ref().map_or(speed, |r| r.min_speed());
-    let interpolate = (spec.smooth_slowmo && slowest < 1.0 - 1e-9 && v.fps > 0.0 && !codec.is_image() && still.is_none())
-        .then(|| fps_cap.map_or(v.fps, |c| c.min(v.fps)));
+    let interpolate = (spec.smooth_slowmo && slowest < 1.0 - 1e-9 && base_fps > 0.0 && !codec.is_image() && still.is_none())
+        .then(|| fps_cap.map_or(base_fps, |c| c.min(base_fps)));
     let still_rate = still.map(|_| still_rate(duration_out, spec.fade_in > 0.0 || spec.fade_out > 0.0));
     let out_fps = match &still_rate {
         Some((fps, _)) => *fps,
@@ -1260,6 +1296,41 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     // the canvas (one after another) or to its part of it (split screen)
     let cells = layout.map(|l| layout_cells(l, segs.len())).unwrap_or_default();
     let gap_color = layout.map(|l| filter_color(&l.gap_color)).unwrap_or_default();
+    // split screen, Loop: the clips shorter than the output start again
+    let loops: Vec<Option<ClipLoop>> = (0..segs.len())
+        .map(|i| {
+            let l = split.filter(|l| l.length == crate::spec::SplitLength::Loop)?;
+            if clip_info(i).still || lens[i] <= 0.0 || lens[i] >= clip - 1e-3 {
+                return None;
+            }
+            let frames = ((lens[i] * l.fps).round() as u32).max(1);
+            let copies = (clip / lens[i]).ceil() as usize;
+            let (w, h) = cells.get(i).and_then(|c| c.1).map_or((l.width, l.height), |r| (r.w, r.h));
+            // yuv420p: 1.5 bytes a pixel
+            let bytes = w as f64 * h as f64 * 1.5 * frames as f64;
+            Some(if bytes <= LOOP_MEMORY || copies > LOOP_MAX_COPIES { ClipLoop::Frames { frames } } else { ClipLoop::Inputs { frames, copies } })
+        })
+        .collect();
+    // the extra inputs of ClipLoop::Inputs come after all the others (the
+    // watermark, music and still picture are worked out below; checked there)
+    let extra_base = segs.len()
+        + usize::from(spec.overlay.as_ref().is_some_and(|o| !o.path.trim().is_empty()))
+        + usize::from(spec.music.as_ref().is_some_and(|m| !m.path.trim().is_empty()) && audio.is_some())
+        + usize::from(still.is_some());
+    let extra_inputs: Vec<Vec<usize>> = {
+        let mut next = extra_base;
+        loops
+            .iter()
+            .map(|lp| match lp {
+                Some(ClipLoop::Inputs { copies, .. }) => {
+                    let v: Vec<usize> = (next..next + copies - 1).collect();
+                    next += copies - 1;
+                    v
+                }
+                _ => Vec::new(),
+            })
+            .collect()
+    };
     let layout_frags: Option<Vec<String>> = layout.map(|l| {
         (0..segs.len())
             .map(|i| {
@@ -1290,11 +1361,42 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
                 .join(",");
                 let (bx, by, pad, hold, len) = match (split, cells.get(i)) {
                     (Some(_), Some((tile, Some(inner)))) => {
-                        (inner.w, inner.h, Some((*tile, *inner, gap_color.as_str())), Some(clip - lens[i]), Some(clip))
+                        let hold = loops[i].is_none().then_some(clip - lens[i]);
+                        (inner.w, inner.h, Some((*tile, *inner, gap_color.as_str())), hold, Some(clip))
                     }
                     _ => (v.width, v.height, None, None, None),
                 };
-                fit_fragment(&format!("[{i}:{}]", m.video.stream_index), &pre, &format!("[v{i}]"), &format!("f{i}"), l.fill, bx, by, l.fps, pad, hold, len)
+                let si = m.video.stream_index;
+                match loops[i] {
+                    // every copy exactly `frames` frames long, then joined
+                    Some(ClipLoop::Inputs { frames, .. }) => {
+                        let mut g = String::new();
+                        let ins: Vec<usize> = std::iter::once(i).chain(extra_inputs[i].iter().copied()).collect();
+                        for (k, idx) in ins.iter().enumerate() {
+                            g.push_str(&format!(
+                                "[{idx}:{si}]setpts=PTS-STARTPTS,fps={},tpad=stop_mode=clone:stop=1,trim=end_frame={frames},setpts=PTS-STARTPTS[r{i}_{k}];",
+                                fmt_num(l.fps)
+                            ));
+                        }
+                        let all: String = (0..ins.len()).map(|k| format!("[r{i}_{k}]")).collect();
+                        g.push_str(&format!("{all}concat=n={}:v=1:a=0[r{i}];", ins.len()));
+                        g + &fit_fragment(&format!("[r{i}]"), &pre, &format!("[v{i}]"), &format!("f{i}"), l.fill, bx, by, l.fps, None, pad, hold, len)
+                    }
+                    lp => fit_fragment(
+                        &format!("[{i}:{si}]"),
+                        &pre,
+                        &format!("[v{i}]"),
+                        &format!("f{i}"),
+                        l.fill,
+                        bx,
+                        by,
+                        l.fps,
+                        lp.map(ClipLoop::frames),
+                        pad,
+                        hold,
+                        len,
+                    ),
+                }
             })
             .collect()
     });
@@ -1472,6 +1574,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     }
     let music_idx = segs.len() + usize::from(overlay.is_some());
     let still_idx = music_idx + usize::from(music.is_some());
+    debug_assert_eq!(extra_base, still_idx + usize::from(still.is_some()));
     // a still picture: its one frame repeated at its own rate, cut to the
     // output's length; then rotation, flips and color adjustments as on video
     let still_chain = still.zip(still_rate.as_ref()).map(|(s, (_, rate))| {
@@ -1532,6 +1635,17 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         if let Some(s) = still {
             push(&mut a, &["-i", &s.path]);
         }
+        // the copies of looping clips, read again from their files
+        for (i, idx) in extra_inputs.iter().enumerate() {
+            let (s, e) = segs[i];
+            let path = seg_src[i].map_or(spec.input.as_str(), |m| m.path.as_str());
+            for _ in idx {
+                if s > 0.0 {
+                    push(&mut a, &["-ss", &fmt_num(s)]);
+                }
+                push(&mut a, &["-t", &fmt_num(e - s), "-i", path]);
+            }
+        }
         if !multi {
             push(&mut a, &["-map", &format!("0:{}", v.stream_index)]);
             if let (true, Some(t)) = (with_audio, track) {
@@ -1569,9 +1683,14 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
                     // file without sound gives silence of the range's length.
                     // Split screen: every sound lasts the output's length.
                     let norm = if mixed { ",aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo" } else { "" };
-                    let (fit_len, silence_len) = match split {
-                        Some(_) => (format!(",apad,atrim=duration={}", fmt_num(clip)), clip),
-                        None => (String::new(), segs[i].1 - segs[i].0),
+                    let (fit_len, silence_len) = match (split, loops[i]) {
+                        // one pass as long as the picture's (norm made it 48 kHz), repeated
+                        (Some(l), Some(lp)) => {
+                            let n = (lp.frames() as f64 / l.fps * 48000.0).round().max(1.0);
+                            (format!(",apad,atrim=end_sample={n},aloop=loop=-1:size={n},atrim=duration={}", fmt_num(clip)), clip)
+                        }
+                        (Some(_), None) => (format!(",apad,atrim=duration={}", fmt_num(clip)), clip),
+                        (None, _) => (String::new(), segs[i].1 - segs[i].0),
                     };
                     // splits: every clip is a file of its own, the first one too
                     let src_m = if layout.is_some() { Some(clip_info(i)) } else { seg_src[i] };
@@ -1742,6 +1861,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         out_width: g.out_w,
         out_height: g.out_h,
         duration_out,
+        out_fps,
         video_kbps,
         audio_kbps,
         bits_per_pixel: bpp,
@@ -1856,6 +1976,7 @@ fn build_copy(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planne
         out_width: v.width,
         out_height: v.height,
         duration_out: end - start,
+        out_fps: v.fps,
         video_kbps: None,
         audio_kbps: 0.0,
         bits_per_pixel: None,
@@ -1969,6 +2090,7 @@ fn build_audio(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Plann
         out_width: 0,
         out_height: 0,
         duration_out,
+        out_fps: 0.0,
         // size mode: the bitrate the size-fit loop steers (here the sound's)
         video_kbps: size_mode.then_some(kbps),
         audio_kbps: if size_mode { 0.0 } else { kbps },
@@ -2464,7 +2586,12 @@ mod tests {
         assert!(s.contains("anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=9"), "{s}");
         assert!(s.contains("amix=inputs=2:duration=longest:normalize=0,atrim=duration=9[aj]"), "{s}");
         assert!((p.duration_out - 9.0).abs() < 1e-9);
+        assert_eq!(p.out_fps, 30.0);
         assert_eq!(p.cells.len(), 2);
+        // the layout's rate (24), not the first clip's (30), with the speed on top
+        let (mut sp, m) = split_spec(crate::spec::Layout { fps: 24.0, ..test_layout(LayoutMode::Columns) });
+        sp.speed = 2.0;
+        assert_eq!(build(&sp, &media(), &Opts { sources: Some(&m), ..opts() }).unwrap().out_fps, 48.0);
         assert_eq!((p.out_width, p.out_height), (1280, 720));
         // shortest, sound from clip 2 (silent): no audio, with a warning
         let (sp, m) = split_spec(crate::spec::Layout { sound_clip: 1, ..test_layout(LayoutMode::Columns) });
@@ -2476,6 +2603,35 @@ mod tests {
         let (sp, m) = split_spec(test_layout(LayoutMode::Grid));
         let s = strs(&build(&sp, &media(), &Opts { sources: Some(&m), ..opts() }).unwrap().passes[0]).join(" ");
         assert!(s.contains("xstack=inputs=2:layout=0_0|640_0"), "{s}");
+    }
+
+    #[test]
+    fn split_screen_loop() {
+        use crate::spec::{LayoutMode, SplitLength};
+        // the 4 s clip (120 frames at 30 fps, small) loops in memory up to the 9 s one; its sound loops with it
+        let (sp, m) = split_spec(crate::spec::Layout { length: SplitLength::Loop, ..test_layout(LayoutMode::Columns) });
+        let p = build(&sp, &media(), &Opts { sources: Some(&m), ..opts() }).unwrap();
+        let s = strs(&p.passes[0]).join(" ");
+        assert!((p.duration_out - 9.0).abs() < 1e-9);
+        assert!(s.contains("tpad=stop_mode=clone:stop=1,trim=end_frame=120,loop=loop=-1:size=120,pad="), "{s}");
+        assert!(!s.contains("stop_duration"), "a looping clip does not hold its last frame: {s}");
+        assert!(s.contains("apad,atrim=end_sample=192000,aloop=loop=-1:size=192000,atrim=duration=9[a0]"), "{s}");
+        // the 9 s clip is the output's length: it does not loop
+        assert_eq!(s.matches(",loop=loop=-1").count(), 1, "{s}");
+        assert_eq!(s.matches("-i in.mp4").count(), 1, "{s}");
+
+        // a large canvas: 120 frames of 1916x2160 do not fit in memory, so the range is read 3 times and joined
+        let (sp, m) = split_spec(crate::spec::Layout { length: SplitLength::Loop, width: 3840, height: 2160, ..test_layout(LayoutMode::Columns) });
+        let p = build(&sp, &media(), &Opts { sources: Some(&m), ..opts() }).unwrap();
+        let s = strs(&p.passes[0]).join(" ");
+        assert_eq!(s.matches("-ss 10 -t 4 -i in.mp4").count(), 3, "{s}");
+        // inputs: 0 in.mp4, 1 b.mp4, then the two copies
+        for k in [0, 2, 3] {
+            assert!(s.contains(&format!("[{k}:0]setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:stop=1,trim=end_frame=120")), "{k}: {s}");
+        }
+        assert!(s.contains("[r0_0][r0_1][r0_2]concat=n=3:v=1:a=0[r0];[r0]setpts=PTS-STARTPTS"), "{s}");
+        assert!(!s.contains(",loop=loop=-1"), "{s}");
+        assert!(s.contains("aloop=loop=-1:size=192000"), "{s}");
     }
 
     #[test]

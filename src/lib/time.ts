@@ -33,6 +33,17 @@ export function parseTime(text: string): number | null {
   return Number.isFinite(total) ? total : null;
 }
 
+/** Length for the output line: "3.0 s" under a minute, then "1:05", "1:01:05". */
+export function fmtLen(secs: number): string {
+  if (!Number.isFinite(secs) || secs < 0) secs = 0;
+  if (secs < 59.95) return `${secs.toFixed(1)} s`;
+  const s = Math.round(secs);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
+
 /** Short duration for ETA readouts: "42s", "3m 05s", "1h 02m". */
 export function fmtEta(secs: number): string {
   const s = Math.max(0, Math.round(secs));

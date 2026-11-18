@@ -81,7 +81,7 @@ export function installAppFeel(): () => void {
   // no spelling underline or autofill list on text fields
   const focus = (e: FocusEvent) => {
     const t = e.target;
-    if (t instanceof HTMLElement && !t.closest("[role=dialog]")) lastOutside = t;
+    if (t instanceof HTMLElement && !t.closest("[role=dialog]")) lastOutside = typing(t) ? t : null;
     if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) {
       t.spellcheck = false;
       t.autocomplete = "off";
@@ -93,8 +93,15 @@ export function installAppFeel(): () => void {
     if (e.ctrlKey) e.preventDefault();
   };
 
-  // when a dialog closes, focus goes back to what had it before the dialog opened
+  // When a dialog closes, focus goes back to the text field that had it when
+  // the dialog opened. Nothing else gets it back: outside dialogs focus is only
+  // ever left over from a click (keys.ts drops it), and a button given focus
+  // here would take Space and show its focus outline.
   let lastOutside: HTMLElement | null = null;
+  const unfocus = (e: FocusEvent) => {
+    // focus left the field for nothing (Escape, a click elsewhere): not restored later
+    if (e.target === lastOutside && !e.relatedTarget) lastOutside = null;
+  };
   const watch = new MutationObserver((records) => {
     const closed = records.some((r) =>
       [...r.removedNodes].some((n) => n instanceof Element && (n.matches("[role=dialog]") || n.querySelector("[role=dialog]"))),
@@ -110,6 +117,7 @@ export function installAppFeel(): () => void {
   window.addEventListener("mouseup", up, true);
   window.addEventListener("dragstart", drag, true);
   window.addEventListener("focusin", focus, true);
+  window.addEventListener("focusout", unfocus, true);
   window.addEventListener("wheel", wheel, { capture: true, passive: false });
   return () => {
     watch.disconnect();
@@ -119,6 +127,7 @@ export function installAppFeel(): () => void {
     window.removeEventListener("mouseup", up, true);
     window.removeEventListener("dragstart", drag, true);
     window.removeEventListener("focusin", focus, true);
+    window.removeEventListener("focusout", unfocus, true);
     window.removeEventListener("wheel", wheel, { capture: true });
   };
 }

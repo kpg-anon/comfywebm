@@ -240,7 +240,7 @@ pub struct Layout {
     /// split screen, `sound` = clip: index of that clip
     #[serde(default)]
     pub sound_clip: usize,
-    /// split screen: the shortest clip's length, or the longest (the others hold their last frame)
+    /// split screen: the shortest clip's length, or the longest (the others hold their last frame, or loop)
     #[serde(default)]
     pub length: SplitLength,
     /// split screen: space between the parts, in canvas pixels
@@ -298,7 +298,10 @@ pub enum SplitSound {
 pub enum SplitLength {
     #[default]
     Shortest,
+    /// the longest clip's length; the shorter clips hold their last frame
     Longest,
+    /// the longest clip's length; the shorter clips start again from their start
+    Loop,
 }
 
 /// A point of a speed ramp: at `t` seconds of the source file the speed is `speed`.
@@ -597,6 +600,9 @@ pub struct PlanInfo {
     pub out_width: u32,
     pub out_height: u32,
     pub duration_out: f64,
+    /// frames per second of the output (0 for sound only)
+    #[serde(default)]
+    pub out_fps: f64,
     pub video_kbps: Option<f64>,
     pub audio_kbps: f64,
     /// video_kbps*1000 / (out_width*out_height*out_fps)

@@ -267,6 +267,22 @@ if run longest webm; then
   report splits_longest_holds $ok "duration=$d"
 else fail_run splits_longest_holds; fi
 
+# loop: clip 1 (the wide one, 0-2 s, with sound) starts again beside the 3 s tall
+# clip: its part of the picture at 2.5 s is the one at 0.5 s, not the one at 1.5 s,
+# and its sound lasts the whole 3 s
+spec loop "{\"input\":\"$wide\",\"segments\":[{\"start\":0,\"end\":2},{\"start\":0,\"end\":3}],\"segmentSources\":[null,\"$tall\"],\"layout\":{\"mode\":\"columns\",\"fill\":\"bars\",\"length\":\"loop\",$L},$aud}"
+if run loop webm; then
+  d=$(val "$info" duration)
+  # the left part as 16x16 grey values, one per line
+  thumb() { ffmpeg -v error -ss "$1" -i "$out" -vf crop=320:360:0:0,scale=16:16,format=gray -frames:v 1 -f rawvideo - | od -An -tu1 -v | tr -s ' ' '\n' | grep -v '^$'; }
+  # mean difference of the left part between two moments
+  diff_at() { paste <(thumb "$1") <(thumb "$2") | awk '{ d = $1 - $2; s += (d < 0 ? -d : d) } END { printf "%.1f", s / NR }'; }
+  same=$(diff_at 0.5 2.5); other=$(diff_at 0.5 1.5)
+  ad=$(ffprobe -v error -select_streams a:0 -show_entries packet=pts_time -of csv=p=0 "$out" | tail -1 | cut -d, -f1)
+  ok=0; near "$d" 3 0.15 && near "$ad" 3 0.1 && awk -v s="$same" -v o="$other" 'BEGIN { exit !(s < 4 && o > 3 * s) }' && ok=1
+  report splits_loop_shorter $ok "duration=$d last audio packet=$ad diff 0.5/2.5=$same diff 0.5/1.5=$other"
+else fail_run splits_loop_shorter; fi
+
 # mix with a silent clip: sound from the one that has it
 lay mix '{"mode":"columns","fill":"bars","length":"longest","width":640,"height":360,"fps":30,"gap":0,"gapColor":"#000000","weights":[],"columns":0,"sound":"mix","soundClip":0}'
 if run mix webm; then

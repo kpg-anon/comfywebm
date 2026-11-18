@@ -38,7 +38,8 @@ building it yourself. For an overview and the downloads, see
   of the parts (fit each clip, equal, first clip larger, or by hand), sound
   from one clip (the first clip that has sound to start with), all mixed, or
   none, the length of the shortest or the longest video (the others hold
-  their last frame), and a gap with its color. The frame rate is the highest
+  their last frame, or with "Longest, loop" start again from their start
+  until the longest one ends, their sound too), and a gap with its color. The frame rate is the highest
   of the videos (at most 60), within the sidebar's cap.
   - **Crop and zoom** each clip: Crop on its row (or double-click its part in
     the preview) shows the whole picture with a crop rectangle, the aspect
@@ -55,7 +56,8 @@ building it yourself. For an overview and the downloads, see
   - **Timeline**: each video's row has a track of the whole file with a
     filmstrip: drag an end to trim, drag the range to move it, click in it to
     show that moment. A seek bar under the preview covers the whole result
-    (one after another, with a block per clip).
+    (one after another, with a block per clip). Play (or Space) plays the
+    result; Loop (on to start with) plays it again from the start at the end.
   - The preview shows the parts where the engine puts them, with their crops,
     and plays them together. Right-click a part or a row for crop, match,
     move and remove. The sidebar's settings (preset, size limit, format,
@@ -94,6 +96,13 @@ building it yourself. For an overview and the downloads, see
   a "More" list (3:4, 2:3, 3:2, 5:4, 2:1, 1.85:1, 2.39:1, 21:9, 32:9, 9:21, 1:2)
   and a custom ratio such as `5:3` or `1.66`. "Find bars" in the Video group crops black
   bars automatically.
+- **Output line**: above Encode (in Splits also beside its own Encode): the
+  picture size, frame rate, sound or no sound, length and file size. In size
+  limit mode the size is "up to" the bitrate's size (a simple picture comes out
+  smaller); in quality mode it is known only after encoding, or "up to" the
+  bitrate cap. The unit follows the size limit: a whole number of decimal MB
+  (Discord's 20 MB = 20,000,000 bytes) shows MB, anything else MiB (4chan's
+  4 MiB). Hover the line for the bitrates, bits per pixel and file name.
 - **Size limit mode**: the video bitrate comes from the limit, the clip length
   and the audio bitrate, with two passes. A file over the limit, or under 98% of
   it, is encoded again at a bitrate aimed at 99% of the limit (interpolated
@@ -102,8 +111,8 @@ building it yourself. For an overview and the downloads, see
 - **Resolution**: Auto (in size limit mode, the largest size whose bitrate still
   gives a clean picture), Source, Steps (output heights such as 720p, or
   widths), a percentage, or one exact edge with the other following the aspect
-  ratio. In size limit mode each choice shows a good / fair / poor dot, and the
-  sidebar shows bits per pixel. The step and percentage lists are in
+  ratio. In size limit mode each choice shows a good / fair / poor dot; the
+  output line's tooltip shows bits per pixel. The step and percentage lists are in
   `config.toml`. A preset's largest picture size (4chan's 2048x2048) is shown
   under the resolution and can be removed.
 - **Motion**: frame rate cap and speed (0.25x to 4x) are checked against your
@@ -225,7 +234,7 @@ Keys do nothing while a text field has focus.
 
 | key | action |
 | --- | --- |
-| Space | play / pause |
+| Space | play / pause (in Splits: the preview) |
 | Left / Right | seek 1 s back / forward |
 | Shift + Left / Right | seek 5 s |
 | `<` / `>` | one frame back / forward (the mouse wheel over the player does the same) |

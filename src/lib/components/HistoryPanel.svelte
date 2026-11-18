@@ -49,7 +49,7 @@
   </div>
   <footer class="muted">
     <span>Click a step to go back to it. <kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd> step back and forward.</span>
-    <button class="btn small danger" disabled={!app.media} title="Remove every edit of this file and its history" onclick={() => (asking = true)}>Start fresh</button>
+    <button class="btn small red" disabled={!app.media} title="Remove every edit of this file and its history" onclick={() => (asking = true)}>Start fresh</button>
   </footer>
 </div>
 
@@ -61,10 +61,11 @@
       <div class="askbtns">
         <button class="btn" onclick={() => (asking = false)}>Cancel</button>
         <button
-          class="btn danger"
+          class="btn red"
           onclick={() => {
             app.startFresh();
             asking = false;
+            app.historyOpen = false;
           }}>Start fresh</button
         >
       </div>
@@ -174,7 +175,8 @@
     z-index: 60;
   }
   .ask {
-    width: min(420px, calc(100vw - 40px));
+    width: auto;
+    max-width: calc(100vw - 40px);
   }
   .ask h2 {
     display: flex;
@@ -189,9 +191,20 @@
   }
   .ask p {
     margin: 0;
+    white-space: nowrap;
     font-size: 12.5px;
     line-height: 1.5;
     color: var(--text-secondary);
+  }
+  /* Start fresh is red at all times, filled red on hover */
+  .btn.red {
+    color: var(--red);
+    border-color: color-mix(in srgb, var(--red) 60%, var(--border));
+  }
+  .btn.red:hover:not(:disabled) {
+    background: var(--red);
+    border-color: var(--red);
+    color: #fff;
   }
   .askbtns {
     display: flex;

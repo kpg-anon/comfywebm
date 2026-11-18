@@ -10,7 +10,7 @@
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/version-1.0.6-c287ff?style=for-the-badge" alt="Version 1.0.6">
+  <img src="https://img.shields.io/badge/version-1.0.7-c287ff?style=for-the-badge" alt="Version 1.0.7">
   <img src="https://img.shields.io/badge/Tauri-v2-24C8DB?style=for-the-badge&logo=tauri&logoColor=white" alt="Tauri v2">
   <img src="https://img.shields.io/badge/Svelte-5-FF3E00?style=for-the-badge&logo=svelte&logoColor=white" alt="Svelte 5">
   <img src="https://img.shields.io/badge/Rust-engine-CE412B?style=for-the-badge&logo=rust&logoColor=white" alt="Rust engine">
@@ -102,13 +102,13 @@ Windows, Linux and macOS.
 
 | system | file | updates |
 | :-- | :-- | :-- |
-| Windows 10 / 11 (x64), installer | `comfywebm_1.0.6_x64-setup.exe` | in the app |
-| Windows 10 / 11 (x64), portable | `comfywebm_1.0.6_x64-portable.zip` | download the new zip |
-| macOS 11+, Apple silicon (M1 and later) | `comfywebm_1.0.6_aarch64.dmg` | in the app |
-| macOS 11+, Intel | `comfywebm_1.0.6_x64.dmg` | in the app |
-| Linux (x64): Ubuntu 22.04, Debian 12, Fedora 36 or newer | `comfywebm_1.0.6_amd64.AppImage` | in the app |
-| Debian, Ubuntu, Mint | `comfywebm_1.0.6_amd64.deb` | download the new `.deb` |
-| Fedora, openSUSE | `comfywebm-1.0.6-1.x86_64.rpm` | download the new `.rpm` |
+| Windows 10 / 11 (x64), installer | `comfywebm_1.0.7_x64-setup.exe` | in the app |
+| Windows 10 / 11 (x64), portable | `comfywebm_1.0.7_x64-portable.zip` | download the new zip |
+| macOS 11+, Apple silicon (M1 and later) | `comfywebm_1.0.7_aarch64.dmg` | in the app |
+| macOS 11+, Intel | `comfywebm_1.0.7_x64.dmg` | in the app |
+| Linux (x64): Ubuntu 22.04, Debian 12, Fedora 36 or newer | `comfywebm_1.0.7_amd64.AppImage` | in the app |
+| Debian, Ubuntu, Mint | `comfywebm_1.0.7_amd64.deb` | download the new `.deb` |
+| Fedora, openSUSE | `comfywebm-1.0.7-1.x86_64.rpm` | download the new `.rpm` |
 
 comfywebm uses your own **ffmpeg** (and **yt-dlp** for web links); neither is
 bundled. When one is missing, the app says which and how to get it.

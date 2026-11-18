@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-11-17
+
 ### Added
 
 - A speaker at the bottom right of the picture mutes the preview (or `M`);

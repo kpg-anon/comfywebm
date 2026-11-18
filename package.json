@@ -1,6 +1,6 @@
 {
   "name": "comfywebm",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "private": true,
   "description": "Cut a clip out of a video and encode it to WebM under a size limit.",
   "author": "kpg-anon",

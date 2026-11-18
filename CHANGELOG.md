@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-11-17
+
 ### Changed
 
 - Frame step is `,` and `.` (Shift is no longer needed; `<` and `>` still

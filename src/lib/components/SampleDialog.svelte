@@ -3,20 +3,32 @@
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { app } from "$lib/state.svelte";
   import { fmtBytes, fmtTime } from "$lib/time";
+  import * as ramp from "$lib/ramp";
+  import type { SpeedPoint } from "$lib/types";
 
   const s = $derived(app.sample!);
   let box: HTMLDivElement;
-  // Side by side with the source over the same 3 seconds; the source restarts
-  // whenever the sample loops, so the two stay roughly in step.
+  // Side by side with the source over the same 3 seconds (the source on the
+  // left, cut to the same crop); the source restarts whenever the sample
+  // loops, so the two stay roughly in step.
   let compare = $state(false);
   let src = $state<HTMLVideoElement>();
   let lastT = 0;
+  // The source plays at the job's speed, so the two show the same moment: a
+  // second of the sample is `speed` seconds of the source. With a speed ramp
+  // the rate follows the ramp, and only the restarts keep them together.
+  const pts = $derived(ramp.clean($state.snapshot(app.speedRamp) as SpeedPoint[]));
+  const speed = $derived(Math.min(16, Math.max(0.0625, Number(app.speed) || 1)));
   function sampleTime(e: Event) {
     const v = e.currentTarget as HTMLVideoElement;
     const t = v.currentTime;
     if (src) {
       // follow the sample: restart with it, and correct a drift over 0.25 s
-      if (t < lastT - 0.5 || Math.abs(src.currentTime - (s.at + t)) > 0.25) src.currentTime = s.at + t;
+      const want = s.at + t * speed;
+      if (t < lastT - 0.5) src.currentTime = pts.length ? s.at : want;
+      else if (!pts.length && Math.abs(src.currentTime - want) > 0.25) src.currentTime = want;
+      const rate = pts.length ? Math.min(16, Math.max(0.0625, ramp.speedAt(pts, src.currentTime))) : speed;
+      if (Math.abs(src.playbackRate - rate) > 0.005) src.playbackRate = rate;
       if (src.paused !== v.paused) void (v.paused ? src.pause() : src.play().catch(() => {}));
     }
     lastT = t;
@@ -66,7 +78,29 @@
       <div class="err msg">{s.error}</div>
     {:else if s.path}
       <!-- svelte-ignore a11y_media_has_caption -->
+      <!-- compare: the source on the left, with the same crop, and the sample on the right, at the same size -->
       <div class="panes" class:two={compare}>
+        {#if compare && app.videoSrc}
+          {@const c = app.crop}
+          <div class="pane">
+            <div class="cap small muted">Source{app.usingProxy ? " (preview copy)" : ""}{c ? ", same crop" : ""}, no filters</div>
+            <div class="cropbox" style:aspect-ratio={c ? `${c.w} / ${c.h}` : `${app.srcW} / ${app.srcH}`} style:--ratio={c ? c.w / c.h : app.srcW / app.srcH}>
+              <video
+                bind:this={src}
+                src={app.videoSrc}
+                muted
+                autoplay
+                playsinline
+                style:left={c ? `${(-c.x / c.w) * 100}%` : "0"}
+                style:top={c ? `${(-c.y / c.h) * 100}%` : "0"}
+                style:width={c ? `${(app.srcW / c.w) * 100}%` : "100%"}
+                style:height={c ? `${(app.srcH / c.h) * 100}%` : "100%"}
+                onloadedmetadata={(e) => ((e.currentTarget as HTMLVideoElement).currentTime = s.at)}
+                ontimeupdate={sourceTime}
+              ></video>
+            </div>
+          </div>
+        {/if}
         <div class="pane">
           {#if compare}<div class="cap small muted">Sample (encoded)</div>{/if}
           {#if /\.(gif|webp)$/i.test(s.path)}
@@ -75,20 +109,6 @@
             <video src={convertFileSrc(s.path)} autoplay loop controls playsinline ontimeupdate={sampleTime}></video>
           {/if}
         </div>
-        {#if compare && app.videoSrc}
-          <div class="pane">
-            <div class="cap small muted">Source{app.usingProxy ? " (preview copy)" : ""}, no filters or crop</div>
-            <video
-              bind:this={src}
-              src={app.videoSrc}
-              muted
-              autoplay
-              playsinline
-              onloadedmetadata={(e) => ((e.currentTarget as HTMLVideoElement).currentTime = s.at)}
-              ontimeupdate={sourceTime}
-            ></video>
-          </div>
-        {/if}
       </div>
       <label class="small cmp"><input type="checkbox" bind:checked={compare} /> Compare with the source</label>
       <div class="mono small">
@@ -140,6 +160,22 @@
     flex-direction: column;
     gap: 4px;
     min-width: 0;
+  }
+  /* the source cut to the crop: the box has the crop's shape, the whole video is moved and scaled inside it */
+  .cropbox {
+    position: relative;
+    overflow: hidden;
+    width: min(100%, calc((100vh - 200px) * var(--ratio)));
+    margin: 0 auto;
+    background: #000;
+    border-radius: var(--radius-sm);
+  }
+  .cropbox video {
+    position: absolute;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    object-fit: fill;
   }
   .cmp {
     display: flex;

@@ -771,7 +771,12 @@ pub struct PostFilters {
 pub fn video_post(p: &PostFilters) -> String {
     let mut lin: Vec<String> = Vec::new();
     if let Some((w, h)) = p.scale {
-        lin.push(format!("scale={w}:{h}:flags=lanczos"));
+        // Square pixels at exactly w x h. When the picture's shape differs a
+        // little from w:h (an odd crop such as 2160x1215 is cut to 2160x1214
+        // for 4:2:0), scale keeps the shape with a sample aspect ratio
+        // (1025:1024 there), and players and sites then see 2050 pixels
+        // where 2048 were planned.
+        lin.push(format!("scale={w}:{h}:flags=lanczos,setsar=1"));
     }
     if let Some(c) = &p.caption {
         lin.push(c.clone());
@@ -2291,7 +2296,7 @@ mod tests {
         assert_eq!(
             post,
             format!(
-                "scale=320:360:flags=lanczos,setpts=PTS/2,fps=24,split[bf][bb];[bb]reverse[br];[bf][br]concat=n=2:v=1:a=0,\
+                "scale=320:360:flags=lanczos,setsar=1,setpts=PTS/2,fps=24,split[bf][bb];[bb]reverse[br];[bf][br]concat=n=2:v=1:a=0,\
                  fade=t=in:st=0:d=0.5,fade=t=out:st=3:d=1,{TAGS}"
             )
         );
@@ -2603,6 +2608,23 @@ mod tests {
         let (sp, m) = split_spec(test_layout(LayoutMode::Grid));
         let s = strs(&build(&sp, &media(), &Opts { sources: Some(&m), ..opts() }).unwrap().passes[0]).join(" ");
         assert!(s.contains("xstack=inputs=2:layout=0_0|640_0"), "{s}");
+    }
+
+    #[test]
+    fn odd_crop_scaled_keeps_square_pixels() {
+        // a 16:9 crop of a 2160x3840 portrait picture is 2160x1215; ffmpeg cuts it to 2160x1214, and
+        // without setsar the scale to 2048x1152 left SAR 1025:1024 (shown 2050 wide, over 4chan's 2048)
+        let mut m = media();
+        m.video.width = 2160;
+        m.video.height = 3840;
+        let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
+        sp.crop = Some(crate::spec::Crop { x: 0.0, y: 2625.0, w: 2160.0, h: 1215.0 });
+        sp.max_width = Some(2048);
+        sp.max_height = Some(2048);
+        let p = build(&sp, &m, &opts()).unwrap();
+        assert_eq!((p.out_width, p.out_height), (2048, 1152));
+        let s = strs(&p.passes[0]).join(" ");
+        assert!(s.contains("crop=2160:1215:0:2625,scale=2048:1152:flags=lanczos,setsar=1"), "{s}");
     }
 
     #[test]

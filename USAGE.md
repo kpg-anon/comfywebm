@@ -79,7 +79,10 @@ building it yourself. For an overview and the downloads, see
   folder set in Settings) in its own container (MP4, WebM, else MKV).
 - **Ranges**: one or more ranges on the timeline, set with `I` / `O` at the
   playhead or by dragging handles. Several ranges are joined into one file, or
-  sent as separate jobs with "Separate files". Loop playback of the selected range.
+  sent as separate jobs with "Separate files". Play plays the selected range:
+  from its start when the playhead is outside it, stopping at its end (with
+  Loop, `L`, again from its start). Click past the end while playing to keep
+  watching there.
 - **Timeline**: thumbnails and the audio waveform behind the ranges (made in
   the background, cached; switch off in Settings). Ctrl+wheel zooms (the wheel
   pans while zoomed), a button zooms to the selected range, with a time ruler,
@@ -237,7 +240,7 @@ Keys do nothing while a text field has focus.
 | Space | play / pause (in Splits: the preview) |
 | Left / Right | seek 1 s back / forward |
 | Shift + Left / Right | seek 5 s |
-| `<` / `>` | one frame back / forward (the mouse wheel over the player does the same) |
+| `,` / `.` | one frame back / forward (also `<` / `>`; the mouse wheel over the player does the same) |
 | `I` / `O` | set the start / end of the range under or nearest the playhead |
 | Shift + `I` / `O` | jump to the start / end of the selected range |
 | `N` | add a range at the playhead |

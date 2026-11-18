@@ -7,6 +7,26 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- Frame step is `,` and `.` (Shift is no longer needed; `<` and `>` still
+  work).
+- Play plays the selected range: from its start when the playhead is
+  outside it, and it stops at its end (with Loop, `L`, it starts again).
+  A click past the end while playing keeps playing there.
+- Sample, Compare with the source: the source is on the left and the sample
+  on the right, and the source shows the same crop, so both show the same
+  part of the picture at the same size. The source plays at the job's speed,
+  so both show the same moment.
+
+### Fixed
+
+- A crop with an odd height or width (a 16:9 crop of a 2160-pixel-wide
+  picture is 2160x1215) gave the file non-square pixels (sample aspect
+  ratio 1025:1024). Players and sites then saw it 2050 pixels wide where
+  2048 were planned, and 4chan refused it as over 2048x2048. The output now
+  always has square pixels at the planned size.
+
 ## [1.0.5] - 2026-11-17
 
 ### Added

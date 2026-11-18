@@ -28,7 +28,7 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["Space", "play / pause (in Splits: the preview)"],
       ["Left / Right", "seek 1 s"],
       ["Shift + Left / Shift + Right", "seek 5 s"],
-      ["< / >", "one frame back / forward (or the mouse wheel over the picture)"],
+      [", / .", "one frame back / forward (or the mouse wheel over the picture)"],
       ["L", "loop the selected range"],
     ],
   },
@@ -160,7 +160,8 @@ export function installKeys(actions: KeyActions): () => void {
         case "ArrowRight":
           app.seek(app.current + (e.shiftKey ? 5 : 1));
           break;
-        // frame step on < and > (Shift + , and Shift + . on US layouts)
+        // frame step on , and . (and < and >, the same keys with Shift on US layouts)
+        case ",":
         case "<":
           app.stepFrame(-1);
           break;
@@ -170,6 +171,7 @@ export function installKeys(actions: KeyActions): () => void {
         case "]":
           app.jumpCut(1);
           break;
+        case ".":
         case ">":
           app.stepFrame(1);
           break;

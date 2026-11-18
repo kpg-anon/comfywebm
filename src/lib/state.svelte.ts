@@ -974,10 +974,14 @@ class AppState {
 
   // ---------- playback ----------
 
+  /** the playhead at the last tick or seek: playback that crosses a range's end stops (or loops) there */
+  private lastT = 0;
+
   seek(t: number) {
     const d = this.duration || this.video?.duration || 0;
     const v = Math.min(Math.max(0, t), d > 0 ? d : t);
     this.current = v;
+    this.lastT = v;
     if (this.video) this.video.currentTime = v;
   }
 
@@ -993,9 +997,9 @@ class AppState {
       return;
     }
     if (v.paused) {
-      // with loop on, play from the range start when the playhead is outside the selected range
+      // a selected range is what is being made: play it, from its start when the playhead is outside it
       const s = this.selSeg;
-      if (this.loop && s && (this.current >= s.end - 0.001 || this.current < s.start)) this.seek(s.start);
+      if (s && (this.current >= s.end - 0.001 || this.current < s.start)) this.seek(s.start);
       void v.play().catch(() => {});
     } else v.pause();
   }
@@ -1030,13 +1034,23 @@ class AppState {
   tick() {
     const v = this.video;
     if (!v) return;
+    const prev = this.lastT;
     this.current = v.currentTime;
+    this.lastT = this.current;
     if (this.playEdit) {
       this.tickEdit(v);
       return;
     }
+    // at the end of the selected range: again from its start (loop), or stop there.
+    // Only when playback runs across the end: after a click past it, playing goes on.
     const s = this.selSeg;
-    if (this.loop && s && !v.paused && this.current >= s.end) this.seek(s.start);
+    if (s && !v.paused && prev < s.end && this.current >= s.end) {
+      if (this.loop) this.seek(s.start);
+      else {
+        v.pause();
+        this.seek(s.end);
+      }
+    }
   }
 
   /** Play the edit: at the end of a range jump to the next one in output order. */

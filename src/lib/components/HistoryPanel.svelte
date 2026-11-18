@@ -8,13 +8,17 @@
 
   const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const rows = $derived(app.steps.map((s, i) => ({ ...s, i })).reverse());
+  /** the "Start fresh" warning is shown */
+  let asking = $state(false);
 
   $effect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
-        app.historyOpen = false;
+        // Esc closes the warning first, then the panel
+        if (asking) asking = false;
+        else app.historyOpen = false;
       }
     };
     window.addEventListener("keydown", key, true);
@@ -43,8 +47,34 @@
       </button>
     {/each}
   </div>
-  <footer class="muted">Click a step to go back to it. <kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd> step back and forward.</footer>
+  <footer class="muted">
+    <span>Click a step to go back to it. <kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd> step back and forward.</span>
+    <button class="btn small danger" disabled={!app.media} title="Remove every edit of this file and its history" onclick={() => (asking = true)}>Start fresh</button>
+  </footer>
 </div>
+
+{#if asking}
+  <div class="backdrop fresh" role="presentation" onpointerdown={(e) => e.target === e.currentTarget && (asking = false)}>
+    <div class="dialog ask" role="dialog" aria-modal="true" aria-labelledby="fresh-title" aria-describedby="fresh-text">
+      <h2 id="fresh-title"><span class="warnic"><Icon name="warn" size={18} /></span>Start fresh?</h2>
+      <p id="fresh-text">
+        Every edit of {app.media?.fileName ?? "this file"} goes: the ranges and their order, the crop, rotation and flips, the
+        adjustments, the speed ramp, the zoom and the follow path. The history is cleared, so this cannot be undone, and the file
+        opens without them next time. The encode settings (preset, size limit and the rest of the sidebar) stay.
+      </p>
+      <div class="askbtns">
+        <button class="btn" onclick={() => (asking = false)}>Cancel</button>
+        <button
+          class="btn danger"
+          onclick={() => {
+            app.startFresh();
+            asking = false;
+          }}>Start fresh</button
+        >
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .scrim {
@@ -133,9 +163,44 @@
     color: var(--text-muted);
   }
   footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 7px 12px;
     border-top: 1px solid var(--border-muted);
     font-size: 10.5px;
+  }
+  footer span {
+    flex: 1;
+  }
+  /* the Start fresh warning, over the panel */
+  .fresh {
+    z-index: 60;
+  }
+  .ask {
+    width: min(420px, calc(100vw - 40px));
+  }
+  .ask h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 15px;
+  }
+  .warnic {
+    display: inline-flex;
+    color: var(--yellow);
+  }
+  .ask p {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+  }
+  .askbtns {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
   }
   kbd {
     font-family: var(--mono);

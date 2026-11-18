@@ -21,7 +21,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - History panel (`H`, or the clock button in the top bar): undo, redo and
   every edit of the open file with what changed and when ("Moved range 2 to
   12.5 s", "Crop 960x540"), newest first; click one to go back or forward to
-  it.
+  it. "Start fresh" in it (after a warning) removes every edit of the file
+  and its history; the encode settings stay.
 - Quality check: after the settings stop changing, the app encodes a 2 s
   piece with them and measures how close it looks to the source (VMAF, 0 to
   100). The output line shows "quality N" and a warning appears under 88

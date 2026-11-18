@@ -661,6 +661,35 @@ class AppState {
     this.canRedo = this.at < this.steps.length - 1;
   }
 
+  /** History panel, "Start fresh": every edit of the open file goes (ranges, order, crop,
+   *  rotation, flips, adjustments, speed ramp, zoom, follow path), and with it the history and
+   *  the edit this file would get back when opened again. The encode settings stay. */
+  startFresh() {
+    if (!this.media) return;
+    this.cancelFollow();
+    this.cropMode = false;
+    this.playEdit = false;
+    this.segments = [];
+    this.order = null;
+    this.sel = -1;
+    this.crop = null;
+    this.rotate = 0;
+    this.mirror = false;
+    this.vflip = false;
+    this.adjust = { ...NEUTRAL_ADJUST, curve: [] };
+    this.speedRamp = [];
+    this.zoomPoints = [];
+    this.zoomLevel = 1;
+    this.zoomBeforeFollow = null;
+    const now = this.snap();
+    this.saveEditMemory(now);
+    this.steps = [{ snap: now, label: "Started fresh", time: Date.now() }];
+    this.at = 0;
+    this.nextLabel = null;
+    this.canUndo = false;
+    this.canRedo = false;
+  }
+
   /** History panel: go to step i (back or forward). */
   goToStep(i: number) {
     if (!this.media) return;

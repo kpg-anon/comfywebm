@@ -102,7 +102,10 @@ building it yourself. For an overview and the downloads, see
   top bar, with undo and redo in it) lists every step
   with what changed ("Moved range 2 to 12.5 s", "Crop 960x540") and when,
   newest first; click one to go back (or forward) to it. Undone steps stay
-  greyed until a new edit replaces them. Reopening a file brings back its
+  greyed until a new edit replaces them. "Start fresh" at its foot (after a
+  warning) removes every edit of the file (ranges, crop, rotation, flips,
+  adjustments, speed ramp, zoom, follow path) and the history, and the file
+  opens without them next time; the encode settings stay. Reopening a file brings back its
   ranges and crop.
 - **Edit strip**: with two or more ranges, a strip under the timeline shows the
   joined output in order. Drag a block to change the order, click it to jump to

@@ -97,7 +97,12 @@ building it yourself. For an overview and the downloads, see
   (the picture comes back within 0.4 s) is not one either; a fade through
   black is one cut in its middle; shots are at least 0.5 s. Fewer cuts /
   Normal / More cuts beside the button changes the result at once. Undo and redo (Ctrl+Z, Ctrl+Shift+Z) cover ranges,
-  their order, the crop, rotation, flips and adjustments. Reopening a file brings back its ranges and crop.
+  their order, the crop, rotation, flips, adjustments and the speed ramp. The
+  History panel (`H`, or the clock button by undo and redo) lists every step
+  with what changed ("Moved range 2 to 12.5 s", "Crop 960x540") and when,
+  newest first; click one to go back (or forward) to it. Undone steps stay
+  greyed until a new edit replaces them. Reopening a file brings back its
+  ranges and crop.
 - **Edit strip**: with two or more ranges, a strip under the timeline shows the
   joined output in order. Drag a block to change the order, click it to jump to
   it, and "Play edit" plays the ranges one after another.
@@ -273,6 +278,7 @@ Keys do nothing while a text field has focus.
 | `P` | sample: encode 3 s at the playhead |
 | `S` | save the current frame as PNG |
 | Ctrl + Z | undo a change to the ranges, their order or the crop |
+| `H` | the History panel: every edit, click one to go back to it |
 | Ctrl + Shift + Z, Ctrl + Y | redo |
 | Ctrl + wheel over the timeline | zoom the timeline; the wheel alone pans while zoomed |
 | `?`, F1 | list of keys |

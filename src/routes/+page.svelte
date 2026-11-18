@@ -60,6 +60,7 @@
     el.addEventListener("pointerup", up);
   }
   import Queue from "$lib/components/Queue.svelte";
+  import HistoryPanel from "$lib/components/HistoryPanel.svelte";
 
   // Timeline height: dragged on the edge above it (Settings > Look > Timeline, "Resizable");
   // the track grows, the picture above gets smaller (it keeps at least 160 px).
@@ -383,6 +384,9 @@
 
   {#if app.urlOpen}
     <UrlDialog />
+  {/if}
+  {#if app.historyOpen && app.media && app.view === "editor"}
+    <HistoryPanel />
   {/if}
   {#if app.sample}
     <SampleDialog />

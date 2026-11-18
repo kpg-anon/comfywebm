@@ -385,6 +385,7 @@
       <button class="btn" disabled={!app.media} onclick={() => app.addRange()}><Icon name="plus" size={14} />Range <kbd>N</kbd></button>
       <button class="btn icon" disabled={!app.canUndo} aria-label="Undo (Ctrl+Z)" onclick={() => app.undo()}><Icon name="undo" size={15} /></button>
       <button class="btn icon" disabled={!app.canRedo} aria-label="Redo (Ctrl+Shift+Z)" onclick={() => app.redo()}><Icon name="redo" size={15} /></button>
+      <button class="btn icon" class:on={app.historyOpen} disabled={!app.media} aria-label="History (H): every edit, click one to go back to it" onclick={() => (app.historyOpen = !app.historyOpen)}><Icon name="history" size={15} /></button>
       <button class="btn" disabled={app.sel < 0} onclick={() => app.removeRange()} aria-label="Remove the selected range">
         <Icon name="x" size={14} />Remove{#if many}&nbsp;<kbd>Del</kbd>{/if}
       </button>

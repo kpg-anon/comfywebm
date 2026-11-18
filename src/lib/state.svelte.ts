@@ -2,6 +2,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import * as ipc from "./ipc";
 import { load, save } from "./persist";
+import { describeEdit } from "./history";
 import { siteOf, refusal } from "./sites";
 import * as ramp from "./ramp";
 import { AUDIO_LABEL, BUILTIN_PRESETS, CODECS_BY_CONTAINER, CRF_RANGE, audioCodecFor } from "./presets";
@@ -370,9 +371,13 @@ class AppState {
   outputName = $state("");
 
   // undo/redo of ranges, output order, crop, rotation, flips and adjustments; see noteEdit()
-  private past: EditSnap[] = [];
-  private future: EditSnap[] = [];
-  private committed: EditSnap | null = null;
+  /** Every edit state of the open file, oldest first, with what changed and when; `at` is the
+   *  current one. Undo and redo move `at`; the History panel jumps to any step. */
+  steps = $state.raw<{ snap: EditSnap; label: string; time: number }[]>([]);
+  at = $state(0);
+  historyOpen = $state(false);
+  /** the name of the next step, when it is not a plain edit (restoring the last edit of a file) */
+  private nextLabel: string | null = null;
   private restoring = false;
   canUndo = $state(false);
   canRedo = $state(false);
@@ -621,17 +626,39 @@ class AppState {
    */
   noteEdit() {
     const now = this.snap();
+    const cur = this.steps[this.at];
+    const changed = !cur || AppState.key(cur.snap) !== AppState.key(now);
     if (this.restoring) {
       this.restoring = false;
-    } else if (this.committed && AppState.key(this.committed) !== AppState.key(now)) {
-      this.past.push(this.committed);
-      if (this.past.length > 200) this.past.shift();
-      this.future = [];
+    } else if (!cur) {
+      this.steps = [{ snap: now, label: "Opened the file", time: Date.now() }];
+      this.at = 0;
+    } else if (changed) {
+      // a new step drops the ones that were undone
+      let list = [...this.steps.slice(0, this.at + 1), { snap: now, label: this.nextLabel ?? describeEdit(cur.snap, now), time: Date.now() }];
+      if (list.length > 201) list = list.slice(list.length - 201);
+      this.steps = list;
+      this.at = list.length - 1;
     }
-    if (!this.committed || AppState.key(this.committed) !== AppState.key(now)) this.saveEditMemory(now);
-    this.committed = now;
-    this.canUndo = this.past.length > 0;
-    this.canRedo = this.future.length > 0;
+    this.nextLabel = null;
+    if (changed) this.saveEditMemory(now);
+    this.canUndo = this.at > 0;
+    this.canRedo = this.at < this.steps.length - 1;
+  }
+
+  /** History panel: go to step i (back or forward). */
+  goToStep(i: number) {
+    if (!this.media) return;
+    // an edit still waiting is recorded first; it may drop undone steps, so find the step again
+    const want = this.steps[i];
+    this.noteEdit();
+    const k = want ? this.steps.indexOf(want) : -1;
+    const s = this.steps[k];
+    if (!s || k === this.at) return;
+    this.at = k;
+    this.restore(s.snap);
+    this.canUndo = this.at > 0;
+    this.canRedo = this.at < this.steps.length - 1;
   }
 
   private restore(s: EditSnap) {
@@ -645,35 +672,24 @@ class AppState {
     this.vflip = s.vflip;
     this.adjust = s.adjust;
     this.speedRamp = s.speedRamp ?? [];
-    this.committed = s;
   }
 
   undo() {
     if (!this.media) return;
     this.noteEdit(); // an edit still waiting for its pause counts first
-    const s = this.past.pop();
-    if (!s) return;
-    this.future.push(this.snap());
-    this.restore(s);
-    this.canUndo = this.past.length > 0;
-    this.canRedo = true;
+    if (this.at > 0) this.goToStep(this.at - 1);
   }
 
   redo() {
     if (!this.media) return;
     this.noteEdit();
-    const s = this.future.pop();
-    if (!s) return;
-    this.past.push(this.snap());
-    this.restore(s);
-    this.canUndo = true;
-    this.canRedo = this.future.length > 0;
+    if (this.at < this.steps.length - 1) this.goToStep(this.at + 1);
   }
 
   private resetHistory() {
-    this.past = [];
-    this.future = [];
-    this.committed = null;
+    this.steps = [];
+    this.at = 0;
+    this.nextLabel = null;
     this.restoring = false;
     this.canUndo = false;
     this.canRedo = false;
@@ -930,7 +946,9 @@ class AppState {
       const mem = load<Record<string, EditMemory>>("edits")?.[AppState.editMemoryKey(info)];
       if (restoreEdit && mem && (mem.segments.length || mem.crop || mem.speedRamp?.length)) {
         // the empty state is the first undo step, so Ctrl+Z drops the restored edit
-        this.committed = this.snap();
+        this.steps = [{ snap: this.snap(), label: "Opened the file", time: Date.now() }];
+        this.at = 0;
+        this.nextLabel = "Brought back the last edit of this file";
         this.segments = mem.segments.filter((g) => g.end > g.start && g.start < info.duration + 0.5);
         this.order = mem.order && mem.order.length === this.segments.length ? mem.order : null;
         this.crop = info.audioOnly ? null : mem.crop;

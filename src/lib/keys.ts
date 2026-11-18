@@ -42,6 +42,7 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["Delete", "remove the selected range"],
       ["Ctrl + Z", "undo a range, order or crop change"],
       ["Ctrl + Shift + Z / Ctrl + Y", "redo"],
+      ["H", "the history: every edit, click one to go back to it"],
       ["Ctrl + wheel", "zoom the timeline (wheel pans while zoomed)"],
       ["Drag a range", "move it, keeping its length (a click seeks)"],
       ["Alt + drag", "move a range or its edge without snapping"],
@@ -204,6 +205,9 @@ export function installKeys(actions: KeyActions): () => void {
           break;
         case "m":
           app.toggleMute();
+          break;
+        case "h":
+          if (app.media) app.historyOpen = !app.historyOpen;
           break;
         case "q":
           app.setView(app.view === "queue" ? "editor" : "queue");

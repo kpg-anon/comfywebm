@@ -57,11 +57,7 @@
   <div class="backdrop fresh" role="presentation" onpointerdown={(e) => e.target === e.currentTarget && (asking = false)}>
     <div class="dialog ask" role="dialog" aria-modal="true" aria-labelledby="fresh-title" aria-describedby="fresh-text">
       <h2 id="fresh-title"><span class="warnic"><Icon name="warn" size={18} /></span>Start fresh?</h2>
-      <p id="fresh-text">
-        Every edit of {app.media?.fileName ?? "this file"} goes: the ranges and their order, the crop, rotation and flips, the
-        adjustments, the speed ramp, the zoom and the follow path. The history is cleared, so this cannot be undone, and the file
-        opens without them next time. The encode settings (preset, size limit and the rest of the sidebar) stay.
-      </p>
+      <p id="fresh-text">This removes every edit and the history. It cannot be undone. Are you sure?</p>
       <div class="askbtns">
         <button class="btn" onclick={() => (asking = false)}>Cancel</button>
         <button

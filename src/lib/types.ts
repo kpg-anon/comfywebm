@@ -36,6 +36,10 @@ export type Segment = { start: number; end: number; id?: number };
 /** A point of a speed ramp: at `t` seconds of the source file the speed is `speed`. */
 export type SpeedPoint = { t: number; speed: number };
 
+/** A zoom point: at `t` seconds of the source the picture is zoomed `zoom` times (1 = all of it)
+ *  around (`x`, `y`), 0..1 of the picture after crop, rotation and flips (engine zoom.rs). */
+export type ZoomPoint = { t: number; zoom: number; x: number; y: number };
+
 export type MediaInfo = {
   path: string;
   fileName: string;
@@ -118,6 +122,8 @@ export type EncodeSpec = {
   speed: number;
   /** a speed that changes over the clip (file time); with points it replaces `speed` */
   speedRamp: SpeedPoint[];
+  /** zoom points (engine zoom.rs); empty = none */
+  zoom?: ZoomPoint[];
   playback: Playback;
   deinterlace: boolean;
   denoise: boolean;

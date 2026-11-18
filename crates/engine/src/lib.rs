@@ -15,5 +15,6 @@ pub mod spec;
 pub mod strip;
 pub mod tools;
 pub mod ytdl;
+pub mod zoom;
 
 pub use spec::*;

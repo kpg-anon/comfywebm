@@ -7,6 +7,7 @@
   import CropBar from "./CropBar.svelte";
   import EditStrip from "./EditStrip.svelte";
   import SpeedLane from "./SpeedLane.svelte";
+  import ZoomLane from "./ZoomLane.svelte";
   import Select from "./Select.svelte";
 
   import { convertFileSrc } from "@tauri-apps/api/core";
@@ -312,6 +313,9 @@
     <div class="head" style:left="{pct(app.current)}%"></div>
   </div>
 
+  {#if app.media && !app.audioOnly && app.zoomLane}
+    <ZoomLane {viewStart} {viewLen} />
+  {/if}
   {#if app.media && !app.audioOnly && app.rampLane}
     <SpeedLane {viewStart} {viewLen} />
   {/if}
@@ -398,6 +402,16 @@
     </div>
     <span class="grow"></span>
     <div class="group">
+      <button
+        class="btn"
+        class:on={app.zoomLane}
+        disabled={!app.media || app.audioOnly}
+        aria-pressed={app.zoomLane}
+        title="Zoom: zoom in and move over the picture with points on a lane under the timeline (1x to 4x); between two points it moves smoothly."
+        onclick={() => (app.zoomLane = !app.zoomLane)}
+      >
+        <Icon name="zoomIn" size={14} />Zoom{#if app.zoomPoints.length}<span class="cnt">{app.zoomPoints.length}</span>{/if}
+      </button>
       <button
         class="btn"
         class:on={app.rampLane}

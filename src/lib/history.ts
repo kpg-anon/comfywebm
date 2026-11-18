@@ -1,6 +1,6 @@
 // Names for the steps of the History panel: what changed from one edit state
 // to the next (ranges, order, crop, rotation, flips, adjustments, speed ramp).
-import type { Adjust, Crop, Segment, SpeedPoint } from "./types";
+import type { Adjust, Crop, Segment, SpeedPoint, ZoomPoint } from "./types";
 
 /** The parts of an edit state a step can change. */
 export type EditState = {
@@ -12,6 +12,7 @@ export type EditState = {
   vflip: boolean;
   adjust: Adjust;
   speedRamp: SpeedPoint[];
+  zoom?: ZoomPoint[];
 };
 
 /** "1:05.2", "12.5 s" */
@@ -79,6 +80,19 @@ export function describeEdit(a: EditState, b: EditState): string {
     parts.push(
       n > 0 ? "Added a speed point" : n < 0 ? (b.speedRamp.length ? "Removed a speed point" : "Removed the speed ramp") : "Moved a speed point",
     );
+  }
+  const za = a.zoom ?? [];
+  const zb = b.zoom ?? [];
+  if (JSON.stringify(za) !== JSON.stringify(zb)) {
+    const n = zb.length - za.length;
+    if (n > 0) parts.push("Added a zoom point");
+    else if (n < 0) parts.push(zb.length ? "Removed a zoom point" : "Removed the zoom");
+    else {
+      const i = zb.findIndex((q, k) => JSON.stringify(q) !== JSON.stringify(za[k]));
+      const q = zb[i];
+      const o = za[i];
+      parts.push(q && o && q.zoom !== o.zoom ? `Zoom ${Math.round(q.zoom * 100) / 100}x` : q && o && q.t !== o.t ? "Moved a zoom point" : "Moved the zoom's centre");
+    }
   }
   if (!parts.length) return "Edit";
   return parts.length > 2 ? `${parts.slice(0, 2).join(", ")} and more` : parts.join(", ");

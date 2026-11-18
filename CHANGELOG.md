@@ -12,6 +12,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Settings > Look > Timeline, "Resizable": drag the edge above the timeline
   up to make its track taller (up to 240 px), with bigger thumbnails and
   waveform; double-click the edge for the standard height.
+- Zoom: a lane of zoom points under the timeline (Zoom button), like the
+  speed ramp. Each point has a zoom (1x to 4x) and the part of the picture
+  that shows, set by dragging its window on the picture; between two points
+  the zoom and the window move smoothly. The caption and watermark stay put.
 - History panel (`H`, or the clock button by undo and redo): every edit of
   the open file with what changed and when ("Moved range 2 to 12.5 s",
   "Crop 960x540"), newest first; click one to go back or forward to it.

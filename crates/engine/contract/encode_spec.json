@@ -74,5 +74,6 @@
   "title": null,
   "tonemap": false,
   "twoPass": false,
-  "vflip": false
+  "vflip": false,
+  "zoom": []
 }

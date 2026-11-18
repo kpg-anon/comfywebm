@@ -147,6 +147,7 @@ fn real_main() -> Result<(), String> {
         fps: if codec.is_image() { Some(15.0) } else { None },
         speed: std::env::var("CWM_SPEED").ok().and_then(|s| s.parse().ok()).unwrap_or(1.0),
         speed_ramp: vec![],
+        zoom: vec![],
         playback: Playback::Forward,
         deinterlace: info.video.interlaced,
         denoise: false,

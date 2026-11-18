@@ -8,6 +8,7 @@
   import * as ramp from "$lib/ramp";
   import type { SpeedPoint } from "$lib/types";
   import Icon from "./Icon.svelte";
+  import { windowOf } from "$lib/zoom";
 
   let video = $state<HTMLVideoElement>();
   let sw = $state(0);
@@ -182,6 +183,46 @@
     video.volume = app.volume;
   });
   const hasSound = $derived(!!app.media?.audio.length);
+
+  // The zoom window (engine zoom.rs): what shows at the playhead, inside the
+  // crop (or the whole picture) as shown. With a zoom point selected and the
+  // playhead on it, dragging the window moves that point's centre and the
+  // wheel changes its zoom.
+  const zframe = $derived(app.viewCrop ?? { x: 0, y: 0, w: app.viewW, h: app.viewH });
+  const zsel = $derived(app.zoomSel >= 0 ? app.zoomPoints[app.zoomSel] : null);
+  const zedit = $derived(!!zsel && Math.abs(app.current - zsel.t) < 0.05);
+  const zwin = $derived.by(() => {
+    if (!app.zoomPoints.length || app.cropMode || app.audioOnly || !app.viewW) return null;
+    const z = zedit && zsel ? zsel : app.zoomAt(app.current);
+    const w = windowOf(z, zframe.w, zframe.h);
+    const k = shown.w / app.viewW;
+    return { x: shown.x + (zframe.x + w.x) * k, y: shown.y + (zframe.y + w.y) * k, w: w.w * k, h: w.h * k, zoom: z.zoom };
+  });
+  let zdrag: { x0: number; y0: number; cx: number; cy: number; k: number } | null = null;
+  function zDown(e: PointerEvent) {
+    if (!zedit || !zsel || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    // pointer pixels to centre fractions: the frame's size on screen
+    const k = (shown.w / app.viewW) * zframe.w;
+    zdrag = { x0: e.clientX, y0: e.clientY, cx: zsel.x, cy: zsel.y, k };
+  }
+  function zMove(e: PointerEvent) {
+    if (!zdrag) return;
+    const kh = (shown.h / app.viewH) * zframe.h;
+    app.setZoomPoint(app.zoomSel, { x: zdrag.cx + (e.clientX - zdrag.x0) / zdrag.k, y: zdrag.cy + (e.clientY - zdrag.y0) / kh });
+  }
+  function zUp() {
+    zdrag = null;
+  }
+  function zWheel(e: WheelEvent) {
+    if (!zedit || !zsel) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const d = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
+    app.setZoomPoint(app.zoomSel, { zoom: Math.round(zsel.zoom * Math.pow(1.0015, -d) * 100) / 100 });
+  }
   function soundWheel(e: WheelEvent) {
     // the wheel over the speaker sets the volume; elsewhere it steps frames
     e.preventDefault();
@@ -311,6 +352,29 @@
         <img class="still" src={app.stillUrl} alt="" draggable="false" style:filter={showAdj ? "url(#cwm-adjust)" : null} />
       {/if}
     </div>
+    {#if zwin}
+      <!-- the zoom window: what the output shows at the playhead -->
+      <div class="zclip" style:left="{shown.x}px" style:top="{shown.y}px" style:width="{shown.w}px" style:height="{shown.h}px">
+        <div class="zdim" style:left="{zwin.x - shown.x}px" style:top="{zwin.y - shown.y}px" style:width="{zwin.w}px" style:height="{zwin.h}px"></div>
+      </div>
+      <div
+        class="zwin"
+        class:edit={zedit}
+        style:left="{zwin.x}px"
+        style:top="{zwin.y}px"
+        style:width="{zwin.w}px"
+        style:height="{zwin.h}px"
+        role="presentation"
+        title={zedit ? "Drag to choose what shows; the wheel zooms" : "Select a zoom point (click it in the zoom lane) to move its window"}
+        onpointerdown={zDown}
+        onpointermove={zMove}
+        onpointerup={zUp}
+        onpointercancel={zUp}
+        onwheel={zWheel}
+      >
+        <span class="ztag mono">{Math.round(zwin.zoom * 100) / 100}x</span>
+      </div>
+    {/if}
     <!-- over the picture as shown (turned and flipped), so the crop is drawn on what you see -->
     <CropOverlay
       rect={shown}
@@ -590,6 +654,37 @@
   .bar > div {
     height: 100%;
     background: var(--accent);
+  }
+  /* the zoom window and the dimmed picture around it */
+  .zclip {
+    position: absolute;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .zdim {
+    position: absolute;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+  }
+  .zwin {
+    position: absolute;
+    border: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+    pointer-events: none;
+  }
+  .zwin.edit {
+    border-color: var(--accent);
+    pointer-events: auto;
+    cursor: move;
+    touch-action: none;
+  }
+  .ztag {
+    position: absolute;
+    left: 4px;
+    top: 4px;
+    padding: 0 5px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    font-size: 11px;
   }
   /* the preview's sound, bottom right: the speaker, and the volume slider beside it while the pointer is over it */
   .sound {

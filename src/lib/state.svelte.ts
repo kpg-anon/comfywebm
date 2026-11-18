@@ -3,6 +3,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import * as ipc from "./ipc";
 import { load, save } from "./persist";
 import { describeEdit } from "./history";
+import * as zoomMath from "./zoom";
 import { siteOf, refusal } from "./sites";
 import * as ramp from "./ramp";
 import { AUDIO_LABEL, BUILTIN_PRESETS, CODECS_BY_CONTAINER, CRF_RANGE, audioCodecFor } from "./presets";
@@ -31,6 +32,7 @@ import type {
   Settings,
   SpeedPoint,
   ToolsStatus,
+  ZoomPoint,
   WatermarkPlace,
 } from "./types";
 
@@ -122,8 +124,9 @@ type EditSnap = {
   vflip: boolean;
   adjust: Adjust;
   speedRamp: SpeedPoint[];
+  zoom: ZoomPoint[];
 };
-type EditMemory = { segments: Segment[]; order: number[] | null; crop: Crop | null; speedRamp?: SpeedPoint[]; t: number };
+type EditMemory = { segments: Segment[]; order: number[] | null; crop: Crop | null; speedRamp?: SpeedPoint[]; zoom?: ZoomPoint[]; t: number };
 
 function loadRecent(): string[] {
   const r = load<unknown>("recent");
@@ -295,6 +298,12 @@ class AppState {
   speedRamp = $state<SpeedPoint[]>([]);
   /** the speed ramp lane is shown under the timeline */
   rampLane = $state(false);
+  /** zoom points (file time) of the open file (engine zoom.rs) */
+  zoomPoints = $state<ZoomPoint[]>([]);
+  /** the zoom lane is shown under the timeline */
+  zoomLane = $state(false);
+  /** the zoom point whose window is moved on the picture (index), or -1 */
+  zoomSel = $state(-1);
   playback = $state<Playback>("forward");
   deinterlace = $state(false);
   denoise = $state(false);
@@ -555,6 +564,7 @@ class AppState {
       speed: this.speed,
       // the ramp is the open file's own (file time): Batch and Splits items do not get it
       speedRamp: own ? (ramp.clean($state.snapshot(this.speedRamp) as SpeedPoint[])) : [],
+      zoom: own ? zoomMath.clean($state.snapshot(this.zoomPoints) as ZoomPoint[]) : [],
       playback: this.playback,
       deinterlace: own ? this.deinterlace : m.video.interlaced,
       denoise: this.denoise,
@@ -608,16 +618,17 @@ class AppState {
 
   /** The edit state as text; a change in it is an edit. The selection alone is not. */
   editKey(): string {
-    return JSON.stringify([this.segments, this.order, this.crop, this.rotate, this.mirror, this.vflip, this.adjust, this.speedRamp]);
+    return JSON.stringify([this.segments, this.order, this.crop, this.rotate, this.mirror, this.vflip, this.adjust, this.speedRamp, this.zoomPoints]);
   }
 
   private snap(): EditSnap {
     const { segments, order, sel, crop, rotate, mirror, vflip, adjust, speedRamp } = this;
-    return $state.snapshot({ segments, order, sel, crop, rotate, mirror, vflip, adjust, speedRamp }) as EditSnap;
+    const zoom = this.zoomPoints;
+    return $state.snapshot({ segments, order, sel, crop, rotate, mirror, vflip, adjust, speedRamp, zoom }) as EditSnap;
   }
 
   private static key(s: EditSnap): string {
-    return JSON.stringify([s.segments, s.order, s.crop, s.rotate, s.mirror, s.vflip, s.adjust, s.speedRamp]);
+    return JSON.stringify([s.segments, s.order, s.crop, s.rotate, s.mirror, s.vflip, s.adjust, s.speedRamp, s.zoom]);
   }
 
   /**
@@ -672,6 +683,8 @@ class AppState {
     this.vflip = s.vflip;
     this.adjust = s.adjust;
     this.speedRamp = s.speedRamp ?? [];
+    this.zoomPoints = s.zoom ?? [];
+    if (this.zoomSel >= this.zoomPoints.length) this.zoomSel = -1;
   }
 
   undo() {
@@ -876,8 +889,16 @@ class AppState {
     if (!m) return;
     const key = AppState.editMemoryKey(m);
     const all = (load<Record<string, EditMemory>>("edits") ?? {}) as Record<string, EditMemory>;
-    if (!s.segments.length && !s.crop && !s.speedRamp.length) delete all[key];
-    else all[key] = { segments: s.segments, order: s.order, crop: s.crop, speedRamp: s.speedRamp.length ? s.speedRamp : undefined, t: Date.now() };
+    if (!s.segments.length && !s.crop && !s.speedRamp.length && !s.zoom.length) delete all[key];
+    else
+      all[key] = {
+        segments: s.segments,
+        order: s.order,
+        crop: s.crop,
+        speedRamp: s.speedRamp.length ? s.speedRamp : undefined,
+        zoom: s.zoom.length ? s.zoom : undefined,
+        t: Date.now(),
+      };
     const keep = Object.entries(all).sort((a, b) => b[1].t - a[1].t).slice(0, 40);
     save("edits", Object.fromEntries(keep));
   }
@@ -913,6 +934,8 @@ class AppState {
       this.vflip = false;
       this.adjust = { ...NEUTRAL_ADJUST, curve: [] };
       this.speedRamp = [];
+      this.zoomPoints = [];
+      this.zoomSel = -1;
       this.deinterlace = info.video.interlaced;
       this.tonemap = info.video.hdr && !!this.tools?.filters.zscale;
       this.audioTrack = info.audio[0]?.track ?? 0;
@@ -944,7 +967,7 @@ class AppState {
       }
       this.remember(path);
       const mem = load<Record<string, EditMemory>>("edits")?.[AppState.editMemoryKey(info)];
-      if (restoreEdit && mem && (mem.segments.length || mem.crop || mem.speedRamp?.length)) {
+      if (restoreEdit && mem && (mem.segments.length || mem.crop || mem.speedRamp?.length || mem.zoom?.length)) {
         // the empty state is the first undo step, so Ctrl+Z drops the restored edit
         this.steps = [{ snap: this.snap(), label: "Opened the file", time: Date.now() }];
         this.at = 0;
@@ -954,12 +977,15 @@ class AppState {
         this.crop = info.audioOnly ? null : mem.crop;
         this.speedRamp = (mem.speedRamp ?? []).filter((p) => p.t <= info.duration + 0.5);
         if (this.speedRamp.length) this.rampLane = true;
+        this.zoomPoints = info.audioOnly ? [] : (mem.zoom ?? []).filter((p) => p.t <= info.duration + 0.5);
+        if (this.zoomPoints.length) this.zoomLane = true;
         this.sel = this.segments.length ? 0 : -1;
         if (this.segments.length) this.loop = true;
         const parts = [
           this.segments.length ? `${this.segments.length} range${this.segments.length > 1 ? "s" : ""}` : "",
           mem.crop ? "the crop" : "",
           this.speedRamp.length ? "the speed ramp" : "",
+          this.zoomPoints.length ? "the zoom" : "",
         ].filter(Boolean);
         const what = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
         this.toast({ kind: "info", title: "Restored your last edit", text: `${what} from the last time this file was open. Ctrl+Z removes them.`, path: null });
@@ -1324,6 +1350,52 @@ class AppState {
 
   clearRamp() {
     this.speedRamp = [];
+  }
+
+  // ---------- zoom (points in file time, kept sorted; engine zoom.rs) ----------
+
+  /** Zoom and centre at source time t. */
+  zoomAt(t: number) {
+    return zoomMath.at(this.zoomPoints, t);
+  }
+
+  /** Adds a point at file time t (zoom and centre as they are there, or `zoom`); selects it and returns its index. */
+  addZoomPoint(t: number, zoom?: number): number {
+    const at = Math.min(Math.max(0, t), this.duration || t);
+    const here = this.zoomAt(at);
+    const p = zoomMath.clean([...this.zoomPoints.filter((q) => Math.abs(q.t - at) >= 0.01), { t: at, zoom: zoom ?? (this.zoomPoints.length ? here.zoom : 2), x: here.x, y: here.y }]);
+    this.zoomPoints = p;
+    this.zoomLane = true;
+    this.zoomSel = p.findIndex((q) => q.t === at);
+    return this.zoomSel;
+  }
+
+  /** Changes point i (time kept between its neighbours). */
+  setZoomPoint(i: number, ch: Partial<ZoomPoint>) {
+    const p = [...this.zoomPoints];
+    const q = p[i];
+    if (!q) return;
+    const lo = i > 0 ? p[i - 1].t + 0.01 : 0;
+    const hi = i < p.length - 1 ? p[i + 1].t - 0.01 : this.duration || q.t;
+    const t = ch.t === undefined ? q.t : Math.min(Math.max(lo, ch.t), Math.max(lo, hi));
+    const cl = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+    p[i] = {
+      t,
+      zoom: cl(ch.zoom ?? q.zoom, zoomMath.MIN_ZOOM, zoomMath.MAX_ZOOM),
+      x: cl(ch.x ?? q.x, 0, 1),
+      y: cl(ch.y ?? q.y, 0, 1),
+    };
+    this.zoomPoints = p;
+  }
+
+  removeZoomPoint(i: number) {
+    this.zoomPoints = this.zoomPoints.filter((_, k) => k !== i);
+    this.zoomSel = -1;
+  }
+
+  clearZoom() {
+    this.zoomPoints = [];
+    this.zoomSel = -1;
   }
 
   /** Arrow keys in crop mode, as shown on screen: move, or with `grow` change the size from the top-left corner. */

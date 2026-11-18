@@ -311,6 +311,17 @@ pub struct SpeedPoint {
     pub speed: f64,
 }
 
+/// A point of the zoom: at `t` seconds of the source file the picture is
+/// zoomed `zoom` times (1 = all of it) around the centre (`x`, `y`), 0..1 of
+/// the picture after crop, rotation and flips (zoom.rs).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ZoomPoint {
+    pub t: f64,
+    pub zoom: f64,
+    pub x: f64,
+    pub y: f64,
+}
+
 /// A rectangle in canvas pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Rect {
@@ -504,6 +515,9 @@ pub struct EncodeSpec {
     /// it has points it replaces `speed`. Applies to ranges of `input` only.
     #[serde(default)]
     pub speed_ramp: Vec<SpeedPoint>,
+    /// zoom points in source file time (zoom.rs); empty = no zoom. Ranges of `input` only.
+    #[serde(default)]
+    pub zoom: Vec<ZoomPoint>,
     #[serde(default)]
     pub playback: Playback,
     #[serde(default)]

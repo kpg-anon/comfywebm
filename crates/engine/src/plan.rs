@@ -782,6 +782,8 @@ pub fn segment_chain(sf: &SegmentFilters, start: f64) -> Vec<String> {
 /// tail of a chain.
 pub struct PostFilters {
     pub scale: Option<(u32, u32)>,
+    /// a zoompan filter (zoom.rs) that takes the place of the scale
+    pub zoom: Option<String>,
     /// a complete drawtext filter, drawn after the scale
     pub caption: Option<String>,
     /// make in-between frames up to this rate after the speed change (replaces `fps`)
@@ -800,7 +802,9 @@ pub struct PostFilters {
 
 pub fn video_post(p: &PostFilters) -> String {
     let mut lin: Vec<String> = Vec::new();
-    if let Some((w, h)) = p.scale {
+    if let Some(z) = &p.zoom {
+        lin.push(format!("{z},setsar=1"));
+    } else if let Some((w, h)) = p.scale {
         // Square pixels at exactly w x h. When the picture's shape differs a
         // little from w:h (an odd crop such as 2160x1215 is cut to 2160x1214
         // for 4:2:0), scale keeps the shape with a sample aspect ratio
@@ -1443,7 +1447,17 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             warnings.push("The caption font file was not found; a bold sans is used instead.".into());
         }
     }
+    // zoom points: ranges of `input` only, not a still picture or splits
+    let zoom = if spec.zoom.is_empty() || still.is_some() || layout.is_some() {
+        None
+    } else if mixed {
+        warnings.push("The zoom applies to one file, so it is not used when ranges come from other files.".into());
+        None
+    } else {
+        crate::zoom::filter(&spec.zoom, &segs, g.out_w, g.out_h, if v.fps > 0.0 { v.fps } else { 30.0 })
+    };
     let vpost = video_post(&PostFilters {
+        zoom,
         scale: ((g.out_w, g.out_h) != (g.rot_w, g.rot_h)).then_some((g.out_w, g.out_h)),
         caption: spec.caption.as_ref().and_then(|c| caption_filter(c, g.out_h)),
         speed: if still.is_some() { 1.0 } else { speed },
@@ -2197,6 +2211,7 @@ mod tests {
             fps: None,
             speed: 1.0,
             speed_ramp: vec![],
+            zoom: vec![],
             playback: Playback::Forward,
             deinterlace: false,
             denoise: false,
@@ -2311,6 +2326,7 @@ mod tests {
             "setpts=PTS-STARTPTS,bwdif=mode=send_frame,crop=640:720:0:0,vflip,setpts=PTS+5.5/TB,subtitles=filename=subs\\\\:a.srt,setpts=PTS-STARTPTS"
         );
         let post = video_post(&PostFilters {
+            zoom: None,
             caption: None,
             interpolate: None,
             scale: Some((320, 360)),

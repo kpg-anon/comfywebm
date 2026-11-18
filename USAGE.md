@@ -146,6 +146,16 @@ building it yourself. For an overview and the downloads, see
   display's refresh rate (Settings, default 60 Hz). Speeds whose output plays
   evenly are listed and the speed slider snaps to them; a setting that judders
   or stutters is explained, with the nearest smooth speeds and caps as buttons.
+- **Zoom**: Zoom under the timeline shows a lane of zoom points (1x to 4x, up
+  is closer). Click to add a point; clicking a point selects it and moves the
+  playhead to it, and its window on the picture can then be dragged to choose
+  what shows (the wheel over it zooms). Drag a point for time and zoom,
+  double-click to remove it, right-click for 1x to 4x, "Centre the window" or
+  "Move to the playhead". Between two points the zoom and the window move
+  smoothly (they ease in and out); before the first and after the last they
+  stay. The window is drawn on the picture at the playhead (inside the crop,
+  after rotation and flips); the caption and watermark are not zoomed. It
+  applies to ranges of the open file (not Splits or a still picture).
 - **Speed ramp**: Speed under the timeline shows a lane where the speed changes
   over the clip (0.25x to 4x, up is faster, 1x in the middle). Click to add a
   point, drag it (time and speed), double-click to remove it; right-click a

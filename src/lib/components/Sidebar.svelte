@@ -69,6 +69,8 @@
     ...(app.plan?.warnings ?? []).filter((w) => qv === null || !w.includes("Expect a blurry picture")),
     ...(qualityWarning ? [qualityWarning] : []),
   ]);
+  /** the warnings beside the output line, one paragraph each, shown on hover */
+  const warningText = $derived(warnings.join("\n\n"));
   /** the tooltip of the output line: bitrates, picture quality, file name */
   const details = $derived.by(() => {
     const p = app.plan;
@@ -463,7 +465,14 @@
         {#if app.media?.video.hdr}<div class="muted small">The source is HDR.</div>{/if}
         {#if !zscale}<div class="muted small">Tone mapping needs an ffmpeg build with the zscale filter.</div>{/if}
         <div class="row">
-          <span title="Turns the picture clockwise. The crop is drawn on the unturned picture.">Rotate</span>
+          <span title="Flip the picture: horizontal mirrors left and right, vertical turns it upside down. Applied after rotating.">Flip</span>
+          <div class="flips">
+            <button class="btn small" class:on={app.mirror} aria-pressed={app.mirror} onclick={() => (app.mirror = !app.mirror)}><Icon name="flipH" size={13} />Horizontal</button>
+            <button class="btn small" class:on={app.vflip} aria-pressed={app.vflip} onclick={() => (app.vflip = !app.vflip)}><Icon name="flipV" size={13} />Vertical</button>
+          </div>
+        </div>
+        <div class="row">
+          <span title="Turns the picture clockwise. Crop mode shows the picture turned, and the crop is drawn on it as shown.">Rotate</span>
           <Seg
             label="Rotate"
             value={app.rotate}
@@ -475,13 +484,6 @@
               { value: 270, label: "270°" },
             ]}
           />
-        </div>
-        <div class="row">
-          <span title="Flip the picture: horizontal mirrors left and right, vertical turns it upside down. Applied after rotating.">Flip</span>
-          <div class="flips">
-            <button class="btn small" class:on={app.mirror} aria-pressed={app.mirror} onclick={() => (app.mirror = !app.mirror)}><Icon name="flipH" size={13} />Horizontal</button>
-            <button class="btn small" class:on={app.vflip} aria-pressed={app.vflip} onclick={() => (app.vflip = !app.vflip)}><Icon name="flipV" size={13} />Vertical</button>
-          </div>
         </div>
         <div class="row">
           <span title="Reverse plays the clip backwards. Boomerang plays it forward and then backwards (and has no sound). Both hold every frame in memory, so keep them short.">Direction</span>
@@ -693,16 +695,13 @@
       {:else if !app.media}
         <div class="muted small">Open a video to see the output size.</div>
       {/if}
-      {#if warnings.length}
-        <div class="warnings">
-          {#each warnings as w, i (i)}
-            <div class="warn small wline"><Icon name="warn" size={12} /><span>{w}</span></div>
-          {/each}
-        </div>
+      {#if !app.plan && warnings.length}
+        <div class="outrow"><span class="wicon" title={warningText}><Icon name="warn" size={13} />{#if warnings.length > 1}<span class="wn">{warnings.length}</span>{/if}</span><span class="muted">{warnings.length > 1 ? "warnings" : "a warning"} (point at the icon)</span></div>
       {/if}
       {#if app.plan}
         <!-- the bitrates, picture quality and file name are in the tooltip -->
         <div class="outrow" title={details}>
+          {#if warnings.length}<span class="wicon" title={warningText} aria-label="{warnings.length} warning{warnings.length > 1 ? 's' : ''}: {warnings.join(' ')}"><Icon name="warn" size={13} />{#if warnings.length > 1}<span class="wn">{warnings.length}</span>{/if}</span>{/if}
           {#each outputParts(app.plan, app.rate, fmtLen, app.separate ? app.segments.length : 1) as p, i (i)}{#if i}<span class="dot">{" · "}</span>{/if}<span>{p}</span>{/each}{#if app.quality?.busy}<span class="dot">{" · "}</span><span class="muted" title="Encoding 2 s with these settings to measure how close they look to the source">checking quality...</span>
           {:else if qv !== null}<span class="dot">{" · "}</span><span class="q {qClass}" title="VMAF of a 2 s piece encoded with these settings, against the source (0 to 100; 90 and up looks like the source, 75 to 88 shows compression)">quality {Math.round(qv)}</span>{/if}
         </div>
@@ -912,20 +911,19 @@
   .outrow .q.poor {
     color: var(--red);
   }
-  .warnings {
-    max-height: 88px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
+  /* the warnings: an icon beside the output line, the text on hover */
+  .wicon {
+    display: inline-flex;
+    align-items: center;
     gap: 2px;
+    margin-right: 6px;
+    vertical-align: -2px;
+    color: var(--yellow);
+    cursor: help;
   }
-  .wline {
-    display: flex;
-    gap: 5px;
-    align-items: flex-start;
-  }
-  .wline :global(svg) {
-    margin-top: 2px;
+  .wn {
+    font-size: 10.5px;
+    font-weight: 700;
   }
   .cmd {
     width: 100%;

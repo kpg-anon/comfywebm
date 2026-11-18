@@ -131,6 +131,11 @@
         if (app.proxyFraction !== null) app.proxyFraction = Math.min(1, Math.max(0, p.fraction));
       }),
     );
+    keep(
+      ipc.onCutsProgress((p) => {
+        if (app.findingCuts && p.path === app.media?.path) app.cutsFraction = Math.min(1, Math.max(0, p.fraction));
+      }),
+    );
     // Drag-and-drop through Tauri: the browser's own drop event has no file paths.
     keep(
       getCurrentWebview().onDragDropEvent((e) => {

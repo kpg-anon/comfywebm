@@ -1710,20 +1710,33 @@ class AppState {
   /** Scene cut times of the open file (seconds), from "Find cuts"; null = not looked for. */
   cuts = $state<number[] | null>(null);
   findingCuts = $state(false);
-  async findCuts() {
+  /** how far "Find cuts" has read the video, 0..1 */
+  cutsFraction = $state(0);
+  /** fewer cuts (only clear ones), normal, or more (also between similar shots); remembered */
+  cutSensitivity = $state<ipc.CutSensitivity>(load<ipc.CutSensitivity>("cutSensitivity") ?? "normal");
+
+  async findCuts(quiet = false) {
     const m = this.media;
     if (!m || m.audioOnly || this.findingCuts || this.ffmpegMissing) return;
     this.findingCuts = true;
+    this.cutsFraction = 0;
     try {
-      const c = await ipc.sceneCuts(m.path);
+      const c = await ipc.sceneCuts(m.path, this.cutSensitivity);
       if (this.media?.path !== m.path) return;
       this.cuts = c;
-      this.toast({ kind: "info", title: `${c.length} scene cut${c.length === 1 ? "" : "s"} found`, text: "Range edges snap to them; [ and ] jump between them.", path: null });
+      if (!quiet) this.toast({ kind: "info", title: `${c.length} scene cut${c.length === 1 ? "" : "s"} found`, text: "Range edges snap to them; [ and ] jump between them.", path: null });
     } catch (e) {
       if (this.media?.path === m.path && ipc.errText(e) !== "Canceled") this.error = `Could not find scene cuts: ${ipc.errText(e)}`;
     } finally {
       if (this.media?.path === m.path) this.findingCuts = false;
     }
+  }
+
+  /** The video was read once, so the cuts for another sensitivity come at once. */
+  setCutSensitivity(s: ipc.CutSensitivity) {
+    this.cutSensitivity = s;
+    save("cutSensitivity", s);
+    if (this.cuts !== null) void this.findCuts(true);
   }
   /** Seek to the previous (-1) or next (+1) scene cut. */
   jumpCut(dir: number) {

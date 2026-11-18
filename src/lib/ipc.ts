@@ -52,7 +52,8 @@ export const proxyCancel = () => invoke<void>("proxy_cancel");
 export const poster = (path: string) => invoke<string>("poster", { path });
 /** The embedded cover picture of a sound file, as a PNG in the cache dir. */
 export const coverPicture = (path: string) => invoke<string>("cover_picture", { path });
-export const sceneCuts = (path: string) => invoke<number[]>("scene_cuts", { path });
+export type CutSensitivity = "low" | "normal" | "high";
+export const sceneCuts = (path: string, sensitivity: CutSensitivity) => invoke<number[]>("scene_cuts", { path, sensitivity });
 export const timelineWave = (path: string, track: number) => invoke<string>("timeline_wave", { path, track });
 export type CacheInfo = { dir: string; bytes: number; files: number; downloadBytes: number };
 export const cacheInfo = () => invoke<CacheInfo>("cache_info");
@@ -102,6 +103,8 @@ export const onQueueState = (cb: (s: QueueState) => void): Promise<UnlistenFn> =
   listen<QueueState>("queue-state", (e) => cb(e.payload));
 export const onProxyProgress = (cb: (p: ProxyProgress) => void): Promise<UnlistenFn> =>
   listen<ProxyProgress>("proxy-progress", (e) => cb(e.payload));
+export const onCutsProgress = (cb: (p: ProxyProgress) => void): Promise<UnlistenFn> =>
+  listen<ProxyProgress>("cuts-progress", (e) => cb(e.payload));
 export const onDownloadProgress = (cb: (p: DownloadProgress) => void): Promise<UnlistenFn> =>
   listen<DownloadProgress>("download-progress", (e) => cb(e.payload));
 

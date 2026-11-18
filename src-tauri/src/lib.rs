@@ -5,7 +5,7 @@ mod winstate;
 use comfywebm_engine::config;
 use comfywebm_engine::run::{self, Cancel, RunError};
 use comfywebm_engine::{
-    naming, plan, proxy, strip, ytdl, Codec, Container, Crop, DownloadProgress, EncodeSpec, Job, MediaInfo, PlanInfo, Preset,
+    naming, plan, proxy, scenes, strip, ytdl, Codec, Container, Crop, DownloadProgress, EncodeSpec, Job, MediaInfo, PlanInfo, Preset,
     Segment, Settings, ToolsStatus, UrlInfo,
 };
 use serde::Serialize;
@@ -84,14 +84,27 @@ async fn cover_picture(app: AppHandle, path: String) -> Result<String, String> {
     .await
 }
 
-/// Scene cut times of the video, in seconds (cached).
+#[derive(Clone, Serialize)]
+struct CutsProgress {
+    path: String,
+    fraction: f64,
+}
+
+/// Scene cut times of the video, in seconds. The video is read once (with
+/// "cuts-progress" events) and its per-frame numbers cached, so another
+/// sensitivity is worked out without reading it again.
 #[tauri::command]
-async fn scene_cuts(app: AppHandle, path: String) -> Result<Vec<f64>, String> {
+async fn scene_cuts(app: AppHandle, path: String, sensitivity: Option<scenes::Sensitivity>) -> Result<Vec<f64>, String> {
     blocking(move || {
         let state = app.state::<AppState>();
         let ffmpeg = state.ffmpeg()?;
         let info = state.media(&path)?;
-        strip_job(&app, "scenes", |c| strip::scenes(&ffmpeg, &info, &state.cache_dir, c))
+        let a = strip_job(&app, "scenes", |c| {
+            scenes::analyze(&ffmpeg, &info, &state.cache_dir, c, |fraction| {
+                let _ = app.emit("cuts-progress", CutsProgress { path: path.clone(), fraction });
+            })
+        })?;
+        Ok(scenes::detect(&a, &sensitivity.unwrap_or(scenes::Sensitivity::Normal).params()))
     })
     .await
 }

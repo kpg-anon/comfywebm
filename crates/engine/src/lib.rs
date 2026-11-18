@@ -9,6 +9,7 @@ pub mod probe;
 pub mod proxy;
 pub mod ramp;
 pub mod run;
+pub mod scenes;
 pub mod spec;
 pub mod strip;
 pub mod tools;

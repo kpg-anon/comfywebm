@@ -118,53 +118,6 @@ pub fn cover(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path) -> Result<PathBu
     Ok(out)
 }
 
-/// Times (seconds) where the picture changes to a new shot: ffmpeg's scene
-/// score above 0.3 on a 160-pixel-wide copy. Decodes every frame, so a long
-/// file takes a while; the result is cached as text.
-pub fn scenes(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path, cancel: &Cancel) -> Result<Vec<f64>, RunError> {
-    if info.audio_only {
-        return Err(RunError::Failed("The file has no video stream.".into()));
-    }
-    let dir = cache_dir.join("strips");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
-    let out = dir.join(format!("scenes-{}.txt", source_key(&info.path)?));
-    if let Ok(text) = std::fs::read_to_string(&out) {
-        return Ok(text.lines().filter_map(|l| l.trim().parse().ok()).collect());
-    }
-    let args: Vec<String> = [
-        "-hide_banner", "-nostdin", "-progress", "pipe:1", "-nostats", "-y",
-        "-i", &info.path, "-map", &format!("0:{}", info.video.stream_index), "-an", "-sn", "-dn",
-        "-vf", "scale=160:-2,select='gt(scene,0.3)',showinfo", "-f", "null", "-",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
-    let mut cmd = crate::tools::command(ffmpeg);
-    cmd.args(&args).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped());
-    let mut child = cmd.spawn().map_err(|e| RunError::Failed(format!("Cannot run ffmpeg: {e}")))?;
-    let stderr = child.stderr.take().expect("piped stderr");
-    cancel.attach(child);
-    let mut times = Vec::new();
-    crate::run::each_line(stderr, |line| {
-        // [Parsed_showinfo_2 @ ...] n:   3 pts:  12345 pts_time:4.1 ...
-        if let Some(rest) = line.split("pts_time:").nth(1) {
-            if let Some(t) = rest.split_whitespace().next().and_then(|v| v.parse::<f64>().ok()) {
-                times.push(t);
-            }
-        }
-    });
-    let status = cancel.detach().map(|mut c| c.wait());
-    if cancel.is_canceled() {
-        return Err(RunError::Canceled);
-    }
-    if !matches!(status, Some(Ok(s)) if s.success()) {
-        return Err(RunError::Failed("ffmpeg could not read the video for scene cuts.".into()));
-    }
-    let text: String = times.iter().map(|t| format!("{t:.3}\n")).collect();
-    let _ = std::fs::write(&out, text);
-    Ok(times)
-}
-
 /// A PNG of the waveform of audio track `track` (white on transparent, used
 /// as a mask by the page so it takes the theme's color).
 pub fn waveform(ffmpeg: &Path, info: &MediaInfo, track: u32, cache_dir: &Path, cancel: &Cancel) -> Result<PathBuf, RunError> {

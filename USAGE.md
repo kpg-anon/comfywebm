@@ -90,7 +90,13 @@ building it yourself. For an overview and the downloads, see
   an overview of the whole file while zoomed, and the time under the pointer.
   Range edges snap to the playhead, the other ranges and the file's ends (hold
   Alt to place freely). "Find cuts" marks where the picture cuts to a new shot;
-  edges snap to those too, and `[` / `]` jump between them. Undo and redo (Ctrl+Z, Ctrl+Shift+Z) cover ranges,
+  edges snap to those too, and `[` / `]` jump between them. It reads the video
+  once (the button shows how far) and finds cuts the way PySceneDetect's
+  adaptive detector does: a frame whose change stands out from the frames
+  around it, so camera moves and light shows are not cuts; a flash or strobe
+  (the picture comes back within 0.4 s) is not one either; a fade through
+  black is one cut in its middle; shots are at least 0.5 s. Fewer cuts /
+  Normal / More cuts beside the button changes the result at once. Undo and redo (Ctrl+Z, Ctrl+Shift+Z) cover ranges,
   their order, the crop, rotation, flips and adjustments. Reopening a file brings back its ranges and crop.
 - **Edit strip**: with two or more ranges, a strip under the timeline shows the
   joined output in order. Drag a block to change the order, click it to jump to

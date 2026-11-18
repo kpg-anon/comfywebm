@@ -7,6 +7,20 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- Find cuts finds cuts the way PySceneDetect's adaptive detector does: a
+  frame is a cut when its change (hue, saturation and brightness against the
+  frame before) stands out from the frames around it, so camera moves and
+  light shows are not cuts. A flash or strobe, where the picture comes back
+  within 0.4 s, is not a cut either, and a fade through black is one cut in
+  its middle. Jump cuts in fancams (the framing jumps between two frames) are
+  found. On a test video with 4 cuts and a strobe, the old method found 20
+  cuts and the new one the 4.
+- Find cuts shows how far it has read, and a Fewer cuts / Normal / More cuts
+  choice appears beside it; the video is read once, so changing it is
+  instant.
+
 ## [1.0.7] - 2026-11-17
 
 ### Added

@@ -756,6 +756,13 @@
     border-top: 1px solid var(--border-muted);
     background: var(--bg-panel);
   }
+  /* the same size as Encode in the sidebar */
+  .actions .btn {
+    min-width: 96px;
+    height: calc(var(--ctl-h) + 6px);
+    padding: 0 18px;
+    font-size: 13px;
+  }
   .actions .err {
     flex: 1;
     min-width: 0;

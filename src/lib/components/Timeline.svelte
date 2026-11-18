@@ -480,8 +480,8 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 8px var(--pad-panel) 10px;
+    gap: 5px;
+    padding: 5px var(--pad-panel) 6px;
     border-top: 1px solid var(--border-muted);
     background: var(--bg-app);
   }
@@ -495,7 +495,7 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding: 2px 10px 8px;
+    padding: 2px 10px 6px;
   }
   /* the timeline zoom sits on the ruler's right end, over the labels there */
   .rzoom {
@@ -518,7 +518,7 @@
     align-items: center;
     gap: 8px;
     color: var(--text-secondary);
-    font-size: 11.5px;
+    font-size: 10.5px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -527,19 +527,19 @@
     display: flex;
     flex-wrap: wrap;
     align-items: stretch;
-    padding: 10px 0;
+    padding: 5px 0 6px;
   }
   .sec {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 0 16px;
+    gap: 5px;
+    padding: 0 12px;
   }
   .sec + .sec {
     border-left: 1px solid var(--border-muted);
   }
   .sec .ph {
-    padding-bottom: 6px;
+    padding-bottom: 3px;
     border-bottom: 1px solid var(--border-muted);
   }
   .play {
@@ -552,12 +552,13 @@
     flex: 0 1 auto;
   }
   .bigtime {
-    padding: 4px 12px;
+    padding: 0 10px;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--bg-input);
     color: var(--text-primary);
-    font-size: 21px;
+    font-size: 18px;
+    line-height: 28px;
     text-align: center;
     letter-spacing: 0.02em;
   }
@@ -567,11 +568,11 @@
     justify-content: center;
   }
   .transport :global(.btn.icon) {
-    width: 32px;
-    height: 30px;
+    width: 30px;
+    height: 26px;
   }
   .transport .playbtn {
-    width: 42px !important;
+    width: 40px !important;
     border-color: var(--accent);
     box-shadow: 0 0 0 1px var(--accent);
   }

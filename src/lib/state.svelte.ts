@@ -64,7 +64,7 @@ export function splitArgs(text: string): string[] {
 /** The timeline track's height: standard and tallest, px. */
 export const TRACK_MIN = 26;
 /** the track's standard height: thumbnails large enough to see */
-export const TRACK_STD = 48;
+export const TRACK_STD = 72;
 export const TRACK_MAX = 240;
 
 /** "3.5 s", "1:05" */

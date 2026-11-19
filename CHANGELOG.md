@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-19
+
 ### Changed
 
 - The expected size beside Encode is written "~3.94MiB" instead of

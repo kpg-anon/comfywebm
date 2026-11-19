@@ -63,6 +63,7 @@
   function startFollow() {
     app.cropMode = false;
     app.followMode = true;
+    app.followLane = true;
   }
   const warnings = $derived([
     ...app.uiWarnings,
@@ -403,7 +404,7 @@
         </div>
         <div class="muted small">
           {#if app.zoomPoints.length}
-            Following: the zoom is around the person ({app.zoomLevel}x of {app.crop ? "the crop" : "the picture"}).
+            Following: the view ({app.zoomLevel}x of {app.crop ? "the crop" : "the picture"}) moves along the follow keyframes.
           {:else if app.crop}
             1x is the crop. Right zooms in on its middle; left shows more of the picture around it.
           {:else}
@@ -411,20 +412,20 @@
           {/if}
         </div>
         <div class="row">
-          <span title="Keep a person in the picture: draw a box around them; the app follows them from the playhead to the end of the range and the zoom moves with them. Drag the picture afterwards to correct the path where it is off.">Follow</span>
+          <span title="Move the zoomed view over the clip with keyframes on the Follow lane under the timeline. Track a person: draw a box around them and the app adds keyframes that follow them from the playhead to the end of the range. Drag the picture to aim the view at the playhead.">Follow</span>
           {#if app.following !== null}
-            <span class="small grow">Following {Math.round(app.following * 100)}%</span>
+            <span class="small grow">Tracking {Math.round(app.following * 100)}%</span>
             <button class="btn small" onclick={() => app.cancelFollow()}>Stop</button>
           {:else if app.followMode}
             <span class="small grow">Draw a box around the person on the picture</span>
             <button class="btn small" onclick={() => app.cancelFollow()}>Cancel</button>
           {:else if app.zoomPoints.length}
-            <span class="small grow">On, {fmtLen(app.zoomPoints[app.zoomPoints.length - 1].t - app.zoomPoints[0].t)}</span>
-            <button class="btn small" disabled={!app.media} title="Draw a new box from the playhead" onclick={startFollow}>Again...</button>
+            <span class="small grow">{app.zoomPoints.length} keyframe{app.zoomPoints.length === 1 ? "" : "s"}, {fmtLen(app.zoomPoints[app.zoomPoints.length - 1].t - app.zoomPoints[0].t)}</span>
+            <button class="btn small" disabled={app.followLane} onclick={() => (app.followLane = true)}>Show</button>
             <button class="btn small" onclick={() => app.clearFollow()}>Remove</button>
           {:else}
             <span class="muted small grow">off</span>
-            <button class="btn small" disabled={!app.media || app.audioOnly} onclick={startFollow}>Follow a person...</button>
+            <button class="btn small" disabled={!app.media || app.audioOnly} onclick={startFollow}>Track a person...</button>
           {/if}
         </div>
       </Group>
@@ -723,7 +724,7 @@
       {/if}
       <div class="actions">
         <button class="btn primary big" disabled={!app.canEncode} onclick={() => app.enqueue(true)}>Encode <kbd>Ctrl+Enter</kbd></button>
-        <button class="btn big" disabled={!app.canEncode} onclick={() => app.enqueue(false)}>Add to queue</button>
+        <button class="btn big" disabled={!app.canEncode} onclick={() => app.enqueue(false)}>Add to queue <kbd>Ctrl+E</kbd></button>
       </div>
     {/if}
   </div>
@@ -985,7 +986,7 @@
   .big kbd {
     font-size: 10px;
     background: transparent;
-    border-color: color-mix(in srgb, var(--text-inverse) 40%, transparent);
+    border-color: color-mix(in srgb, currentColor 40%, transparent);
     color: inherit;
   }
   .btn kbd {

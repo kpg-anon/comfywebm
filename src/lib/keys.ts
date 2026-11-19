@@ -64,7 +64,7 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["Ctrl + O", "open a file"],
       ["Ctrl + U", "open a web link"],
       ["Ctrl + Enter", "encode"],
-      ["Ctrl + Shift + Enter", "add to the queue without starting"],
+      ["Ctrl + E or Ctrl + Shift + Enter", "add to the queue"],
       ["P", "sample: encode 3 s at the playhead"],
       ["S", "save the current frame as PNG (source picture with the crop)"],
       ["Shift + S", "save the current frame as the encode sees it: filters, adjustments, rotation and output size"],
@@ -114,6 +114,8 @@ export function installKeys(actions: KeyActions): () => void {
     if (e.defaultPrevented) return;
     if (isTextField(e.target)) {
       if (e.key === "Escape") (e.target as HTMLElement).blur();
+      // Ctrl+E is not left to WebView2 (appfeel.ts no longer blocks it)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "e") e.preventDefault();
       return;
     }
     if (app.settingsOpen || app.urlOpen || app.sample || app.keysOpen) return; // dialogs handle their own keys
@@ -141,6 +143,7 @@ export function installKeys(actions: KeyActions): () => void {
       else if (k === "o") actions.openFile();
       else if (k === "u") actions.openUrl();
       else if (e.key === "Enter") void app.enqueue(!e.shiftKey);
+      else if (k === "e" && !e.shiftKey) void app.enqueue(false);
       else handled = false;
     } else if (app.view === "splits" && k === " ") {
       splits.togglePlay?.();

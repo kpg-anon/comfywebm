@@ -9,8 +9,8 @@
 // DevTools keys.
 import { menu, textMenu } from "./menu.svelte";
 
-/** Ctrl (or Cmd) + key, by KeyboardEvent.key in lower case. Ctrl+O and Ctrl+U are the app's own. */
-const CTRL = new Set(["f", "g", "p", "r", "s", "j", "h", "n", "t", "w", "d", "e", "k", "l", "=", "+", "-", "0"]);
+/** Ctrl (or Cmd) + key, by KeyboardEvent.key in lower case. Ctrl+O, Ctrl+U and Ctrl+E are the app's own (keys.ts). */
+const CTRL = new Set(["f", "g", "p", "r", "s", "j", "h", "n", "t", "w", "d", "k", "l", "=", "+", "-", "0"]);
 const PLAIN = new Set(["F1", "F3", "F5", "F6", "F7", "F12", "BrowserBack", "BrowserForward", "BrowserRefresh", "BrowserSearch", "BrowserHome"]);
 
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';

@@ -7,6 +7,7 @@
   import CropBar from "./CropBar.svelte";
   import EditStrip from "./EditStrip.svelte";
   import SpeedLane from "./SpeedLane.svelte";
+  import FollowLane from "./FollowLane.svelte";
 
   import { convertFileSrc } from "@tauri-apps/api/core";
   import * as ipc from "$lib/ipc";
@@ -358,6 +359,16 @@
   {#if app.media && !app.audioOnly && app.rampLane}
     <SpeedLane {viewStart} {viewLen} />
   {/if}
+  {#if app.media && !app.audioOnly && app.followLane}
+    <FollowLane
+      {viewStart}
+      {viewLen}
+      ontrack={() => {
+        app.cropMode = false;
+        app.followMode = true;
+      }}
+    />
+  {/if}
 
   {#if zoomed}
     <div
@@ -441,12 +452,22 @@
           >
             <Icon name="speed" size={14} />Speed{#if app.speedRamp.length}<span class="cnt">{app.speedRamp.length}</span>{/if}
           </button>
+          <button
+            class="btn"
+            class:on={app.followLane}
+            disabled={!app.media || app.audioOnly}
+            aria-pressed={app.followLane}
+            title="Follow: keyframes on a lane under the timeline that move the zoomed view over the clip. Add them by hand and drag the picture to aim each one, or track a person to add them."
+            onclick={() => (app.followLane = !app.followLane)}
+          >
+            <Icon name="follow" size={14} />Follow{#if app.zoomPoints.length}<span class="cnt">{app.zoomPoints.length}</span>{/if}
+          </button>
           <button class="btn" class:on={app.cropMode} disabled={!app.media || app.audioOnly} aria-pressed={app.cropMode} onclick={() => (app.cropMode = !app.cropMode)}>
             <Icon name="crop" size={14} />Crop <kbd>C</kbd>
           </button>
           <button class="btn" disabled={!app.media || app.audioOnly || app.ffmpegMissing || app.findingCuts} title="Find where the picture cuts to a new shot (also jump cuts, and fades through black; flashes and lights are not cuts). Range edges then snap to the cuts, and [ and ] jump between them. Reads the whole video once." onclick={() => app.findCuts()}><Icon name="cut" size={14} />{app.findingCuts ? `Finding ${Math.round(app.cutsFraction * 100)}%` : app.cuts ? `${app.cuts.length} cuts` : "Find cuts"}</button>
-          <button class="btn wide" disabled={!app.media || app.ffmpegMissing} onclick={() => app.runSample()}><Icon name="film" size={14} />Sample <kbd>P</kbd></button>
-          <button class="btn wide" disabled={!app.media || app.ffmpegMissing} title="Save the frame at the playhead as PNG with the crop. Shift+click (Shift+S): as the encode sees it, with filters, adjustments and the output size." onclick={(e) => app.exportFrame(e.shiftKey)}><Icon name="image" size={14} />Frame <kbd>S</kbd></button>
+          <button class="btn" disabled={!app.media || app.ffmpegMissing} onclick={() => app.runSample()}><Icon name="film" size={14} />Sample <kbd>P</kbd></button>
+          <button class="btn" disabled={!app.media || app.ffmpegMissing} title="Save the frame at the playhead as PNG with the crop. Shift+click (Shift+S): as the encode sees it, with filters, adjustments and the output size." onclick={(e) => app.exportFrame(e.shiftKey)}><Icon name="image" size={14} />Frame <kbd>S</kbd></button>
         </div>
     </div>
   </section>
@@ -607,9 +628,6 @@
   }
   .tools > :global(.btn) {
     justify-content: center;
-  }
-  .tools > .wide {
-    grid-column: span 3;
   }
   .track {
     position: relative;

@@ -160,16 +160,25 @@ building it yourself. For an overview and the downloads, see
   edge. Double-click the slider or Reset for 1x. The zoom works like a crop:
   the picture area shows exactly what the output will, and the caption and
   watermark are not zoomed.
-- **Follow a person** (Advanced tab, under Zoom): click "Follow a person...",
-  then draw a box around the person on the picture; the app follows the box
-  from the playhead to the end of the range (or of the file), and the zoom
-  moves with them. Without a zoom yet, it sets one where the box fills about
+- **Follow** (Video tools under the timeline, or Advanced > Zoom): a lane
+  under the timeline with keyframes that move the zoomed view over the clip.
+  Click the lane to add a keyframe (the playhead goes there), then drag the
+  picture to aim the view; dragging the picture anywhere else adds a keyframe
+  at the playhead. Drag a keyframe to move it in time; double-click or
+  right-click it to remove it. Between keyframes the view moves on a smooth
+  curve that does not stop at each keyframe, and nothing overshoots a turning
+  point. The lane's solid line is the view's centre across, the dashed line its
+  centre down. The first keyframe sets a 2x zoom when there is none.
+  **Track...** (on the lane, or "Track a person..." in Advanced > Zoom): draw a
+  box around the person on the picture; the app follows the box from the
+  playhead to the end of the range (or of the file) and adds as few keyframes
+  as keep the view within 1% of the tracked path (15 for 8 s of a box moving
+  across and back). Without a zoom yet, it sets one where the box fills about
   85% of the picture; the zoom slider changes it. It reads the video small and
   grey once, looks for the box near where it was in each frame (it learns
-  slowly as the person turns), keeps the last position where something covers
-  it, and smooths the path over about half a second. The picture area plays
-  the path; where it is off, drag the picture to move the path there. Remove
-  takes the path away (and the zoom it set); Esc cancels drawing. The output
+  slowly as the person turns), and keeps the last position where something
+  covers it. Remove takes the keyframes away (and the zoom they set); Esc
+  cancels drawing. The output
   is the size of the window it moves, not the whole picture enlarged. It
   applies to ranges of the open file (not Splits or a still picture).
 - **Speed ramp**: Speed under the timeline shows a lane where the speed changes
@@ -266,7 +275,10 @@ building it yourself. For an overview and the downloads, see
   an over-limit mark, Play, Reveal and Copy path; "Clear finished" empties the
   list. While jobs run or wait, the Queue tab shows a badge with their count
   and the running job's percentage; jobs that finish while the editor is shown
-  are counted on the badge (red when one failed) until the queue is opened.
+  are counted on the badge until the queue is opened. The badge is orange
+  while a job encodes, grey while jobs wait in a paused queue, green when jobs
+  finished and red when one failed. Add to queue (`Ctrl+E`) leaves a job
+  waiting; Settings > Files > Queue can make it start the queue instead.
   The taskbar shows the progress of the running job. The list is saved and
   comes back after a restart: a job that was encoding when the app closed is
   marked "Interrupted", and waiting jobs wait for Start. Retry (or "Encode
@@ -331,6 +343,7 @@ Keys do nothing while a text field has focus.
 | Ctrl + O | open a file |
 | Ctrl + U | open a web link |
 | Ctrl + Enter | encode |
+| Ctrl + E | add to the queue |
 
 Pasting a link while no text field has focus opens it in the web link dialog.
 

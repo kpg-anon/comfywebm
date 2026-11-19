@@ -257,6 +257,12 @@ class AppState {
   showWave = $state(load<boolean>("timelineWave") ?? false);
   /** Thumbnails from every frame (made after the key frame ones, cached), not only from key frames. Remembered. */
   exactThumbs = $state(load<boolean>("timelineExact") ?? true);
+  /** Add to queue starts the queue too, instead of leaving the job waiting; remembered */
+  queueAutoStart = $state(load<boolean>("queueAutoStart") ?? false);
+  setQueueAutoStart(on: boolean) {
+    this.queueAutoStart = on;
+    save("queueAutoStart", on);
+  }
   setExactThumbs(on: boolean) {
     this.exactThumbs = on;
     save("timelineExact", on);
@@ -313,9 +319,11 @@ class AppState {
   rampLane = $state(false);
   /** Advanced > Zoom: 1 = the crop (or the whole picture); more is closer, less shows more of the picture around the crop */
   zoomLevel = $state(1);
-  /** the follow path (Advanced > Zoom > Follow): centres over file time (engine zoom.rs); empty = none.
-   *  Their `zoom` is not used: the job gets zoomLevel at every point. */
+  /** the follow keyframes (the Follow lane, Advanced > Zoom > Follow): centres over file time (engine zoom.rs);
+   *  empty = none. Their `zoom` is not used: the job gets zoomLevel at every point. */
   zoomPoints = $state<ZoomPoint[]>([]);
+  /** the Follow lane is shown under the timeline */
+  followLane = $state(false);
   playback = $state<Playback>("forward");
   deinterlace = $state(false);
   denoise = $state(false);
@@ -1503,6 +1511,39 @@ class AppState {
     const w = zoomMath.windowOf({ zoom: Math.max(1, this.zoomLevel), x: p.x, y: p.y }, f.w, f.h);
     return { x: f.x + w.x, y: f.y + w.y, w: w.w, h: w.h };
   }
+  /** The follow keyframe on the frame that holds source time t (within half a frame), or -1. */
+  followKeyAt(t: number): number {
+    // a keyframe at a frame's start (the tracker's) and the playhead in its middle are half a frame apart
+    const half = this.fpsSrc > 0 ? 0.55 / this.fpsSrc : 0.02;
+    const i = this.followPointAt(t);
+    return i >= 0 && Math.abs(this.zoomPoints[i].t - t) <= half + 1e-6 ? i : -1;
+  }
+
+  /** A follow keyframe at source time t, where the path is there now (the middle of
+   *  the picture on the first one); returns its index. The first one sets a zoom of 2x
+   *  when there is none, since following needs the picture zoomed in. */
+  addFollowKey(t: number): number {
+    let at = Math.min(Math.max(0, t), this.duration || t);
+    // in the middle of its frame, where the player shows that frame
+    const f = this.fpsSrc;
+    if (f > 0) at = Math.round(((Math.floor(at * f + 1e-4) + 0.5) / f) * 1e6) / 1e6;
+    const p = this.zoomPoints.length ? zoomMath.at(this.zoomPoints, at) : { zoom: 1, x: 0.5, y: 0.5 };
+    if (!this.zoomPoints.length && this.zoomLevel <= 1.001) {
+      this.zoomBeforeFollow = this.zoomLevel;
+      this.zoomLevel = 2;
+    }
+    const next = zoomMath.clean([...this.zoomPoints.filter((q) => Math.abs(q.t - at) >= 0.01), { t: at, zoom: 1, x: p.x, y: p.y }]);
+    this.zoomPoints = next;
+    this.followLane = true;
+    return next.findIndex((q) => q.t === at);
+  }
+
+  removeFollowKey(i: number) {
+    const next = this.zoomPoints.filter((_, k) => k !== i);
+    if (next.length) this.zoomPoints = next;
+    else this.clearFollow();
+  }
+
   /** The follow point nearest source time t (its index), or -1. */
   followPointAt(t: number): number {
     let best = -1;
@@ -1570,14 +1611,15 @@ class AppState {
       const first = toView({ x: pts[0].x - pts[0].w / 2, y: pts[0].y - pts[0].h / 2, w: pts[0].w, h: pts[0].h }, this.srcW, this.srcH, this.turn);
       // the box fills about 85% of the frame
       const zoom = Math.round(Math.min(zoomMath.MAX_ZOOM, Math.max(zoomMath.MIN_ZOOM, 0.85 * Math.min(frame.w / first.w, frame.h / first.h))) * 100) / 100;
-      const made: ZoomPoint[] = [];
-      for (let t = start; t <= end + 1e-6; t += 0.25) {
-        const p = pts.reduce((a, b) => (Math.abs(b.t - t) < Math.abs(a.t - t) ? b : a));
+      // the path on every tracked frame, then as few keyframes as keep within 1% of it
+      const dense: ZoomPoint[] = pts.map((p) => {
         const c = toView({ x: p.x, y: p.y, w: 0, h: 0 }, this.srcW, this.srcH, this.turn);
-        made.push({ t: Math.round(t * 1000) / 1000, zoom, x: (c.x - frame.x) / frame.w, y: (c.y - frame.y) / frame.h });
-      }
+        return { t: Math.round(p.t * 1000) / 1000, zoom: 1, x: (c.x - frame.x) / frame.w, y: (c.y - frame.y) / frame.h };
+      });
+      const made = zoomMath.simplify(dense, 0.01);
       const keep = this.zoomPoints.filter((q) => q.t < start - 0.01 || q.t > end + 0.01);
       this.zoomPoints = zoomMath.clean([...keep, ...made]);
+      this.followLane = true;
       // following needs a zoom past the frame; the box then fills about 85% of it
       if (this.zoomLevel <= 1.001) {
         this.zoomBeforeFollow = this.zoomLevel;
@@ -1586,8 +1628,8 @@ class AppState {
       const weak = pts.filter((p) => p.score < 0.35).length;
       this.toast({
         kind: "info",
-        title: `Following for ${fmtSecs(end - start)}`,
-        text: `At ${this.zoomLevel}x (Advanced > Zoom).${weak ? ` In ${weak} of ${pts.length} frames the box was hard to find (something in front of it); it stayed where it was there.` : ""} Drag the picture to correct the path where it is off; Remove takes it away.`,
+        title: `Following for ${fmtSecs(end - start)}: ${made.length} keyframes`,
+        text: `At ${this.zoomLevel}x (Advanced > Zoom).${weak ? ` In ${weak} of ${pts.length} frames the box was hard to find (something in front of it); it stayed where it was there.` : ""} Drag the picture to correct the view at the playhead; the keyframes are on the Follow lane under the timeline.`,
         path: null,
       });
     } catch (e) {
@@ -2060,6 +2102,7 @@ class AppState {
   private lastEnqueue: { key: string; t: number } | null = null;
 
   async enqueue(start: boolean) {
+    start ||= this.queueAutoStart;
     const s = this.spec;
     if (!s || !this.canEncode) return;
     const snap = $state.snapshot(s) as EncodeSpec;

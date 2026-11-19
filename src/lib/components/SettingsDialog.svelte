@@ -434,8 +434,8 @@
           value={app.exactThumbs ? "exact" : "key"}
           onchange={(v) => app.setExactThumbs(v === "exact")}
           options={[
-            { value: "exact", label: "Thumbnails from every frame" },
-            { value: "key", label: "Thumbnails from key frames only" },
+            { value: "exact", label: "Every frame" },
+            { value: "key", label: "Key frames only" },
           ]}
         />
       </div>
@@ -522,12 +522,8 @@
       </div>
       {#if stabUsed === "gyroflow"}
         <span class="hint">
-          <b>Gyroflow</b> (a separate program, installed by the button below; used by Stabilize in the Advanced tab). Before the encode, the stretch from the first range's
-          start to the last range's end is cut out, Gyroflow follows points across the picture to work out how the camera turned and renders a steadied copy, and the encode
-          uses that copy. It models a camera turning in 3D, including the wobble of phone cameras that read the picture line by line, and uses the graphics card when it can.
-          It adds a step that takes about as long as the stretch or longer, and needs temporary disk space for the copy (about 1 GB per minute of 1080p). Ranges far apart
-          make it process everything between them. On the flat test picture it removed about two thirds of the shake, less than vid.stab 1.4, whose model fits that
-          picture; Gyroflow is made for footage from a real camera. Splits use vid.stab or deshake instead.
+          <b>Gyroflow</b> (a separate program). Works out how the camera turned in 3D, including the wobble of phone cameras, and renders a steadied copy that the
+          encode uses. Slower than vid.stab and needs temporary disk space (about 1 GB per minute of 1080p). Splits use vid.stab or deshake instead.
         </span>
         <ToolInstall tool="gyroflow" label="Install Gyroflow" note={hasGyroflow ? "" : "the latest release from Gyroflow's GitHub, 84 to 153 MB"} oninstalled={() => (stabResult = null)} />
       {:else if stabUsed === "vidstab"}
@@ -618,6 +614,12 @@
         <button class="btn small" onclick={async () => { const d = await pickFolder("Output folder"); if (d) { outputDir = d; outputMode = "folder"; } }}>Choose</button>
       </div>
       <span class="hint">Where encoded files and saved frames go. Also set from the Output group in the sidebar.</span>
+    </div>
+
+    <div class="col">
+      <span>Queue</span>
+      <label><input type="checkbox" checked={app.queueAutoStart} onchange={(e) => app.setQueueAutoStart((e.currentTarget as HTMLInputElement).checked)} /> Add to queue starts encoding at once</label>
+      <span class="hint">Off: Add to queue (Ctrl+E) leaves the job waiting until you press Start in the queue. On: it starts the queue, like Encode. Applies at once.</span>
     </div>
 
     <label class="col">

@@ -535,6 +535,7 @@ class Splits {
   }
 
   async enqueue(start: boolean) {
+    start ||= app.queueAutoStart;
     const s = this.spec();
     if (!s) return;
     try {

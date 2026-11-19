@@ -584,8 +584,13 @@
     border-bottom-color: color-mix(in srgb, var(--accent) 35%, transparent);
     background: color-mix(in srgb, var(--accent) 10%, var(--bg-panel));
   }
+  /* jobs waiting while the queue is paused: grey; a job encoding: orange; done: green; failed: red */
   .badge.busy {
-    background: var(--accent);
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+  }
+  .badge.busy.run {
+    background: var(--orange);
     color: var(--text-inverse);
   }
   .badge.done {

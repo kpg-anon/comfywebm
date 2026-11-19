@@ -1,8 +1,9 @@
 //! Zoom: points over source time, each a zoom (1x = the whole picture) and
 //! the centre of what shows (0..1 across and down the picture after crop,
-//! rotation and flips). Between two points zoom and centre ease
-//! ((1 - cos(pi u)) / 2, so a move starts and stops gently); before the first
-//! and after the last they stay. The encode uses ffmpeg's zoompan, one output
+//! rotation and flips). Zoom and centre follow a smooth curve through the
+//! points (cubic Hermite, slopes as in `slopes`), so a move starts and stops
+//! gently at the first and last point and does not stop at the ones between;
+//! before the first and after the last they stay. The encode uses ffmpeg's zoompan, one output
 //! frame per input frame, where the final scale was (the caption and the
 //! watermark are drawn after it, so they do not zoom). ffmpeg's crop cannot
 //! change size per frame, and a scale with eval=frame ahead of it left crop
@@ -25,8 +26,31 @@ pub fn clean(points: &[ZoomPoint]) -> Vec<ZoomPoint> {
     p
 }
 
-fn ease(u: f64) -> f64 {
-    (1.0 - (std::f64::consts::PI * u.clamp(0.0, 1.0)).cos()) / 2.0
+/// The slope of one value at each point: 0 at the first and last and where
+/// the value turns back (a held point holds, nothing overshoots), else the
+/// mean of the slopes on each side, limited as in Fritsch-Carlson. The
+/// preview's zoom.ts does the same.
+fn slopes(p: &[ZoomPoint], f: impl Fn(&ZoomPoint) -> f64) -> Vec<f64> {
+    let n = p.len();
+    let d: Vec<f64> = p.windows(2).map(|w| (f(&w[1]) - f(&w[0])) / (w[1].t - w[0].t).max(1e-6)).collect();
+    (0..n)
+        .map(|i| {
+            if i == 0 || i + 1 == n {
+                return 0.0;
+            }
+            let (a, b) = (d[i - 1], d[i]);
+            if a * b <= 0.0 {
+                return 0.0;
+            }
+            let m = (a + b) / 2.0;
+            m.signum() * m.abs().min(3.0 * a.abs().min(b.abs()))
+        })
+        .collect()
+}
+
+/// The cubic between two points as `a + u*(c1 + u*(c2 + u*c3))`, u = 0..1.
+fn cubic(a: f64, b: f64, ma: f64, mb: f64) -> (f64, f64, f64) {
+    (ma, 3.0 * (b - a) - 2.0 * ma - mb, 2.0 * (a - b) + ma + mb)
 }
 
 /// Zoom and centre at source time `t` (for tests and checks; the encode uses the expressions).
@@ -36,11 +60,16 @@ pub fn at(points: &[ZoomPoint], t: f64) -> (f64, f64, f64) {
     if t <= first.t {
         return (first.zoom, first.x, first.y);
     }
-    for w in p.windows(2) {
+    let (mz, mx, my) = (slopes(&p, |q| q.zoom), slopes(&p, |q| q.x), slopes(&p, |q| q.y));
+    for (i, w) in p.windows(2).enumerate() {
         if t <= w[1].t {
-            let u = ease((t - w[0].t) / (w[1].t - w[0].t).max(1e-9));
-            let l = |a: f64, b: f64| a + (b - a) * u;
-            return (l(w[0].zoom, w[1].zoom), l(w[0].x, w[1].x), l(w[0].y, w[1].y));
+            let h = (w[1].t - w[0].t).max(1e-6);
+            let u = (t - w[0].t) / h;
+            let v = |a: f64, b: f64, m: &[f64]| {
+                let (c1, c2, c3) = cubic(a, b, m[i] * h, m[i + 1] * h);
+                a + u * (c1 + u * (c2 + u * c3))
+            };
+            return (v(w[0].zoom, w[1].zoom, &mz), v(w[0].x, w[1].x, &mx), v(w[0].y, w[1].y, &my));
         }
     }
     let last = p[p.len() - 1];
@@ -79,11 +108,14 @@ fn value(p: &[ZoomPoint], f: impl Fn(&ZoomPoint) -> f64) -> String {
     if p.len() == 1 {
         return num(f(&p[0]));
     }
+    let m = slopes(p, &f);
     let mut expr = num(f(&p[p.len() - 1]));
-    for w in p.windows(2).rev() {
+    for (i, w) in p.windows(2).enumerate().rev() {
         let (a, b) = (&w[0], &w[1]);
         let span = (b.t - a.t).max(1e-6);
-        let seg = format!("{}+({})*(1-cos(PI*(ld(0)-{})/{}))/2", num(f(a)), num(f(b) - f(a)), num(a.t), num(span));
+        let (c1, c2, c3) = cubic(f(a), f(b), m[i] * span, m[i + 1] * span);
+        // u is kept in ld(1)
+        let seg = format!("st(1,(ld(0)-{})/{});{}+ld(1)*(({})+ld(1)*(({})+ld(1)*({})))", num(a.t), num(span), num(f(a)), num(c1), num(c2), num(c3));
         expr = format!("if(lte(ld(0),{}),{seg},{expr})", num(b.t));
     }
     format!("if(lte(ld(0),{}),{},{expr})", num(p[0].t), num(f(&p[0])))
@@ -127,6 +159,14 @@ mod tests {
         assert!((z - 2.0).abs() < 1e-9 && (x - 0.35).abs() < 1e-9, "{z} {x}");
         // eased: a quarter of the way in time is less than a quarter of the way in zoom
         assert!(at(&p, 2.5).0 < 1.5);
+        // a point between two others is passed through without stopping, and a turning point holds
+        let p = [pt(0.0, 2.0, 0.0, 0.5), pt(1.0, 2.0, 0.5, 0.5), pt(2.0, 2.0, 1.0, 0.5)];
+        assert!((at(&p, 1.0).1 - 0.5).abs() < 1e-9);
+        assert!(at(&p, 1.1).1 > 0.55, "moving at the middle point: {}", at(&p, 1.1).1);
+        let p = [pt(0.0, 2.0, 0.0, 0.5), pt(1.0, 2.0, 0.8, 0.5), pt(2.0, 2.0, 0.2, 0.5)];
+        for k in 0..=20 {
+            assert!(at(&p, k as f64 / 10.0).1 <= 0.8 + 1e-9, "no overshoot");
+        }
         // out-of-range values are clamped, unsorted points sorted
         assert_eq!(clean(&[pt(5.0, 9.0, 2.0, -1.0), pt(1.0, 0.5, 0.5, 0.5)]), vec![pt(1.0, 1.0, 0.5, 0.5), pt(5.0, 4.0, 1.0, 0.0)]);
     }
@@ -148,6 +188,6 @@ mod tests {
             "zoompan=z='st(0,it-0+0);2':x='st(0,it-0+0);clip((0.25)*iw-iw/zoom/2,0,iw-iw/zoom)':y='st(0,it-0+0);clip((0.5)*ih-ih/zoom/2,0,ih-ih/zoom)':d=1:s=640x360:fps=29.97,settb=AVTB,setpts=N/29.97/TB"
         );
         let f = filter(&[pt(1.0, 1.0, 0.5, 0.5), pt(3.0, 2.0, 0.5, 0.5)], &[(0.0, 5.0)], 640, 360, 30.0).unwrap();
-        assert!(f.contains("z='st(0,it-0+0);if(lte(ld(0),1),1,if(lte(ld(0),3),1+(1)*(1-cos(PI*(ld(0)-1)/2))/2,2))'"), "{f}");
+        assert!(f.contains("z='st(0,it-0+0);if(lte(ld(0),1),1,if(lte(ld(0),3),st(1,(ld(0)-1)/2);1+ld(1)*((0)+ld(1)*((3)+ld(1)*(-2))),2))'"), "{f}");
     }
 }

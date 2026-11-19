@@ -146,7 +146,7 @@ class Batch {
     const specs = this.specs.map((s) => $state.snapshot(s.spec) as EncodeSpec);
     if (!specs.length) return;
     try {
-      const jobs = await ipc.queueAddMany(specs, start);
+      const jobs = await ipc.queueAddMany(specs, start || app.queueAutoStart);
       for (const j of jobs) if (!app.jobs.some((x) => x.id === j.id)) app.jobs.push(j);
       app.toast({
         kind: "info",
@@ -184,7 +184,7 @@ class Batch {
     try {
       // check first, so a problem shows here and not when the job starts
       await ipc.plan(spec);
-      const j = await ipc.queueAdd(spec, start);
+      const j = await ipc.queueAdd(spec, start || app.queueAutoStart);
       if (!app.jobs.some((x) => x.id === j.id)) app.jobs.push(j);
       app.toast({
         kind: "info",

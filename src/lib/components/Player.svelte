@@ -6,6 +6,7 @@
   import CropOverlay from "./CropOverlay.svelte";
   import { ratioOf } from "$lib/crop";
   import * as ramp from "$lib/ramp";
+  import * as zoomMath from "$lib/zoom";
   import type { SpeedPoint } from "$lib/types";
   import Icon from "./Icon.svelte";
 
@@ -196,16 +197,16 @@
   });
   const hasSound = $derived(!!app.media?.audio.length);
 
-  // With a follow path, dragging the picture moves the path point nearest the
-  // playhead (the picture moves with the pointer, the window the other way); a
-  // click without a drag plays and pauses as before.
+  // With follow keyframes, dragging the picture moves the view at the playhead:
+  // the keyframe on this frame, or a new one made here once the drag starts
+  // (the picture moves with the pointer, the window the other way); a click
+  // without a drag plays and pauses as before.
   let pan: { x0: number; y0: number; i: number; cx: number; cy: number; moved: boolean } | null = null;
   let panned = false;
   function panDown(e: PointerEvent) {
     if (e.button !== 0 || !app.zoomPoints.length || app.cropMode || app.followMode) return;
-    const i = app.followPointAt(app.current);
-    const p = app.zoomPoints[i];
-    if (!p) return;
+    const i = app.followKeyAt(app.current);
+    const p = i >= 0 ? app.zoomPoints[i] : zoomMath.at(app.zoomPoints, app.current);
     pan = { x0: e.clientX, y0: e.clientY, i, cx: p.x, cy: p.y, moved: false };
   }
   function panMove(e: PointerEvent) {
@@ -217,6 +218,7 @@
       pan.moved = true;
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       app.video?.pause();
+      if (pan.i < 0) pan.i = app.addFollowKey(app.current);
     }
     // screen pixels per frame width
     const f = app.zoomFrame;
@@ -521,14 +523,6 @@
   {/if}
   {#if app.videoSrc}
     <div class="vctl">
-    <button
-      class="spk loopbtn"
-      class:on={app.loop}
-      aria-pressed={app.loop}
-      aria-label="Loop the selected range (L)"
-      title="Loop the selected range (L)"
-      onclick={() => app.toggleLoop()}
-    ><Icon name="loop" size={16} /></button>
     {#if hasSound}
     <div class="sound" class:off={app.muted} onwheel={soundWheel}>
       <input
@@ -550,6 +544,14 @@
       </button>
     </div>
     {/if}
+    <button
+      class="spk loopbtn"
+      class:on={app.loop}
+      aria-pressed={app.loop}
+      aria-label="Loop the selected range (L)"
+      title="Loop the selected range (L)"
+      onclick={() => app.toggleLoop()}
+    ><Icon name="loop" size={16} /></button>
     </div>
   {/if}
   {#if app.seekPending && app.paused && app.media && !app.audioOnly}
@@ -720,7 +722,7 @@
   .stage.panning {
     cursor: grab;
   }
-  /* the corner controls, bottom right: Loop and the speaker */
+  /* the corner controls, bottom right: the speaker, and Loop in the corner */
   .vctl {
     position: absolute;
     right: 10px;

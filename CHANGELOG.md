@@ -9,6 +9,16 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- Follow is a lane of keyframes under the timeline, opened by the new Follow
+  button in Video tools (the six buttons are now 3 x 2). Click the lane to add
+  a keyframe and drag the picture to aim the view; drag a keyframe to move it,
+  double-click or right-click it to remove it. Track... follows a person and
+  adds keyframes fitted to the tracked path (within 1% of it; 15 keyframes for
+  8 s of a moving box) instead of a point every 0.25 s.
+- `Ctrl+E` adds to the queue; the Add to queue button shows it.
+- Settings > Files > Queue: Add to queue can start encoding at once instead of
+  leaving the job waiting.
+
 - Install ffmpeg and Install yt-dlp, in Settings > Tools and on the screen
   that says one is missing, so nothing has to be fetched by hand. ffmpeg on
   Windows and Linux is BtbN's newest release-branch GPL build (n9.0.2 with
@@ -37,6 +47,22 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   306-326. Test: 9.9 -> 3.1 (69% less) in 2.7 s. A picture with too little
   detail gives Gyroflow's own reason ("Not enough of the image could be
   tracked").
+
+### Changed
+
+- Zoom and follow keyframes: the view moves on a smooth curve through the
+  keyframes (cubic, slopes limited as in Fritsch-Carlson) instead of easing
+  to a stop at each one. It still starts and stops gently at the first and
+  last keyframe and holds at a keyframe where the movement turns back. The
+  preview (zoom.ts) and the encode (zoom.rs) use the same curve; a test
+  encode matched the preview's window at every frame checked.
+- The Queue tab's badge: orange while a job encodes, grey while jobs wait in a
+  paused queue, green when done, red when one failed.
+- Settings > Look > Timeline: the thumbnail choices read "Every frame" and
+  "Key frames only".
+- The player's corner: the sound control comes first and Loop sits in the
+  corner.
+- Settings > Tools > Stabilization: the Gyroflow description is shorter.
 
 ## [1.1.2] - 2026-11-19
 

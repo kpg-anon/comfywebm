@@ -212,7 +212,12 @@
   // Stabilize's method: "auto" = vid.stab when this ffmpeg has it, else deshake
   let stabChoice = $state<string>(app.settings.stabMethod ?? "auto");
   const hasVidstab = $derived(!!app.tools?.filters.vidstab);
-  const stabUsed = $derived<StabMethod>(stabChoice === "vidstab" || (stabChoice === "auto" && hasVidstab) ? (hasVidstab ? "vidstab" : "deshake") : "deshake");
+  const hasGyroflow = $derived(!!app.settings.gyroflowPath);
+  /** the method shown and tested: Gyroflow as chosen even before it is installed (the install button shows) */
+  const stabUsed = $derived<StabMethod>(
+    stabChoice === "gyroflow" ? "gyroflow" : stabChoice === "vidstab" || (stabChoice === "auto" && hasVidstab) ? (hasVidstab ? "vidstab" : "deshake") : "deshake",
+  );
+  const methodName = (m: StabMethod) => (m === "vidstab" ? "vid.stab" : m === "gyroflow" ? "Gyroflow" : "deshake");
   let stabTesting = $state(false);
   let stabResult = $state<{ method: StabMethod; text: string; bad: boolean } | null>(null);
   async function testStab() {
@@ -226,7 +231,7 @@
       stabResult = {
         method,
         bad: left > 0.7,
-        text: `${method === "vidstab" ? "vid.stab" : "deshake"}: the test clip's shake went from ${r.before.toFixed(1)} to ${r.after.toFixed(1)} (${pct}% less) in ${r.secs.toFixed(1)} s.${left > 0.7 ? " That is little: this ffmpeg's stabilizer may be broken or very weak." : ""}`,
+        text: `${methodName(method)}: the test clip's shake went from ${r.before.toFixed(1)} to ${r.after.toFixed(1)} (${pct}% less) in ${r.secs.toFixed(1)} s.${left > 0.7 ? " That is little: this ffmpeg's stabilizer may be broken or very weak." : ""}`,
       };
     } catch (e) {
       stabResult = { method, bad: true, text: `The test failed: ${ipc.errText(e)}` };
@@ -510,11 +515,22 @@
             { value: "auto", label: `Automatic (${hasVidstab ? "vid.stab" : "deshake"})`, hint: "vid.stab when this ffmpeg has it" },
             { value: "vidstab", label: "vid.stab", hint: hasVidstab ? "two passes" : "not in this ffmpeg", disabled: !hasVidstab },
             { value: "deshake", label: "deshake", hint: "one pass" },
+            { value: "gyroflow", label: "Gyroflow", hint: hasGyroflow ? "separate program" : "not installed" },
           ]}
         />
-        <button class="btn small" disabled={stabTesting || !app.tools?.ffmpeg} title="Shakes a test picture by a known amount (3 s), steadies it with this method and measures how much shake is left" onclick={testStab}>{stabTesting ? "Testing..." : "Test"}</button>
+        <button class="btn small" disabled={stabTesting || !app.tools?.ffmpeg || (stabUsed === "gyroflow" && !hasGyroflow)} title="Shakes a test picture by a known amount (3 s), steadies it with this method and measures how much shake is left" onclick={testStab}>{stabTesting ? "Testing..." : "Test"}</button>
       </div>
-      {#if stabUsed === "vidstab"}
+      {#if stabUsed === "gyroflow"}
+        <span class="hint">
+          <b>Gyroflow</b> (a separate program, installed by the button below; used by Stabilize in the Advanced tab). Before the encode, the stretch from the first range's
+          start to the last range's end is cut out, Gyroflow follows points across the picture to work out how the camera turned and renders a steadied copy, and the encode
+          uses that copy. It models a camera turning in 3D, including the wobble of phone cameras that read the picture line by line, and uses the graphics card when it can.
+          It adds a step that takes about as long as the stretch or longer, and needs temporary disk space for the copy (about 1 GB per minute of 1080p). Ranges far apart
+          make it process everything between them. On the flat test picture it removed about two thirds of the shake, less than vid.stab 1.4, whose model fits that
+          picture; Gyroflow is made for footage from a real camera. Splits use vid.stab or deshake instead.
+        </span>
+        <ToolInstall tool="gyroflow" label="Install Gyroflow" note={hasGyroflow ? "" : "the latest release from Gyroflow's GitHub, 84 to 153 MB"} oninstalled={() => (stabResult = null)} />
+      {:else if stabUsed === "vidstab"}
         <span class="hint">
           <b>vid.stab</b> (used by Stabilize in the Advanced tab). Two passes over each range: first it follows points across the picture to work out how the camera moved, then it smooths
           that path over a second on each side and moves every frame onto it. It handles shifts and turns, and zooms in just enough to keep the moved edges out of the picture.

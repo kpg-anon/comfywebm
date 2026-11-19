@@ -447,6 +447,8 @@ pub enum StabMethod {
     Deshake,
     /// vid.stab: an analysis pass per range, then vidstabtransform
     Vidstab,
+    /// Gyroflow (gyro.rs): the span of the ranges steadied by Gyroflow before the encode
+    Gyroflow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

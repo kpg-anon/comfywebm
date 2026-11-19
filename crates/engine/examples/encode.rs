@@ -194,7 +194,7 @@ fn real_main() -> Result<(), String> {
     println!("plan: {}", serde_json::to_string_pretty(&shown).unwrap());
 
     let cancel = run::Cancel::new();
-    let outcome = run::run_job(&ffmpeg, &spec, &info, Path::new(&output), zscale, Some(&sources), &cancel, |p| {
+    let outcome = run::run_job(&ffmpeg, &spec, &info, Path::new(&output), zscale, Some(&sources), None, &cancel, |p| {
         print!(
             "\rattempt {} pass {}/{} {:5.1}% speed {:?} eta {:?}      ",
             p.attempt,

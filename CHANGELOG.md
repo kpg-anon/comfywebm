@@ -27,6 +27,16 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   check. ffmpeg 8.1 builds with vid.stab before 1.4 (for example gyan.dev
   8.1.1) damaged the picture (FFmpeg ticket 22595); the app gives vid.stab a
   copy of each frame, which avoids it.
+- Gyroflow as a third Stabilize method, with Install Gyroflow (its newest
+  release from GitHub, 80 MB on Windows). Before the encode the ranges' span
+  is cut out (x264 CRF 8, sound as PCM), Gyroflow steadies it from the picture
+  alone (`--ignore-file-motion --optical-correction 100`) into ProRes 422, and
+  the job is planned on that file with all times moved back by the span's
+  start (ranges, speed ramp, zoom, subtitles; embedded subtitles are taken out
+  as a file first). Frame-exact: a test kept exactly frames 100-120 and
+  306-326. Test: 9.9 -> 3.1 (69% less) in 2.7 s. A picture with too little
+  detail gives Gyroflow's own reason ("Not enough of the image could be
+  tracked").
 
 ### Fixed
 

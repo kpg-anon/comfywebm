@@ -215,6 +215,14 @@ building it yourself. For an overview and the downloads, see
   August 2026 on) removed about 90%, older vid.stab about half, deshake about
   a quarter. ffmpeg 8.1 with vid.stab before 1.4 damages the picture (FFmpeg
   ticket 22595); the app passes vid.stab a copy of each frame, which avoids it.
+  **Gyroflow** (a separate program; Install Gyroflow downloads it) works before
+  the encode: the stretch from the first range's start to the last range's end
+  is cut out, Gyroflow works out from the picture how the camera turned (in 3D,
+  with the line-by-line wobble of phone cameras) and renders a steadied copy as
+  ProRes, and the encode uses that copy. It needs temporary disk space (about
+  1 GB per minute of 1080p) and a step about as long as the stretch; it removed
+  about two thirds of the test shake. Splits use vid.stab or deshake instead;
+  Frame (S) and the quality check show the picture without it.
 - **Caption**: text drawn on the picture, at the top or bottom edge or
   anywhere (Custom: drag it on the player, or type the position across and
   down in percent), sized as a share of the output height. Font (any installed font, or a .ttf/.otf file), text

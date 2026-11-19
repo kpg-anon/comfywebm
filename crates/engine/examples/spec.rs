@@ -64,7 +64,9 @@ fn real_main() -> Result<(), String> {
         });
     }
     let out = Path::new(&output);
-    match run::run_job(&ffmpeg, &spec, &info, out, st.filters.zscale, Some(&sources), &cancel, |_| {}) {
+    // CWM_GYROFLOW=<Gyroflow program>: Stabilize with Gyroflow can run
+    let gyro = std::env::var_os("CWM_GYROFLOW").map(|g| comfywebm_engine::gyro::Gyro { gyroflow: g.into(), ffprobe: ffprobe.clone() });
+    match run::run_job(&ffmpeg, &spec, &info, out, st.filters.zscale, Some(&sources), gyro.as_ref(), &cancel, |_| {}) {
         Ok(o) => {
             println!("output: {}", o.output.display());
             println!("result: {}", serde_json::to_string(&o.result).unwrap());

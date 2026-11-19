@@ -250,10 +250,28 @@ pub fn run_job(
     final_path: &Path,
     zscale: bool,
     sources: Option<&std::collections::HashMap<String, MediaInfo>>,
+    gyro: Option<&crate::gyro::Gyro>,
     cancel: &Cancel,
     mut on_progress: impl FnMut(&Progress),
 ) -> Result<Outcome, RunError> {
     let started = Instant::now();
+    // Stabilize with Gyroflow: the job moves onto Gyroflow's steadied file first,
+    // shown as pass 1 with the first 40% of the bar
+    let mut gyro_files: Vec<PathBuf> = Vec::new();
+    let prepared;
+    let (spec, info, gyro_len) = if spec.stabilize && spec.stab_method == crate::spec::StabMethod::Gyroflow {
+        let g = gyro.ok_or_else(|| RunError::Failed("Stabilize is set to Gyroflow, but Gyroflow is not installed (Settings > Tools).".into()))?;
+        let work = passlog_prefix();
+        let encode_passes = plan::build(spec, info, &Opts { zscale, sources, ..Opts::new("", "") }).map(|p| p.passes.len() as u32).unwrap_or(1);
+        prepared = crate::gyro::prepare(ffmpeg, g, spec, info, &work, cancel, |f| {
+            on_progress(&Progress { fraction: f * 0.4, pass: 1, passes: encode_passes + 1, attempt: 1, speed: None, eta_secs: None })
+        })?;
+        gyro_files = prepared.files.clone();
+        (&prepared.spec, &prepared.info, 0.4)
+    } else {
+        (spec, info, 0.0)
+    };
+    let _gyro_cleanup = Cleanup { passlog: PathBuf::from("comfywebm-no-such-prefix"), files: gyro_files };
     let part = naming::part_path(final_path);
     let best_path = {
         let mut s = final_path.as_os_str().to_owned();
@@ -282,7 +300,7 @@ pub fn run_job(
         // the stabilizer's analysis runs once, before the first attempt, as an extra pass
         // with a quarter of the attempt's progress bar; its files serve every attempt
         let pre = attempt == 1 && !planned.prepasses.is_empty();
-        let (shift, pre_len) = if pre { (1, 0.25) } else { (0, 0.0) };
+        let (shift, pre_len) = if pre { (1, 0.25) } else if gyro_len > 0.0 { (1, gyro_len) } else { (0, 0.0) };
         let total_passes = encode_passes + shift;
         // (pass number, args, start and length of this pass in the attempt's fraction)
         let runs: Vec<(u32, &Vec<String>, f64, f64)> = if encode_passes == 2 && pass1_done && planned.reuse_pass1 {
@@ -381,6 +399,7 @@ pub fn sample(
     out: &Path,
     zscale: bool,
     secs: f64,
+    gyro: Option<&crate::gyro::Gyro>,
     cancel: &Cancel,
 ) -> Result<(), RunError> {
     // a joined spec: the sample uses the first file's ranges only
@@ -412,6 +431,16 @@ pub fn sample(
     let passlog = passlog_prefix();
     let _cleanup = Cleanup { passlog: passlog.clone(), files: Vec::new() };
     let passlog_s = passlog.to_string_lossy().into_owned();
+    // Gyroflow: the sample's few seconds steadied first (gyro.rs)
+    let prepared;
+    let (s, info) = if s.stabilize && s.stab_method == crate::spec::StabMethod::Gyroflow {
+        let g = gyro.ok_or_else(|| RunError::Failed("Stabilize is set to Gyroflow, but Gyroflow is not installed (Settings > Tools).".into()))?;
+        prepared = crate::gyro::prepare(ffmpeg, g, &s, info, &passlog, cancel, |_| {})?;
+        (prepared.spec.clone(), &prepared.info)
+    } else {
+        (s, info)
+    };
+    let _gyro_cleanup = Cleanup { passlog: PathBuf::from("comfywebm-no-such-prefix"), files: if s.input.ends_with("-gyro.mov") { vec![PathBuf::from(&s.input)] } else { Vec::new() } };
     let opts = Opts { video_kbps: full.video_kbps, zscale, single_pass: true, ..Opts::new(&out_s, &passlog_s) };
     let planned = plan::build(&s, info, &opts)?;
     let res = run_prepasses(ffmpeg, &planned, cancel, |_, _| {}).and_then(|()| run_ffmpeg(ffmpeg, &planned.passes[0], planned.duration_out, cancel, |_| {}));
@@ -433,6 +462,10 @@ pub fn export_frame_processed(ffmpeg: &Path, spec: &EncodeSpec, info: &MediaInfo
     s.fade_out = 0.0;
     s.playback = crate::spec::Playback::Forward;
     s.stream_copy = false;
+    // Gyroflow runs before an encode (gyro.rs); one frame is shown without it
+    if s.stab_method == crate::spec::StabMethod::Gyroflow {
+        s.stabilize = false;
+    }
     s.segment_sources.clear();
     // a video codec, so no GIF palette step; the encoder itself is not used
     s.container = crate::spec::Container::Webm;

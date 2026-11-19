@@ -63,6 +63,10 @@ pub fn check(ffmpeg: &Path, spec: &EncodeSpec, info: &MediaInfo, zscale: bool, d
     let mut probe = own.clone();
     probe.segments = vec![Segment { start: ws, end: we }];
     probe.speed_ramp.clear();
+    // Gyroflow runs before an encode (gyro.rs); the check measures compression, so it goes without
+    if probe.stab_method == crate::spec::StabMethod::Gyroflow {
+        probe.stabilize = false;
+    }
     probe.fade_in = 0.0;
     probe.fade_out = 0.0;
     probe.audio = None;

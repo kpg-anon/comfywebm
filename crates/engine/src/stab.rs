@@ -56,12 +56,13 @@ fn shake(ffmpeg: &Path, clip: &Path) -> Result<f64, String> {
 }
 
 /// Runs the test in `dir` (its files are removed afterwards).
-pub fn self_test(ffmpeg: &Path, method: StabMethod, dir: &Path) -> Result<StabTest, String> {
+pub fn self_test(ffmpeg: &Path, method: StabMethod, dir: &Path, gyroflow: Option<&Path>) -> Result<StabTest, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
     let pid = std::process::id();
     let shaken = dir.join(format!("stabtest-{pid}-in.mkv"));
     let steady = dir.join(format!("stabtest-{pid}-out.mkv"));
     let trf = dir.join(format!("stabtest-{pid}.trf"));
+    let gyro_out = dir.join(format!("stabtest-{pid}-gyro.mov"));
     let res = (|| {
         // 3 s of one detailed picture, moved and turned like a hand-held camera
         // (up to about 50 px and 1.4 degrees); FFV1 is in every ffmpeg and lossless.
@@ -71,7 +72,12 @@ pub fn self_test(ffmpeg: &Path, method: StabMethod, dir: &Path) -> Result<StabTe
             crop=960:540:'160+35*sin(2*PI*t*1.3)+15*sin(2*PI*t*5.7+1)':'90+25*sin(2*PI*t*1.7+2)+10*sin(2*PI*t*6.3)',            format=yuv420p";
         let shaken_s = shaken.to_string_lossy().into_owned();
         let steady_s = steady.to_string_lossy().into_owned();
-        ffmpeg_ok(ffmpeg, &["-f", "lavfi", "-i", shake_vf, "-r", "30", "-c:v", "ffv1", &shaken_s], "Making the test clip")?;
+        // Gyroflow reads H.264 better than FFV1; near-lossless is enough for the test
+        let codec: &[&str] = if method == StabMethod::Gyroflow { &["-c:v", "libx264", "-preset", "veryfast", "-crf", "8"] } else { &["-c:v", "ffv1"] };
+        let mut make = vec!["-f", "lavfi", "-i", shake_vf, "-r", "30"];
+        make.extend_from_slice(codec);
+        make.push(&shaken_s);
+        ffmpeg_ok(ffmpeg, &make, "Making the test clip")?;
         let before = shake(ffmpeg, &shaken)?;
         let t0 = std::time::Instant::now();
         match method {
@@ -85,11 +91,20 @@ pub fn self_test(ffmpeg: &Path, method: StabMethod, dir: &Path) -> Result<StabTe
                 let vf = format!("copy,vidstabtransform=input={t}:smoothing=30:optzoom=1:crop=black:interpol=bicubic");
                 ffmpeg_ok(ffmpeg, &["-i", &shaken_s, "-vf", &vf, "-c:v", "ffv1", &steady_s], "vidstabtransform")?;
             }
+            StabMethod::Gyroflow => {
+                let g = gyroflow.ok_or("Gyroflow is not installed.")?;
+                crate::gyro::run_gyroflow(g, &shaken, &gyro_out, false, &crate::run::Cancel::new(), |_| {}).map_err(|e| match e {
+                    crate::run::RunError::Failed(m) => m,
+                    crate::run::RunError::Canceled => "Canceled".into(),
+                })?;
+                let secs = t0.elapsed().as_secs_f64();
+                return Ok(StabTest { before, after: shake(ffmpeg, &gyro_out)?, secs });
+            }
         }
         let secs = t0.elapsed().as_secs_f64();
         Ok(StabTest { before, after: shake(ffmpeg, &steady)?, secs })
     })();
-    for f in [&shaken, &steady, &trf] {
+    for f in [&shaken, &steady, &trf, &gyro_out] {
         let _ = std::fs::remove_file(f);
     }
     res
@@ -105,10 +120,10 @@ mod tests {
         let t = crate::tools::find(None, None);
         let Some(ffmpeg) = t.ffmpeg.clone() else { return };
         let dir = std::env::temp_dir().join(format!("cwm-stabtest-{}", std::process::id()));
-        let d = self_test(&ffmpeg, StabMethod::Deshake, &dir).unwrap();
+        let d = self_test(&ffmpeg, StabMethod::Deshake, &dir, None).unwrap();
         assert!(d.before > 3.0 && d.after < d.before, "{d:?}");
         if crate::tools::status(&t).filters.vidstab {
-            let v = self_test(&ffmpeg, StabMethod::Vidstab, &dir).unwrap();
+            let v = self_test(&ffmpeg, StabMethod::Vidstab, &dir, None).unwrap();
             // vid.stab before 1.4 removes about half of it, 1.4 about 90%
             assert!(v.after < v.before * 0.7, "{v:?}");
         }

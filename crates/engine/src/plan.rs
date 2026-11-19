@@ -1356,8 +1356,9 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     let stabilized = |i: usize| spec.stabilize && still.is_none() && !clip_info(i).still;
     let stab: Vec<Option<String>> = (0..segs.len())
         .map(|i| {
-            stabilized(i).then(|| match spec.stab_method {
-                StabMethod::Deshake => "deshake".to_string(),
+            // Gyroflow works before the plan (gyro.rs): nothing in the graph
+            (stabilized(i) && spec.stab_method != StabMethod::Gyroflow).then(|| match spec.stab_method {
+                StabMethod::Deshake | StabMethod::Gyroflow => "deshake".to_string(),
                 StabMethod::Vidstab => {
                     let fps = clip_info(i).video.fps;
                     // a second of frames on each side of a frame: vid.stab before 1.4 left

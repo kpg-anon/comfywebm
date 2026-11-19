@@ -89,7 +89,7 @@ export type Container = "webm" | "mp4" | "gif" | "webp" | "audio";
 export type Codec = "vp9" | "vp8" | "av1" | "h264" | "hevc" | "gif" | "webp" | "opus" | "mp3" | "aac";
 export type Effort = "fast" | "balanced" | "best";
 /** Stabilize's method (engine spec.rs StabMethod) */
-export type StabMethod = "deshake" | "vidstab";
+export type StabMethod = "deshake" | "vidstab" | "gyroflow";
 export type Rotate = 0 | 90 | 180 | 270;
 export type Playback = "forward" | "reverse" | "boomerang";
 

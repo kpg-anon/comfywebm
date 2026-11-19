@@ -298,7 +298,8 @@ async fn stab_test(app: AppHandle, method: StabMethod) -> Result<stab::StabTest,
     blocking(move || {
         let state = app.state::<AppState>();
         let ffmpeg = state.ffmpeg()?;
-        stab::self_test(&ffmpeg, method, &state.cache_dir.join("stabtest"))
+        let gyro = state.gyro();
+        stab::self_test(&ffmpeg, method, &state.cache_dir.join("stabtest"), gyro.as_ref().map(|g| g.gyroflow.as_path()))
     })
     .await
 }
@@ -670,7 +671,8 @@ async fn preview_sample(app: AppHandle, spec: EncodeSpec, at: f64, secs: Option<
         }
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
         let out = dir.join(format!("sample-{}-{n}.{}", std::process::id(), spec.ext()));
-        let res = run::sample(&ffmpeg, &spec, &info, at, &out, state.zscale(), secs.unwrap_or(run::SAMPLE_SECS), &cancel);
+        let gyro = state.gyro();
+        let res = run::sample(&ffmpeg, &spec, &info, at, &out, state.zscale(), secs.unwrap_or(run::SAMPLE_SECS), gyro.as_ref(), &cancel);
         {
             let mut r = samples.running.lock().unwrap();
             if r.as_ref().is_some_and(|c| Arc::ptr_eq(c, &cancel)) {

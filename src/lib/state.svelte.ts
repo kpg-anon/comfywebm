@@ -513,11 +513,18 @@ class AppState {
   spec = $derived.by((): EncodeSpec | null => (this.media ? this.specFor(this.media, this.outSegments, true) : null));
 
   /** Warnings the UI adds on top of the ones from `plan`. */
-  /** Stabilize's method: the one chosen in Settings when ffmpeg has it; unset, vid.stab when ffmpeg has it */
+  /** Stabilize without Gyroflow: vid.stab when ffmpeg has it, else deshake */
+  get stabFallback(): StabMethod {
+    return this.tools?.filters.vidstab ? "vidstab" : "deshake";
+  }
+
+  /** Stabilize's method: the one chosen in Settings when it is there (ffmpeg's vid.stab,
+   *  the Gyroflow program); unset, vid.stab when ffmpeg has it */
   get stabMethod(): StabMethod {
-    const has = !!this.tools?.filters.vidstab;
-    const chosen = this.settings.stabMethod ?? (has ? "vidstab" : "deshake");
-    return chosen === "vidstab" && !has ? "deshake" : chosen;
+    const chosen = this.settings.stabMethod ?? this.stabFallback;
+    if (chosen === "vidstab" && !this.tools?.filters.vidstab) return "deshake";
+    if (chosen === "gyroflow" && !this.settings.gyroflowPath) return this.stabFallback;
+    return chosen;
   }
 
   uiWarnings = $derived.by((): string[] => {
@@ -533,6 +540,8 @@ class AppState {
       if (this.subsKind !== "off" && !t.filters.subtitles) w.push("This ffmpeg has no subtitles filter; subtitles cannot be burned in.");
       if (this.stabilize && this.settings.stabMethod === "vidstab" && !t.filters.vidstab)
         w.push("Stabilize is set to vid.stab (Settings > Tools), but this ffmpeg has no vid.stab, so deshake is used.");
+      if (this.stabilize && this.settings.stabMethod === "gyroflow" && !this.settings.gyroflowPath)
+        w.push(`Stabilize is set to Gyroflow (Settings > Tools), but Gyroflow is not installed, so ${this.stabFallback === "vidstab" ? "vid.stab" : "deshake"} is used.`);
     }
     const p = this.preset;
     if (this.media && p?.maxDuration && this.outLen > p.maxDuration + 1e-6)

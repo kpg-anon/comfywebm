@@ -410,6 +410,8 @@ class Splits {
     const len = this.length_;
     s.segments = this.clips.map((c) => (c.still ? { start: 0, end: Math.max(0.1, this.split ? len : own(c)) } : { start: c.start, end: c.end }));
     s.segmentSources = this.clips.map((c, i) => (i === 0 ? null : c.path));
+    // Gyroflow steadies one file (engine gyro.rs): the clips of several files use the fallback
+    if (s.stabMethod === "gyroflow") s.stabMethod = app.stabFallback;
     s.layout = this.layout();
     // the size choice decides the picture size (Auto: as large as the size limit allows),
     // within the largest size the preset allows (4chan: 2048x2048)

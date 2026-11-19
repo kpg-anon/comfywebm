@@ -156,6 +156,13 @@ impl AppState {
         slot.clone().unwrap()
     }
 
+    /// Gyroflow and ffprobe for Stabilize with Gyroflow; None when Gyroflow is not set or gone.
+    pub fn gyro(&self) -> Option<comfywebm_engine::gyro::Gyro> {
+        let g = self.settings.lock().unwrap().gyroflow_path.clone().map(PathBuf::from).filter(|p| p.is_file())?;
+        let ffprobe = self.tools().0.ffprobe?;
+        Some(comfywebm_engine::gyro::Gyro { gyroflow: g, ffprobe })
+    }
+
     pub fn ffmpeg(&self) -> Result<PathBuf, String> {
         self.tools().0.ffmpeg.ok_or_else(|| "ffmpeg was not found. Set its location in Settings.".to_string())
     }

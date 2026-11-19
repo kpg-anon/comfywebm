@@ -236,6 +236,29 @@ building it yourself. For an overview and the downloads, see
   1 GB per minute of 1080p) and a step about as long as the stretch; it removed
   about two thirds of the test shake. Splits use vid.stab or deshake instead;
   Frame (S) and the quality check show the picture without it.
+- **Tracking** (Settings > Tools > Tracking) chooses what Follow's Track uses:
+  - **Built-in**: compares the box's picture frame by frame on a small grey
+    copy. Nothing to install.
+  - **VitTrack**: OpenCV's small neural tracker. Install VitTrack makes a
+    Python environment for comfywebm alone (about 250 MB, 30 s here). On a
+    4.6 s 4K dance clip it took 5 s for every frame and its box grew and shrank
+    with the face.
+  - **SAM 2** (Meta's SAM 2.1): follows the person's outline, not a box of
+    pixels, and reports the outline's middle, kept as far from your box's
+    centre as on the first frame. Turns, arms and people passing in front
+    throw it off least. Install SAM 2 installs PyTorch (built for CUDA when
+    there is an NVIDIA card: about 5 GB; otherwise about 1 GB) and the model
+    (the small one with a graphics card, the tiny one without). It looks at 30
+    frames a second with a graphics card and 10 without; on a laptop processor
+    each frame took about 7 s.
+  - The installs use uv (Astral's Python installer), which fetches its own
+    Python into the app's tools folder; no Python on the system is used or
+    changed. Before installing, the app checks there is enough free space.
+    Remove deletes the environment, and with the last tracker also uv, its
+    Python and its cache.
+  - **Test** follows a square moved along a known path in a 4 s clip and says
+    how far off the tracker was, in pixels.
+  - A tracker that is chosen but not installed falls back to the built-in one.
 - **Caption**: text drawn on the picture, at the top or bottom edge or
   anywhere (Custom: drag it on the player, or type the position across and
   down in percent), sized as a share of the output height. Font (any installed font, or a .ttf/.otf file), text

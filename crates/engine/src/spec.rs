@@ -757,6 +757,10 @@ pub struct Settings {
     pub stab_method: Option<StabMethod>,
     /// the Gyroflow program (Settings > Tools); None = not set
     pub gyroflow_path: Option<String>,
+    /// Follow > Track's tracker (Settings > Tools): "vittrack" or "sam2" when that is
+    /// installed (src-tauri install.rs); None or anything else = the built-in one (track.rs).
+    /// A plain string, so older builds read a settings file that has a new name in it.
+    pub track_method: Option<String>,
     /// presets kept in settings.json by older builds; moved to presets/saved/*.toml on start
     pub presets: Vec<Preset>,
 }
@@ -776,6 +780,7 @@ impl Default for Settings {
             last_preset: None,
             stab_method: None,
             gyroflow_path: None,
+            track_method: None,
             presets: Vec::new(),
         }
     }

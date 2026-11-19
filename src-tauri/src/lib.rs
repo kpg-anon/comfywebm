@@ -108,10 +108,16 @@ async fn track_box(app: AppHandle, path: String, start: f64, end: f64, rect: com
         let state = app.state::<AppState>();
         let ffmpeg = state.ffmpeg()?;
         let info = state.media(&path)?;
+        let method = state.settings().track_method.clone().unwrap_or_default();
+        let py = install::py_tracker(&app.state::<install::ToolsDir>().0, &method);
         strip_job(&app, "track", |c| {
-            track::run(&ffmpeg, &info, start, end, rect, c, |fraction| {
+            let progress = |fraction| {
                 let _ = app.emit("track-progress", CutsProgress { path: path.clone(), fraction });
-            })
+            };
+            match &py {
+                Some(t) => comfywebm_engine::pytrack::run(&ffmpeg, &info, start, end, rect, t, c, progress, |_| {}),
+                None => track::run(&ffmpeg, &info, start, end, rect, c, progress),
+            }
         })
     })
     .await
@@ -300,6 +306,77 @@ async fn stab_test(app: AppHandle, method: StabMethod) -> Result<stab::StabTest,
         let ffmpeg = state.ffmpeg()?;
         let gyro = state.gyro();
         stab::self_test(&ffmpeg, method, &state.cache_dir.join("stabtest"), gyro.as_ref().map(|g| g.gyroflow.as_path()))
+    })
+    .await
+}
+
+/// Settings > Tools > Tracking > Test: a textured square moved along a known
+/// path over a moving background (4 s, 1280x720, 30 fps), followed by `method`
+/// ("builtin", "vittrack" or "sam2") from its box on the first frame.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TrackTest {
+    method: String,
+    seconds: f64,
+    frames: usize,
+    /// how far the tracked centre was from the square's, in pixels of the 1280x720 clip
+    mean_px: f64,
+    max_px: f64,
+}
+
+#[tauri::command]
+async fn track_test(app: AppHandle, method: String) -> Result<TrackTest, String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let ffmpeg = state.ffmpeg()?;
+        let dir = state.cache_dir.join("tracktest");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let clip = dir.join("move.mp4");
+        // the square's top-left corner at time t (it is 120 px)
+        const X: &str = "100+900*(0.5-0.5*cos(t*PI/4))";
+        const Y: &str = "300+150*sin(t*1.3)";
+        if !clip.is_file() {
+            let mut cmd = comfywebm_engine::tools::command(&ffmpeg);
+            cmd.args(["-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "gradients=s=1280x720:r=30:d=4:speed=0.02", "-f", "lavfi", "-i", "testsrc=s=120x120:r=30:d=4"])
+                .args(["-filter_complex", &format!("[0][1]overlay=x='{X}':y='{Y}'"), "-c:v", "libx264", "-crf", "18", "-g", "30", "-pix_fmt", "yuv420p"])
+                .arg(&clip);
+            let out = comfywebm_engine::tools::output_within(cmd, std::time::Duration::from_secs(120), "Making the test clip")?;
+            if !out.status.success() {
+                return Err(format!("ffmpeg could not make the test clip: {}", String::from_utf8_lossy(&out.stderr).trim()));
+            }
+        }
+        let path = clip.to_string_lossy().into_owned();
+        let info = state.media(&path)?;
+        let rect = comfywebm_engine::Rect { x: 100, y: 300, w: 120, h: 120 };
+        let py = install::py_tracker(&app.state::<install::ToolsDir>().0, &method);
+        if method != "builtin" && py.is_none() {
+            return Err(format!("{method} is not installed."));
+        }
+        let t0 = std::time::Instant::now();
+        let pts = strip_job(&app, "tracktest", |c| match &py {
+            Some(t) => comfywebm_engine::pytrack::run(&ffmpeg, &info, 0.0, 4.0, rect, t, c, |_| {}, |_| {}),
+            None => track::run(&ffmpeg, &info, 0.0, 4.0, rect, c, |_| {}),
+        })?;
+        let seconds = t0.elapsed().as_secs_f64();
+        let err: Vec<f64> = pts
+            .iter()
+            .map(|p| {
+                let t = p.t;
+                let x = 100.0 + 900.0 * (0.5 - 0.5 * (t * std::f64::consts::PI / 4.0).cos()) + 60.0;
+                let y = 300.0 + 150.0 * (t * 1.3).sin() + 60.0;
+                ((p.x - x).powi(2) + (p.y - y).powi(2)).sqrt()
+            })
+            .collect();
+        if err.is_empty() {
+            return Err("The tracker returned nothing.".into());
+        }
+        Ok(TrackTest {
+            method,
+            seconds,
+            frames: pts.len(),
+            mean_px: err.iter().sum::<f64>() / err.len() as f64,
+            max_px: err.iter().cloned().fold(0.0, f64::max),
+        })
     })
     .await
 }
@@ -1073,6 +1150,7 @@ pub fn run() {
             tools_status,
             tools_rescan,
             stab_test,
+            track_test,
             install::tool_install,
             install::tool_install_cancel,
             install::tool_installed,

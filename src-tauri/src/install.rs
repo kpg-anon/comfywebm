@@ -5,6 +5,12 @@
 //! into `<tools dir>/<tool>/current` and checked, and the setting that points
 //! at the tool is set to it. Unpacking uses the system's tar (Windows 10 and
 //! later ship one that reads zip files), so no archive code is added.
+//!
+//! The Python trackers (VitTrack, SAM 2; engine pytrack.rs) get their own
+//! environment each, `<tools dir>/<tool>/current/env`, made by uv (Astral's
+//! single-file Python installer, fetched into `<tools dir>/uv`), with a Python
+//! uv downloads into `<tools dir>/py` and its cache in `<tools dir>/uvc`. No
+//! Python on the system is used or changed.
 
 use crate::state::AppState;
 use futures_util::StreamExt;
@@ -30,6 +36,8 @@ pub enum Tool {
     Ffmpeg,
     Ytdlp,
     Gyroflow,
+    Vittrack,
+    Sam2,
 }
 
 impl Tool {
@@ -38,7 +46,12 @@ impl Tool {
             Tool::Ffmpeg => "ffmpeg",
             Tool::Ytdlp => "yt-dlp",
             Tool::Gyroflow => "gyroflow",
+            Tool::Vittrack => "vittrack",
+            Tool::Sam2 => "sam2",
         }
+    }
+    fn is_python(self) -> bool {
+        matches!(self, Tool::Vittrack | Tool::Sam2)
     }
 }
 
@@ -47,7 +60,7 @@ impl Tool {
 #[serde(rename_all = "camelCase")]
 pub struct InstallProgress {
     pub tool: Tool,
-    /// "find", "download", "unpack", "check" or "brew"
+    /// "find", "download", "unpack", "check", "brew" or "pip" (uv's output in `text`)
     pub phase: &'static str,
     pub done: u64,
     pub total: Option<u64>,
@@ -264,6 +277,7 @@ async fn pick_asset(c: &reqwest::Client, tool: Tool) -> Result<Asset, String> {
             };
             latest_asset(c, "gyroflow/gyroflow", |n| (n == want).then(Vec::new)).await
         }
+        Tool::Vittrack | Tool::Sam2 => Err("The trackers are installed with uv, not from a release file.".into()),
     }
 }
 
@@ -310,6 +324,14 @@ async fn install_inner(app: &AppHandle, tool: Tool, cancel: Arc<AtomicBool>) -> 
     let root = app.state::<ToolsDir>().0.join(tool.name());
     std::fs::create_dir_all(&root).map_err(|e| format!("Cannot create {}: {e}", root.display()))?;
     emit(app, InstallProgress { tool, phase: "find", done: 0, total: None, text: None });
+    if tool.is_python() {
+        let r = python_install(app, tool, cancel).await;
+        // nothing installed before: no empty folder left behind
+        if r.is_err() && !root.join("current").exists() {
+            let _ = std::fs::remove_dir_all(&root);
+        }
+        return r;
+    }
 
     #[cfg(target_os = "macos")]
     if tool == Tool::Ffmpeg {
@@ -377,6 +399,7 @@ async fn install_inner(app: &AppHandle, tool: Tool, cancel: Arc<AtomicBool>) -> 
             make_executable(&exe);
             exe
         }
+        Tool::Vittrack | Tool::Sam2 => return Err("The trackers are installed with uv.".into()),
     };
     if tool == Tool::Ffmpeg {
         for n in ["ffmpeg", "ffprobe"] {
@@ -395,8 +418,7 @@ fn finish(app: &AppHandle, tool: Tool, target: &Path, release: String) -> Result
     };
     let arg = match tool {
         Tool::Ffmpeg => "-version",
-        Tool::Ytdlp => "--version",
-        Tool::Gyroflow => "--version",
+        _ => "--version",
     };
     let mut cmd = comfywebm_engine::tools::command(&exe);
     cmd.arg(arg);
@@ -408,6 +430,7 @@ fn finish(app: &AppHandle, tool: Tool, target: &Path, release: String) -> Result
         Tool::Ffmpeg => s.ffmpeg_path = Some(path.clone()),
         Tool::Ytdlp => s.ytdlp_path = Some(path.clone()),
         Tool::Gyroflow => s.gyroflow_path = Some(path.clone()),
+        Tool::Vittrack | Tool::Sam2 => {}
     }
     state.save_settings(s)?;
     state.forget_tools();
@@ -473,5 +496,250 @@ pub fn tool_remove(app: AppHandle, tool: Tool) -> Result<(), String> {
     if root.exists() {
         std::fs::remove_dir_all(&root).map_err(|e| format!("Cannot delete {} (in use?): {e}", root.display()))?;
     }
+    // the last Python tracker gone: uv, its Python and its cache too
+    let tools = &app.state::<ToolsDir>().0;
+    if tool.is_python() && [Tool::Vittrack, Tool::Sam2].iter().all(|t| !tools.join(t.name()).exists()) {
+        for d in ["uv", "py", "uvc"] {
+            let _ = std::fs::remove_dir_all(tools.join(d));
+        }
+    }
     Ok(())
 }
+
+// ---------- the Python trackers ----------
+
+/// The environment's python in `dir` (a venv).
+fn venv_python(dir: &Path) -> PathBuf {
+    if cfg!(windows) {
+        dir.join("Scripts").join("python.exe")
+    } else {
+        dir.join("bin").join("python")
+    }
+}
+
+/// The installed Python tracker `name` ("vittrack" or "sam2"), if its folder is complete.
+pub fn py_tracker(tools: &Path, name: &str) -> Option<comfywebm_engine::pytrack::PyTracker> {
+    use comfywebm_engine::pytrack::{Method, PyTracker};
+    let method = match name {
+        "vittrack" => Method::Vittrack,
+        "sam2" => Method::Sam2,
+        _ => return None,
+    };
+    let dir = tools.join(name).join("current");
+    let python = venv_python(&dir.join("env"));
+    let model = std::fs::read_dir(&dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|x| x == "onnx" || x == "pt"))?;
+    python.is_file().then(|| PyTracker { method, python, script: dir.join("track.py"), model })
+}
+
+fn uv_asset() -> Result<&'static str, String> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "x86_64") => Ok("uv-x86_64-pc-windows-msvc.zip"),
+        ("windows", "aarch64") => Ok("uv-aarch64-pc-windows-msvc.zip"),
+        ("macos", "aarch64") => Ok("uv-aarch64-apple-darwin.tar.gz"),
+        ("macos", "x86_64") => Ok("uv-x86_64-apple-darwin.tar.gz"),
+        ("linux", "x86_64") => Ok("uv-x86_64-unknown-linux-gnu.tar.gz"),
+        ("linux", "aarch64") => Ok("uv-aarch64-unknown-linux-gnu.tar.gz"),
+        (os, arch) => Err(format!("No uv download for {os} {arch}.")),
+    }
+}
+
+/// uv in `<tools>/uv/current`, downloaded first when it is not there.
+async fn ensure_uv(app: &AppHandle, tool: Tool, c: &reqwest::Client, tools: &Path, cancel: &AtomicBool) -> Result<PathBuf, String> {
+    let exe = if cfg!(windows) { "uv.exe" } else { "uv" };
+    let dir = tools.join("uv");
+    if let Some(p) = find_file(&dir.join("current"), &[exe], 3) {
+        return Ok(p);
+    }
+    let want = uv_asset()?;
+    let a = latest_asset(c, "astral-sh/uv", |n| (n == want).then(Vec::new)).await?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let file = dir.join(format!("download-{}", a.name));
+    if let Err(e) = download(app, tool, c, &a, &file, cancel).await {
+        let _ = std::fs::remove_file(&file);
+        return Err(e);
+    }
+    let fresh = dir.join("new");
+    let _ = std::fs::remove_dir_all(&fresh);
+    let res = unpack(&file, &fresh);
+    let _ = std::fs::remove_file(&file);
+    res?;
+    let _ = std::fs::remove_dir_all(dir.join("current"));
+    std::fs::rename(&fresh, dir.join("current")).map_err(|e| e.to_string())?;
+    let p = find_file(&dir.join("current"), &[exe], 3).ok_or("The uv download holds no uv program.")?;
+    make_executable(&p);
+    Ok(p)
+}
+
+/// Runs `cmd`, sending each line it writes as "pip" progress; kills it when `cancel` is set.
+fn run_streaming(app: &AppHandle, tool: Tool, mut cmd: std::process::Command, what: &str, cancel: &AtomicBool) -> Result<Vec<String>, String> {
+    use std::process::Stdio;
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("Cannot run {what}: {e}"))?;
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let mut readers = Vec::new();
+    let pipes: [Option<Box<dyn std::io::Read + Send>>; 2] =
+        [child.stdout.take().map(|o| Box::new(o) as Box<dyn std::io::Read + Send>), child.stderr.take().map(|e| Box::new(e) as Box<dyn std::io::Read + Send>)];
+    for s in pipes.into_iter().flatten() {
+        let tx = tx.clone();
+        readers.push(std::thread::spawn(move || {
+            comfywebm_engine::run::each_line(s, |l| {
+                if !l.is_empty() {
+                    let _ = tx.send(l.to_string());
+                }
+            })
+        }));
+    }
+    drop(tx);
+    let mut lines = Vec::new();
+    loop {
+        match rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(l) => {
+                emit(app, InstallProgress { tool, phase: "pip", done: 0, total: None, text: Some(l.clone()) });
+                lines.push(l);
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+        if cancel.load(Ordering::SeqCst) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("Canceled".into());
+        }
+    }
+    for r in readers {
+        let _ = r.join();
+    }
+    let status = child.wait().map_err(|e| e.to_string())?;
+    if !status.success() {
+        let why = lines.iter().rev().find(|l| l.contains("error")).or(lines.last()).cloned().unwrap_or_else(|| "no message".into());
+        return Err(format!("{what} failed: {why}"));
+    }
+    Ok(lines)
+}
+
+/// Free bytes on the drive that holds `p`.
+#[cfg(windows)]
+fn free_bytes(p: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetDiskFreeSpaceExW(dir: *const u16, avail: *mut u64, total: *mut u64, free: *mut u64) -> i32;
+    }
+    let w: Vec<u16> = p.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let (mut avail, mut total, mut free) = (0u64, 0u64, 0u64);
+    // SAFETY: a NUL-terminated wide string and three valid out pointers
+    let ok = unsafe { GetDiskFreeSpaceExW(w.as_ptr(), &mut avail, &mut total, &mut free) };
+    (ok != 0).then_some(avail)
+}
+#[cfg(not(windows))]
+fn free_bytes(p: &Path) -> Option<u64> {
+    let out = std::process::Command::new("df").arg("-Pk").arg(p).output().ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.lines().nth(1)?.split_whitespace().nth(3)?.parse::<u64>().ok().map(|k| k * 1024)
+}
+
+/// An NVIDIA card with a driver (nvidia-smi answers): uv then installs PyTorch built for CUDA.
+fn has_nvidia() -> bool {
+    let mut cmd = comfywebm_engine::tools::command(Path::new("nvidia-smi"));
+    cmd.arg("-L");
+    comfywebm_engine::tools::output_within(cmd, Duration::from_secs(10), "nvidia-smi").is_ok_and(|o| o.status.success())
+}
+
+const VITTRACK_MODEL: &str = "https://github.com/opencv/opencv_zoo/raw/main/models/object_tracking_vittrack/object_tracking_vittrack_2023sep.onnx";
+const SAM2_MODELS: &str = "https://dl.fbaipublicfiles.com/segment_anything_2/092824/";
+
+/// Disk space a Python tracker takes, with room to spare (PyTorch for CUDA alone is about 5 GB).
+fn space_needed(tool: Tool, nvidia: bool) -> u64 {
+    match tool {
+        Tool::Sam2 if nvidia => 7 << 30,
+        Tool::Sam2 => 2 << 30,
+        _ => 600 << 20,
+    }
+}
+
+async fn python_install(app: &AppHandle, tool: Tool, cancel: Arc<AtomicBool>) -> Result<Installed, String> {
+    let tools = app.state::<ToolsDir>().0.clone();
+    let root = tools.join(tool.name());
+    let nvidia = tool == Tool::Sam2 && tauri::async_runtime::spawn_blocking(has_nvidia).await.unwrap_or(false);
+    let need = space_needed(tool, nvidia);
+    if let Some(free) = free_bytes(&tools) {
+        if free < need {
+            let gb = |b: u64| format!("{:.1} GB", b as f64 / (1u64 << 30) as f64);
+            return Err(format!("This needs about {} free on the drive of {}, and it has {}.", gb(need), tools.display(), gb(free)));
+        }
+    }
+    let c = client()?;
+    let uv = ensure_uv(app, tool, &c, &tools, &cancel).await?;
+    let fresh = root.join("new");
+    let _ = std::fs::remove_dir_all(&fresh);
+    std::fs::create_dir_all(&fresh).map_err(|e| e.to_string())?;
+    let fail = |e: String| {
+        let _ = std::fs::remove_dir_all(root.join("new"));
+        e
+    };
+    let env = fresh.join("env");
+    let python = venv_python(&env);
+    let mut pip: Vec<String> = vec!["pip".into(), "install".into(), "--python".into(), python.to_string_lossy().into_owned()];
+    match tool {
+        Tool::Vittrack => pip.extend(["numpy".into(), "opencv-python>=4.9".into()]),
+        _ => pip.extend(["--torch-backend=auto".into(), "torch".into(), "torchvision".into(), "sam2>=1.1".into()]),
+    }
+    let steps: Vec<(Vec<String>, &str)> =
+        vec![(vec!["venv".into(), "--python".into(), "3.12".into(), env.to_string_lossy().into_owned()], "Making the Python environment"), (pip, "Installing the Python packages")];
+    for (args, what) in steps {
+        let mut cmd = comfywebm_engine::tools::command(&uv);
+        cmd.args(&args)
+            // a short cache path: one package (antlr4, for SAM 2) is built from source,
+            // and Windows refuses paths over 260 characters
+            .env("UV_CACHE_DIR", tools.join("uvc"))
+            .env("UV_PYTHON_INSTALL_DIR", tools.join("py"))
+            .env("UV_PYTHON_PREFERENCE", "only-managed")
+            .env("UV_NO_CONFIG", "1")
+            .env_remove("VIRTUAL_ENV")
+            .env_remove("PYTHONPATH")
+            .env_remove("PYTHONHOME");
+        let (a, w, cl) = (app.clone(), what.to_string(), cancel.clone());
+        tauri::async_runtime::spawn_blocking(move || run_streaming(&a, tool, cmd, &w, &cl)).await.map_err(|e| e.to_string())?.map_err(fail)?;
+    }
+    emit(app, InstallProgress { tool, phase: "check", done: 0, total: None, text: None });
+    // SAM 2.1 small with a GPU; tiny without one (still about 7 s a frame on a laptop CPU)
+    let device = if tool == Tool::Sam2 {
+        let mut cmd = comfywebm_engine::tools::command(&python);
+        cmd.args(["-I", "-c", "import torch; print('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu', torch.__version__)"]);
+        run_ok(cmd, "Checking PyTorch").map_err(fail)?.trim().to_string()
+    } else {
+        String::new()
+    };
+    let (url, file, label) = match tool {
+        Tool::Vittrack => (VITTRACK_MODEL.to_string(), "vittrack.onnx".to_string(), "VitTrack (OpenCV)".to_string()),
+        _ => {
+            let (dev, ver) = device.split_once(' ').unwrap_or((device.as_str(), ""));
+            let size = if dev == "cpu" { "tiny" } else { "small" };
+            let f = format!("sam2.1_hiera_{size}.pt");
+            let on = match dev {
+                "cuda" => "the NVIDIA graphics card",
+                "mps" => "the Apple graphics chip",
+                _ => "the processor (no supported graphics card)",
+            };
+            (format!("{SAM2_MODELS}{f}"), f, format!("SAM 2.1 {size} with PyTorch {ver}, running on {on}"))
+        }
+    };
+    let asset = Asset { name: file.clone(), url, size: 0 };
+    download(app, tool, &c, &asset, &fresh.join(&file), &cancel).await.map_err(fail)?;
+    std::fs::write(fresh.join("track.py"), comfywebm_engine::pytrack::SCRIPT).map_err(|e| fail(e.to_string()))?;
+    // the packages load
+    let mut cmd = comfywebm_engine::tools::command(&python);
+    cmd.args(["-I", "-c", if tool == Tool::Vittrack { "import cv2; cv2.TrackerVit_Params()" } else { "import sam2.build_sam" }]);
+    run_ok(cmd, "Loading the tracker").map_err(fail)?;
+    let current = root.join("current");
+    if current.exists() {
+        std::fs::remove_dir_all(&current).map_err(|e| fail(format!("The copy installed before is in use (tracking?), so it was not replaced: {e}")))?;
+    }
+    std::fs::rename(&fresh, &current).map_err(|e| format!("Cannot move the new copy into place: {e}"))?;
+    Ok(Installed { tool, path: current.to_string_lossy().into_owned(), release: label })
+}
+

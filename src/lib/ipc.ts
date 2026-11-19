@@ -25,10 +25,12 @@ export const toolsRescan = () => invoke<ToolsStatus>("tools_rescan");
 /** Stabilize's self-test: the shake of a test clip before and after (mean neighbour-frame difference), and the seconds it took */
 export type StabTest = { before: number; after: number; secs: number };
 export const stabTest = (method: StabMethod) => invoke<StabTest>("stab_test", { method });
+export type TrackTest = { method: string; seconds: number; frames: number; meanPx: number; maxPx: number };
+export const trackTest = (method: string) => invoke<TrackTest>("track_test", { method });
 
 /** A tool the app can download and set up itself (src-tauri install.rs) */
-export type InstallTool = "ffmpeg" | "ytdlp" | "gyroflow";
-export type InstallProgress = { tool: InstallTool; phase: "find" | "download" | "unpack" | "check" | "brew"; done: number; total: number | null; text: string | null };
+export type InstallTool = "ffmpeg" | "ytdlp" | "gyroflow" | "vittrack" | "sam2";
+export type InstallProgress = { tool: InstallTool; phase: "find" | "download" | "unpack" | "check" | "brew" | "pip"; done: number; total: number | null; text: string | null };
 export type Installed = { tool: InstallTool; path: string; release: string };
 export const toolInstall = (tool: InstallTool) => invoke<Installed>("tool_install", { tool });
 export const toolInstallCancel = (tool: InstallTool) => invoke<void>("tool_install_cancel", { tool });

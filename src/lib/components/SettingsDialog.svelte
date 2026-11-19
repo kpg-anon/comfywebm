@@ -211,6 +211,34 @@
 
   // Stabilize's method: "auto" = vid.stab when this ffmpeg has it, else deshake
   let stabChoice = $state<string>(app.settings.stabMethod ?? "auto");
+  // Follow > Track's tracker; the Python ones count once installed (src-tauri install.rs)
+  let trackChoice = $state<string>(app.settings.trackMethod ?? "builtin");
+  let trackHave = $state<{ vittrack: boolean; sam2: boolean }>({ vittrack: false, sam2: false });
+  async function refreshTrackers() {
+    const [v, s] = await Promise.all([ipc.toolInstalled("vittrack").catch(() => null), ipc.toolInstalled("sam2").catch(() => null)]);
+    trackHave = { vittrack: !!v, sam2: !!s };
+  }
+  void refreshTrackers();
+  let trackTesting = $state(false);
+  let trackResult = $state<{ method: string; text: string; bad: boolean } | null>(null);
+  const trackName = (m: string) => (m === "vittrack" ? "VitTrack" : m === "sam2" ? "SAM 2" : "Built-in");
+  async function testTrack() {
+    const m = trackChoice;
+    trackTesting = true;
+    trackResult = null;
+    try {
+      const r = await ipc.trackTest(m);
+      trackResult = {
+        method: m,
+        text: `${trackName(m)}: ${r.frames} frames in ${r.seconds.toFixed(1)} s; the tracked centre was ${r.meanPx.toFixed(1)} px from the square's on average, ${r.maxPx.toFixed(0)} px at most.`,
+        bad: r.meanPx > 20,
+      };
+    } catch (e) {
+      trackResult = { method: m, text: `${trackName(m)}: ${ipc.errText(e)}`, bad: true };
+    } finally {
+      trackTesting = false;
+    }
+  }
   const hasVidstab = $derived(!!app.tools?.filters.vidstab);
   const hasGyroflow = $derived(!!app.settings.gyroflowPath);
   /** the method shown and tested: Gyroflow as chosen even before it is installed (the install button shows) */
@@ -256,6 +284,7 @@
       ytdlpCookies: ytdlpCookies || null,
       nameTemplate: nameTemplate.trim() || "{name}_{start}-{end}",
       stabMethod: stabChoice === "auto" ? null : (stabChoice as StabMethod),
+      trackMethod: trackChoice === "builtin" ? null : trackChoice,
     });
     saving = false;
     if (err) {
@@ -549,6 +578,52 @@
       {/if}
       {#if stabResult && stabResult.method === stabUsed}
         <span class="hint" class:err={stabResult.bad}>{stabResult.text}</span>
+      {/if}
+    </div>
+
+    <div class="col">
+      <span>Tracking</span>
+      <div class="line">
+        <Select
+          label="Tracker for Follow"
+          value={trackChoice}
+          onchange={(v) => {
+            trackChoice = v;
+            trackResult = null;
+          }}
+          options={[
+            { value: "builtin", label: "Built-in", hint: "nothing to install" },
+            { value: "vittrack", label: "VitTrack", hint: trackHave.vittrack ? "installed" : "not installed" },
+            { value: "sam2", label: "SAM 2", hint: trackHave.sam2 ? "installed" : "not installed" },
+          ]}
+        />
+        <button
+          class="btn small"
+          disabled={trackTesting || !app.tools?.ffmpeg || (trackChoice !== "builtin" && !trackHave[trackChoice as "vittrack" | "sam2"])}
+          title="Follows a square moved along a known path in a 4 s test clip and measures how far off the tracker was"
+          onclick={testTrack}>{trackTesting ? "Testing..." : "Test"}</button
+        >
+      </div>
+      {#if trackChoice === "vittrack"}
+        <span class="hint">
+          <b>VitTrack</b> (OpenCV's small neural tracker). Follows the box much like the built-in one but keeps hold through turns and changes of size; runs on the
+          processor, faster than the built-in one (a 4.6 s 4K clip in 5 s).
+        </span>
+        <ToolInstall tool="vittrack" label="Install VitTrack" note={trackHave.vittrack ? "" : "a Python environment for comfywebm alone, about 250 MB"} oninstalled={() => void refreshTrackers()} />
+      {:else if trackChoice === "sam2"}
+        <span class="hint">
+          <b>SAM 2</b> (Meta's video segmentation model). Follows the person's outline, not a box of pixels, so turns, arms and people passing in front throw it off
+          least. Fast on an NVIDIA graphics card; without one it takes about 7 s per analysed frame (10 a second of video).
+        </span>
+        <ToolInstall tool="sam2" label="Install SAM 2" note={trackHave.sam2 ? "" : "PyTorch and SAM 2 in a Python environment for comfywebm alone: about 5 GB with an NVIDIA card, 1 GB without"} oninstalled={() => void refreshTrackers()} />
+      {:else}
+        <span class="hint"><b>Built-in</b>. Compares the box's picture frame by frame on a small grey copy of the video. Loses a person who turns around or is covered.</span>
+      {/if}
+      {#if trackChoice !== "builtin" && !trackHave[trackChoice as "vittrack" | "sam2"]}
+        <span class="hint">Until it is installed, Track uses the built-in tracker.</span>
+      {/if}
+      {#if trackResult && trackResult.method === trackChoice}
+        <span class="hint" class:err={trackResult.bad}>{trackResult.text}</span>
       {/if}
     </div>
 

@@ -266,6 +266,8 @@ export type Settings = {
   stabMethod?: StabMethod | null;
   /** the Gyroflow program; null = not set */
   gyroflowPath?: string | null;
+  /** Follow > Track's tracker: "vittrack" or "sam2" when installed; null = the built-in one */
+  trackMethod?: string | null;
   presets: Preset[];
 };
 

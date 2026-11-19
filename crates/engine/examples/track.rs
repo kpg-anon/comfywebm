@@ -22,6 +22,10 @@ fn main() {
     eprintln!("{} frames in {:.1} s", pts.len(), t0.elapsed().as_secs_f64());
     let lost = pts.iter().filter(|p| p.score < 0.35).count();
     eprintln!("weak matches: {lost}");
+    // CWM_JSON=<file>: every point, for comparing trackers
+    if let Some(f) = std::env::var_os("CWM_JSON") {
+        std::fs::write(f, serde_json::to_string(&pts).expect("json")).expect("write");
+    }
     for want in a[7..].iter().map(|s| s.parse::<f64>().expect("time")) {
         let p = pts.iter().min_by(|x, y| (x.t - want).abs().total_cmp(&(y.t - want).abs())).expect("points");
         println!("{:.2} {:.0} {:.0} {:.0} {:.0} {:.2}", p.t, p.x, p.y, p.w, p.h, p.score);

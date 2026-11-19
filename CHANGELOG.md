@@ -22,6 +22,18 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   speed went from 0.62 to 0.01 px per frame squared and the face stayed in
   the view. The zoom Track sets now has the box fill 60% of the view (was
   85%), so there is room for this.
+- Settings > Tools > Tracking: Follow's Track can use VitTrack (OpenCV's
+  neural tracker) or SAM 2 (Meta's SAM 2.1, which follows the person's
+  outline) instead of the built-in tracker. Install buttons make a Python
+  environment for comfywebm alone with uv (no system Python used); the app
+  checks free disk space first (SAM 2 with CUDA needs about 7 GB). Test
+  measures a tracker on a square moved along a known path (built-in 2.6 px
+  off on average in 0.5 s, VitTrack 2.8 px in 1.5 s, SAM 2 1.7 px). VitTrack:
+  27 s to install, a 4.6 s 4K clip tracked in 5 s; on a 4K group dance where
+  the built-in tracker slid off a member's face onto the wall within 1.3 s,
+  VitTrack and SAM 2 stayed on her. SAM 2 was only run on the CPU here (about
+  7.5 s per analysed frame); the CUDA install was not tried because the test
+  machine had 6.4 GB free.
 - `Ctrl+E` adds to the queue; the Add to queue button shows it.
 - Settings > Files > Queue: Add to queue can start encoding at once instead of
   leaving the job waiting.

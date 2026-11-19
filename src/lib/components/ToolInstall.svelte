@@ -50,6 +50,8 @@
         return "Checking that it runs...";
       case "brew":
         return p.text ?? "Homebrew is installing...";
+      case "pip":
+        return p.text ?? "Installing the Python packages...";
     }
   });
   const fraction = $derived(prog?.phase === "download" && prog.total ? prog.done / prog.total : null);

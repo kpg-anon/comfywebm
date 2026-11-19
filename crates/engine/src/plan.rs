@@ -1755,7 +1755,9 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             push(&mut a, &["-threads", &threads]);
         }
         if pass > 0 && codec != Codec::Hevc {
-            push(&mut a, &["-pass", &pass.to_string(), "-passlogfile", opts.passlog]);
+            // for the video stream only: ffmpeg's master branch (November 2026) applies a bare
+            // -pass to the sound too, and pass 2 then fails reading a log libopus never wrote
+            push(&mut a, &["-pass:v", &pass.to_string(), "-passlogfile:v", opts.passlog]);
         }
         a
     };
@@ -2536,14 +2538,14 @@ mod tests {
             strs(&p.passes[0]).join(" "),
             format!(
                 "{head} -map 0:0 -vf setpts=PTS-STARTPTS,{TAGS} -pix_fmt yuv420p {vp9} -cpu-used 4 -auto-alt-ref 1 -lag-in-frames 25 \
-                 -b:v 528k -threads 8 -pass 1 -passlogfile log {tags} -an -f null -"
+                 -b:v 528k -threads 8 -pass:v 1 -passlogfile:v log {tags} -an -f null -"
             )
         );
         assert_eq!(
             strs(&p.passes[1]).join(" "),
             format!(
                 "{head} -map 0:0 -map 0:a:0 -vf setpts=PTS-STARTPTS,{TAGS} -af asetpts=PTS-STARTPTS -pix_fmt yuv420p {vp9} -cpu-used 2 -auto-alt-ref 1 \
-                 -lag-in-frames 25 -b:v 528k -threads 8 -pass 2 -passlogfile log {tags} -c:a libopus -b:a 64k -ac 2 \
+                 -lag-in-frames 25 -b:v 528k -threads 8 -pass:v 2 -passlogfile:v log {tags} -c:a libopus -b:a 64k -ac 2 \
                  -map_metadata -1 -map_chapters -1 -sn -f webm out.webm"
             )
         );
@@ -3231,8 +3233,8 @@ mod tests {
         let at = s.find("-pix_fmt").unwrap();
         assert_eq!(
             &s[at..],
-            "-pix_fmt yuv420p -c:v libx264 -profile:v high -preset fast -b:v 3877k -threads 8 -pass 2 \
-             -passlogfile log -colorspace bt709 -color_primaries bt709 -color_trc bt709 -c:a aac -b:a 64k -ac 2 \
+            "-pix_fmt yuv420p -c:v libx264 -profile:v high -preset fast -b:v 3877k -threads 8 -pass:v 2 \
+             -passlogfile:v log -colorspace bt709 -color_primaries bt709 -color_trc bt709 -c:a aac -b:a 64k -ac 2 \
              -map_metadata -1 -map_chapters -1 -sn -movflags +faststart -f mp4 out.mp4"
         );
         // VP9 in MP4 is refused

@@ -205,6 +205,16 @@ building it yourself. For an overview and the downloads, see
   in-between frames below 1x speed), HDR to SDR tone mapping, rotate, flip
   horizontal and vertical, reverse, boomerang (forward then reverse), fade in
   and out.
+- **Stabilize** uses the method set in Settings > Tools > Stabilization.
+  vid.stab (when ffmpeg has it, the default) makes an extra pass over each
+  range to work out how the camera moved, then moves every frame onto a path
+  smoothed over a second on each side and zooms in a little to hide the
+  edges. deshake (in every ffmpeg) is one pass and only takes out small
+  jitter. Test, next to the choice, shakes a picture by a known amount and
+  shows how much of it the method removes: vid.stab 1.4 (ffmpeg builds from
+  August 2026 on) removed about 90%, older vid.stab about half, deshake about
+  a quarter. ffmpeg 8.1 with vid.stab before 1.4 damages the picture (FFmpeg
+  ticket 22595); the app passes vid.stab a copy of each frame, which avoids it.
 - **Caption**: text drawn on the picture, at the top or bottom edge or
   anywhere (Custom: drag it on the player, or type the position across and
   down in percent), sized as a share of the output height. Font (any installed font, or a .ttf/.otf file), text

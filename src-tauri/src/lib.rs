@@ -5,8 +5,8 @@ mod winstate;
 use comfywebm_engine::config;
 use comfywebm_engine::run::{self, Cancel, RunError};
 use comfywebm_engine::{
-    naming, plan, proxy, quality, scenes, strip, track, ytdl, Codec, Container, Crop, DownloadProgress, EncodeSpec, Job, MediaInfo, PlanInfo, Preset,
-    Segment, Settings, ToolsStatus, UrlInfo,
+    naming, plan, proxy, quality, scenes, stab, strip, track, ytdl, Codec, Container, Crop, DownloadProgress, EncodeSpec, Job, MediaInfo, PlanInfo, Preset,
+    Segment, Settings, StabMethod, ToolsStatus, UrlInfo,
 };
 use serde::Serialize;
 use state::AppState;
@@ -287,6 +287,17 @@ async fn tools_rescan(app: AppHandle) -> Result<ToolsStatus, String> {
         let state = app.state::<AppState>();
         state.forget_tools();
         Ok(state.tools().1)
+    })
+    .await
+}
+
+/// Settings > Tools > Stabilization > Test: how much of a known shake `method` removes.
+#[tauri::command]
+async fn stab_test(app: AppHandle, method: StabMethod) -> Result<stab::StabTest, String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let ffmpeg = state.ffmpeg()?;
+        stab::self_test(&ffmpeg, method, &state.cache_dir.join("stabtest"))
     })
     .await
 }
@@ -1051,6 +1062,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             tools_status,
             tools_rescan,
+            stab_test,
             initial_file,
             open_item,
             probe,

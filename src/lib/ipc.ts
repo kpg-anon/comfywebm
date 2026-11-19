@@ -14,6 +14,7 @@ import type {
   QueueState,
   Segment,
   Settings,
+  StabMethod,
   ToolsStatus,
   UrlInfo,
 } from "./types";
@@ -21,6 +22,9 @@ import type {
 export const toolsStatus = () => invoke<ToolsStatus>("tools_status");
 /** Searches for the tools again and returns the new status. */
 export const toolsRescan = () => invoke<ToolsStatus>("tools_rescan");
+/** Stabilize's self-test: the shake of a test clip before and after (mean neighbour-frame difference), and the seconds it took */
+export type StabTest = { before: number; after: number; secs: number };
+export const stabTest = (method: StabMethod) => invoke<StabTest>("stab_test", { method });
 export const initialFile = () => invoke<string | null>("initial_file");
 export const openItem = (path: string) => invoke<void>("open_item", { path });
 export const probe = (path: string) => invoke<MediaInfo>("probe", { path });

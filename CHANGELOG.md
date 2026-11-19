@@ -7,6 +7,19 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- Settings > Tools > Stabilization: Stabilize can use vid.stab (an analysis
+  pass per range, then the frames moved onto a smoothed camera path) or
+  deshake. Automatic picks vid.stab when ffmpeg has it. Each choice says what
+  it does and what to expect, and Test measures it on a shaken test picture:
+  vid.stab 1.4 took the shake from 9.9 to 1.0, vid.stab before 1.4 to 4.8,
+  deshake to 7.3. A 1080p range shaken by up to 65 px went from 9.2 to 0.6.
+  The analysis runs once per job, also for Sample, Frame and the quality
+  check. ffmpeg 8.1 builds with vid.stab before 1.4 (for example gyan.dev
+  8.1.1) damaged the picture (FFmpeg ticket 22595); the app gives vid.stab a
+  copy of each frame, which avoids it.
+
 ### Fixed
 
 - The frame after the Out point could end the clip (1.1.1 and earlier). ffmpeg

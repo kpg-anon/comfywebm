@@ -31,6 +31,7 @@ import type {
   Segment,
   Settings,
   SpeedPoint,
+  StabMethod,
   ToolsStatus,
   ZoomPoint,
   WatermarkPlace,
@@ -512,6 +513,13 @@ class AppState {
   spec = $derived.by((): EncodeSpec | null => (this.media ? this.specFor(this.media, this.outSegments, true) : null));
 
   /** Warnings the UI adds on top of the ones from `plan`. */
+  /** Stabilize's method: the one chosen in Settings when ffmpeg has it; unset, vid.stab when ffmpeg has it */
+  get stabMethod(): StabMethod {
+    const has = !!this.tools?.filters.vidstab;
+    const chosen = this.settings.stabMethod ?? (has ? "vidstab" : "deshake");
+    return chosen === "vidstab" && !has ? "deshake" : chosen;
+  }
+
   uiWarnings = $derived.by((): string[] => {
     const w: string[] = [];
     // the preset's site does not take this format or codec (sites.ts)
@@ -523,6 +531,8 @@ class AppState {
       if (this.container !== "audio" && this.audioOn && this.media?.audio.length && !t.encoders[this.audioCodec as keyof ToolsStatus["encoders"]])
         w.push(`This ffmpeg has no ${this.audioCodecName} encoder.`);
       if (this.subsKind !== "off" && !t.filters.subtitles) w.push("This ffmpeg has no subtitles filter; subtitles cannot be burned in.");
+      if (this.stabilize && this.settings.stabMethod === "vidstab" && !t.filters.vidstab)
+        w.push("Stabilize is set to vid.stab (Settings > Tools), but this ffmpeg has no vid.stab, so deshake is used.");
     }
     const p = this.preset;
     if (this.media && p?.maxDuration && this.outLen > p.maxDuration + 1e-6)
@@ -580,6 +590,7 @@ class AppState {
       deinterlace: own ? this.deinterlace : m.video.interlaced,
       denoise: this.denoise,
       stabilize: this.stabilize,
+      stabMethod: this.stabMethod,
       smoothSlowmo: this.smoothSlowmo,
       tonemap: own ? this.tonemap : m.video.hdr && !!this.tools?.filters.zscale,
       fadeIn: Math.max(0, this.fadeIn || 0),

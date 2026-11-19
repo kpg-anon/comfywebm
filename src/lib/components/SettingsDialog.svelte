@@ -16,7 +16,7 @@
     type CustomTheme,
   } from "$lib/themes";
   import Select from "./Select.svelte";
-  import type { Settings } from "$lib/types";
+  import type { Settings, StabMethod } from "$lib/types";
   import { updater } from "$lib/updater.svelte";
   import { getVersion } from "@tauri-apps/api/app";
 
@@ -207,6 +207,32 @@
   let msg = $state<string | null>(null);
   let saving = $state(false);
 
+  // Stabilize's method: "auto" = vid.stab when this ffmpeg has it, else deshake
+  let stabChoice = $state<string>(app.settings.stabMethod ?? "auto");
+  const hasVidstab = $derived(!!app.tools?.filters.vidstab);
+  const stabUsed = $derived<StabMethod>(stabChoice === "vidstab" || (stabChoice === "auto" && hasVidstab) ? (hasVidstab ? "vidstab" : "deshake") : "deshake");
+  let stabTesting = $state(false);
+  let stabResult = $state<{ method: StabMethod; text: string; bad: boolean } | null>(null);
+  async function testStab() {
+    const method = stabUsed;
+    stabTesting = true;
+    stabResult = null;
+    try {
+      const r = await ipc.stabTest(method);
+      const left = r.before > 0 ? r.after / r.before : 1;
+      const pct = Math.round((1 - left) * 100);
+      stabResult = {
+        method,
+        bad: left > 0.7,
+        text: `${method === "vidstab" ? "vid.stab" : "deshake"}: the test clip's shake went from ${r.before.toFixed(1)} to ${r.after.toFixed(1)} (${pct}% less) in ${r.secs.toFixed(1)} s.${left > 0.7 ? " That is little: this ffmpeg's stabilizer may be broken or very weak." : ""}`,
+      };
+    } catch (e) {
+      stabResult = { method, bad: true, text: `The test failed: ${ipc.errText(e)}` };
+    } finally {
+      stabTesting = false;
+    }
+  }
+
 
 
   async function save() {
@@ -222,6 +248,7 @@
       keepDir: keepDir.trim() || null,
       ytdlpCookies: ytdlpCookies || null,
       nameTemplate: nameTemplate.trim() || "{name}_{start}-{end}",
+      stabMethod: stabChoice === "auto" ? null : (stabChoice as StabMethod),
     });
     saving = false;
     if (err) {
@@ -463,6 +490,50 @@
         <div><button class="btn small" disabled={rescanning} title="Search for ffmpeg, ffprobe and yt-dlp again, for example after installing or updating them" onclick={rescan}>{rescanning ? "Searching..." : "Search again"}</button></div>
       {:else}
         <div class="muted">Tool status not loaded.</div>
+      {/if}
+    </div>
+
+    <div class="col">
+      <span>Stabilization</span>
+      <div class="line stabline">
+        <Select
+          label="Stabilization method"
+          value={stabChoice}
+          onchange={(v) => {
+            stabChoice = v;
+            stabResult = null;
+          }}
+          options={[
+            { value: "auto", label: `Automatic (${hasVidstab ? "vid.stab" : "deshake"})`, hint: "vid.stab when this ffmpeg has it" },
+            { value: "vidstab", label: "vid.stab", hint: hasVidstab ? "two passes" : "not in this ffmpeg", disabled: !hasVidstab },
+            { value: "deshake", label: "deshake", hint: "one pass" },
+          ]}
+        />
+        <button class="btn small" disabled={stabTesting || !app.tools?.ffmpeg} title="Shakes a test picture by a known amount (3 s), steadies it with this method and measures how much shake is left" onclick={testStab}>{stabTesting ? "Testing..." : "Test"}</button>
+      </div>
+      {#if stabUsed === "vidstab"}
+        <span class="hint">
+          <b>vid.stab</b> (used by Stabilize in the Advanced tab). Two passes over each range: first it follows points across the picture to work out how the camera moved, then it smooths
+          that path over a second on each side and moves every frame onto it. It handles shifts and turns, and zooms in just enough to keep the moved edges out of the picture.
+          The analysis is an extra pass over each range before the encode. Expect slow pans to stay but lag a little behind the camera, and a lot of motion in the picture itself
+          (people close to the camera) to be taken for shake now and then. ffmpeg builds from August 2026 on carry vid.stab 1.4, which removed about 90% of the test shake; older
+          ones about half.
+        </span>
+      {:else}
+        <span class="hint">
+          <b>deshake</b> (used by Stabilize in the Advanced tab). One pass, in every ffmpeg: each frame is compared with the one before and shifted back. It does not turn the
+          picture and looks only a short distance, so it takes out small jitter but not a large shake or a tilt; it removed about a quarter of the test shake.
+        </span>
+      {/if}
+      {#if !hasVidstab && app.tools?.ffmpeg}
+        <span class="hint">
+          This ffmpeg has no vid.stab. Builds that have it: on Windows, gyan.dev's "full" builds (<code>winget install Gyan.FFmpeg</code>, Scoop's <code>ffmpeg</code>,
+          or <code>versions/ffmpeg-gyan-nightly</code> for vid.stab 1.4) and BtbN's GPL builds; on macOS, <code>brew install ffmpeg-full</code> (Homebrew's plain
+          <code>ffmpeg</code> has no vid.stab); on Debian and Ubuntu, the system's ffmpeg. Then press Search again.
+        </span>
+      {/if}
+      {#if stabResult && stabResult.method === stabUsed}
+        <span class="hint" class:err={stabResult.bad}>{stabResult.text}</span>
       {/if}
     </div>
 
@@ -729,6 +800,9 @@
   }
   .col > input {
     height: var(--ctl-h);
+  }
+  .stabline :global(.sel) {
+    width: 240px;
   }
   .hint {
     font-weight: 400;

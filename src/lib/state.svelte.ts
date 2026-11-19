@@ -1612,16 +1612,19 @@ class AppState {
       // the box fills about 60% of the view, which leaves the camera room to hold still while the person moves
       const zoom = Math.round(Math.min(zoomMath.MAX_ZOOM, Math.max(zoomMath.MIN_ZOOM, 0.6 * Math.min(frame.w / first.w, frame.h / first.h))) * 100) / 100;
       // the person's centre on every tracked frame (0..1 of the frame)
-      const dense: ZoomPoint[] = pts.map((p) => {
-        const c = toView({ x: p.x, y: p.y, w: 0, h: 0 }, this.srcW, this.srcH, this.turn);
-        return { t: Math.round(p.t * 1000) / 1000, zoom: 1, x: (c.x - frame.x) / frame.w, y: (c.y - frame.y) / frame.h };
-      });
       const z = this.zoomLevel > 1.001 ? this.zoomLevel : zoom;
-      // the camera may leave the person off centre by 70% of the room between their box and the view's edge
-      const mx = Math.max(0, ((1 / z - first.w / frame.w) / 2) * 0.7);
-      const my = Math.max(0, ((1 / z - first.h / frame.h) / 2) * 0.7);
+      // the camera may leave the person off centre by 70% of the room between their box
+      // (its size at that moment: VitTrack and SAM 2 follow it) and the view's edge
+      const band = (w: number, h: number) => ({ mx: Math.max(0, ((1 / z - w / frame.w) / 2) * 0.7), my: Math.max(0, ((1 / z - h / frame.h) / 2) * 0.7) });
+      const dense: zoomMath.CamPoint[] = pts.map((p) => {
+        const c = toView({ x: p.x, y: p.y, w: 0, h: 0 }, this.srcW, this.srcH, this.turn);
+        const b = toView({ x: p.x - p.w / 2, y: p.y - p.h / 2, w: p.w, h: p.h }, this.srcW, this.srcH, this.turn);
+        return { t: Math.round(p.t * 1000) / 1000, zoom: 1, x: (c.x - frame.x) / frame.w, y: (c.y - frame.y) / frame.h, ...band(b.w, b.h) };
+      });
+      const { mx, my } = band(first.w, first.h);
       // a steady camera path, then as few keyframes as keep within a tenth of that room of it
-      const made = zoomMath.simplify(zoomMath.camera(dense, mx, my), Math.max(0.001, 0.1 * Math.min(mx, my)));
+      const narrowest = Math.min(mx, my, ...dense.map((q) => Math.min(q.mx ?? mx, q.my ?? my)));
+      const made = zoomMath.simplify(zoomMath.camera(dense, mx, my), Math.max(0.001, 0.1 * narrowest));
       const keep = this.zoomPoints.filter((q) => q.t < start - 0.01 || q.t > end + 0.01);
       this.zoomPoints = zoomMath.clean([...keep, ...made]);
       this.followLane = true;

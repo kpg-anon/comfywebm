@@ -86,6 +86,9 @@ export function simplify(dense: ZoomPoint[], tol: number, maxKeys = 200): ZoomPo
   }
 }
 
+/** A tracked position for `camera`, with its own band when the box's size is known. */
+export type CamPoint = ZoomPoint & { mx?: number; my?: number };
+
 /** A camera path for a tracked subject, as a camera operator would move: the
  *  subject may sit anywhere within `mx` / `my` (0..1 of the frame) of the
  *  view's centre, and inside that band the camera takes the shortest path, so
@@ -94,9 +97,14 @@ export function simplify(dense: ZoomPoint[], tol: number, maxKeys = 200): ZoomPo
  *  Worked out on 10 samples a second (projected over-relaxation on the path
  *  that pulls straight within the band), then the corners rounded over about
  *  a quarter of a second. Returns those samples. */
-export function camera(dense: ZoomPoint[], mx: number, my: number): ZoomPoint[] {
-  const p = clean(dense);
-  if (p.length < 3) return p;
+export function camera(dense: CamPoint[], mx: number, my: number): ZoomPoint[] {
+  // sorted, finite, one per time; a point's own band (its box's size then) kept
+  const p = dense
+    .filter((q) => [q.t, q.x, q.y].every(Number.isFinite))
+    .map((q) => ({ t: Math.max(0, q.t), zoom: 1, x: Math.min(1, Math.max(0, q.x)), y: Math.min(1, Math.max(0, q.y)), mx: q.mx ?? mx, my: q.my ?? my }))
+    .sort((a, b) => a.t - b.t)
+    .filter((q, i, a) => i === 0 || q.t - a[i - 1].t >= 1e-6);
+  if (p.length < 3) return p.map(({ t, x, y }) => ({ t, zoom: 1, x, y }));
   const t0 = p[0].t;
   const t1 = p[p.length - 1].t;
   const n = Math.max(2, Math.round((t1 - t0) * 10) + 1);
@@ -113,10 +121,17 @@ export function camera(dense: ZoomPoint[], mx: number, my: number): ZoomPoint[] 
   // every tracked frame within half a sample of each sample: a quick move between
   // two samples has to stay in the band too
   const near = ts.map((t) => p.filter((q) => Math.abs(q.t - t) <= (t1 - t0) / (n - 1) / 2 + 1e-9));
-  const axis = (v: number[], m: number, k: "x" | "y") => {
+  // the band at each sample: the narrowest of the tracked frames near it (a box that
+  // grows as the person comes closer leaves less room)
+  const bandAt = (i: number, k: "mx" | "my") => {
+    const qs = near[i].length ? near[i] : [p.reduce((a, b) => (Math.abs(b.t - ts[i]) < Math.abs(a.t - ts[i]) ? b : a))];
+    return Math.max(0, Math.min(...qs.map((q) => q[k])));
+  };
+  const axis = (v: number[], k: "x" | "y") => {
+    const mk = k === "x" ? "mx" : "my";
     // a little inside the band, so rounding the corners keeps the subject in it
-    const lo = v.map((x, i) => Math.max(x, ...near[i].map((q) => q[k])) - m * 0.85);
-    const hi = v.map((x, i) => Math.min(x, ...near[i].map((q) => q[k])) + m * 0.85);
+    const lo = v.map((x, i) => Math.max(x, ...near[i].map((q) => q[k])) - bandAt(i, mk) * 0.85);
+    const hi = v.map((x, i) => Math.min(x, ...near[i].map((q) => q[k])) + bandAt(i, mk) * 0.85);
     // a move wider than the band within one sample: the middle of it
     for (let i = 0; i < n; i++) {
       if (lo[i] > hi[i]) lo[i] = hi[i] = (lo[i] + hi[i]) / 2;
@@ -145,8 +160,8 @@ export function camera(dense: ZoomPoint[], mx: number, my: number): ZoomPoint[] 
       return sum / wsum;
     });
   };
-  const cx = axis(s.map((q) => q.x), Math.max(0, mx), "x");
-  const cy = axis(s.map((q) => q.y), Math.max(0, my), "y");
+  const cx = axis(s.map((q) => q.x), "x");
+  const cy = axis(s.map((q) => q.y), "y");
   return ts.map((t, i) => ({ t: Math.round(t * 1000) / 1000, zoom: 1, x: cx[i], y: cy[i] }));
 }
 

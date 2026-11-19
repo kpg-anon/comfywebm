@@ -672,12 +672,24 @@ pub fn snap_to_frames(segs: &mut [(f64, f64)], fps: f64, vfr: bool) {
 
 /// The `-ss` value for a range start made by `snap_to_frames`: a quarter of a
 /// frame early, so neither the 3-decimal argument nor a container's rounded
-/// timestamps (Matroska keeps milliseconds) can put the frame before it.
+/// timestamps (Matroska and WebM keep milliseconds) can put the frame before it.
 pub fn seek_arg(start: f64, fps: f64, vfr: bool) -> f64 {
     if vfr || !(fps.is_finite() && fps > 0.0) {
         return start;
     }
     (start - 0.25 / fps).max(0.0)
+}
+
+/// The input `-t` value for a range made by `snap_to_frames`: its length less a
+/// quarter of a frame. ffmpeg counts `-t` from the first frame it keeps, not
+/// from `-ss`; with millisecond timestamps that frame can be stored up to
+/// 0.5 ms late and the length rounds up, which let the frame after the range
+/// in (a 60 fps WebM: first frame at 13.567, -t 4.617, next frame at 18.183).
+pub fn length_arg(start: f64, end: f64, fps: f64, vfr: bool) -> f64 {
+    if vfr || !(fps.is_finite() && fps > 0.0) {
+        return end - start;
+    }
+    end - start - 0.25 / fps
 }
 
 /// `eq`, `hue` and `curves` for the color adjustments; empty when all are neutral.
@@ -1717,12 +1729,12 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
                 push(&mut a, &["-loop", "1", "-t", &fmt_num(e - s), "-i", path]);
                 continue;
             }
+            let m = clip_info(i);
             if *s > 0.0 {
-                let m = clip_info(i);
                 push(&mut a, &["-ss", &fmt_num(seek_arg(*s, m.video.fps, m.video.vfr))]);
             }
             let path = seg_src[i].map_or(spec.input.as_str(), |m| m.path.as_str());
-            push(&mut a, &["-t", &fmt_num(e - s), "-i", path]);
+            push(&mut a, &["-t", &fmt_num(length_arg(*s, *e, m.video.fps, m.video.vfr)), "-i", path]);
         }
         if let Some((path, _, _)) = &overlay {
             push(&mut a, &["-i", path]);
@@ -1740,12 +1752,12 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         for (i, idx) in extra_inputs.iter().enumerate() {
             let (s, e) = segs[i];
             let path = seg_src[i].map_or(spec.input.as_str(), |m| m.path.as_str());
+            let m = clip_info(i);
             for _ in idx {
                 if s > 0.0 {
-                    let m = clip_info(i);
                     push(&mut a, &["-ss", &fmt_num(seek_arg(s, m.video.fps, m.video.vfr))]);
                 }
-                push(&mut a, &["-t", &fmt_num(e - s), "-i", path]);
+                push(&mut a, &["-t", &fmt_num(length_arg(s, e, m.video.fps, m.video.vfr)), "-i", path]);
             }
         }
         if !multi {
@@ -2411,6 +2423,13 @@ mod tests {
         // the argument comes before frame 100 and after frame 99, even rounded to milliseconds
         let ss: f64 = fmt_num(seek_arg(r[0].0, 30.0, false)).parse().unwrap();
         assert!(ss > 99.0 / 30.0 && ss < 100.0 / 30.0, "{ss}");
+        // ffmpeg counts -t from the first frame it keeps; a WebM stores times in whole
+        // milliseconds: frame 814 of 60 fps at 13.567 and frame 1091 at 18.183. The end
+        // must stay before frame 1091 for a range of frames 814..=1090.
+        let (s0, e0): (f64, f64) = (814.0 / 60.0, 1091.0 / 60.0);
+        let first_kept = (s0 * 1000.0).round() / 1000.0;
+        let t: f64 = fmt_num(length_arg(s0, e0, 60.0, false)).parse().unwrap();
+        assert!(first_kept + t < 18.183 && first_kept + t > 18.167, "{}", first_kept + t);
         // variable frame rate: unchanged
         let mut v = [(3.35, 6.69)];
         snap_to_frames(&mut v, 30.0, true);
@@ -2425,7 +2444,7 @@ mod tests {
         assert_eq!(p.video_kbps.unwrap().round(), 528.0);
         let vp9 = "-c:v libvpx-vp9 -row-mt 1 -tile-columns 2 -frame-parallel 0 -deadline good";
         // the range starts at 10 s; -ss is a quarter frame early (seek_arg)
-        let head = "-hide_banner -y -ss 9.992 -t 4 -i in.mp4";
+        let head = "-hide_banner -y -ss 9.992 -t 3.992 -i in.mp4";
         let tags = "-colorspace bt709 -color_primaries bt709 -color_trc bt709";
         assert_eq!(
             strs(&p.passes[0]).join(" "),
@@ -2455,7 +2474,7 @@ mod tests {
         assert_eq!(p.passes.len(), 1);
         assert_eq!((p.video_kbps, p.bits_per_pixel, p.quality), (None, None, None));
         let s = strs(&p.passes[0]);
-        assert_eq!(&s[..7], ["-hide_banner", "-y", "-t", "60", "-i", "in.mp4", "-map"]);
+        assert_eq!(&s[..7], ["-hide_banner", "-y", "-t", "59.992", "-i", "in.mp4", "-map"]);
         let tail = s[s.iter().position(|a| *a == "-cpu-used").unwrap()..].join(" ");
         assert_eq!(
             tail,
@@ -2474,7 +2493,7 @@ mod tests {
         let p = build(&sp, &media(), &opts()).unwrap();
         assert!((p.duration_out - 4.5).abs() < 1e-9);
         let s = strs(&p.passes[1]);
-        assert_eq!(&s[2..12], ["-ss", "0.992", "-t", "2", "-i", "in.mp4", "-ss", "9.992", "-t", "2.5"]);
+        assert_eq!(&s[2..12], ["-ss", "0.992", "-t", "1.992", "-i", "in.mp4", "-ss", "9.992", "-t", "2.492"]);
         let g = s[s.iter().position(|a| *a == "-filter_complex").unwrap() + 1];
         assert_eq!(
             g,
@@ -2613,7 +2632,7 @@ mod tests {
         let p = build(&sp, &media(), &Opts { sources: Some(&m), ..opts() }).unwrap();
         let s = strs(&p.passes[0]).join(" ");
         // the second range is clamped to b.mp4's 3 s and read from it
-        assert!(s.contains("-t 3 -i b.mp4"), "{s}");
+        assert!(s.contains("-t 2.992 -i b.mp4"), "{s}");
         assert!(s.contains("force_original_aspect_ratio=decrease,pad="), "{s}");
         assert!(s.contains("anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=3"), "{s}");
         assert!((p.duration_out - 7.0).abs() < 1e-9);
@@ -2788,7 +2807,7 @@ mod tests {
         let (sp, m) = split_spec(crate::spec::Layout { length: SplitLength::Loop, width: 3840, height: 2160, ..test_layout(LayoutMode::Columns) });
         let p = build(&sp, &media(), &Opts { sources: Some(&m), ..opts() }).unwrap();
         let s = strs(&p.passes[0]).join(" ");
-        assert_eq!(s.matches("-ss 9.992 -t 4 -i in.mp4").count(), 3, "{s}");
+        assert_eq!(s.matches("-ss 9.992 -t 3.992 -i in.mp4").count(), 3, "{s}");
         // inputs: 0 in.mp4, 1 b.mp4, then the two copies
         for k in [0, 2, 3] {
             assert!(s.contains(&format!("[{k}:0]setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:stop=1,trim=end_frame=120")), "{k}: {s}");
@@ -2820,7 +2839,7 @@ mod tests {
         let p = build(&sp, &pic, &Opts { sources: Some(&m), ..opts() }).unwrap();
         let s = strs(p.passes.last().unwrap()).join(" ");
         // looped for the whole 9 s, not cut to its 0.04 s
-        assert!(s.contains("-loop 1 -t 9 -i pic.jpg -t 9 -i b.mp4"), "{s}");
+        assert!(s.contains("-loop 1 -t 9 -i pic.jpg -t 8.996 -i b.mp4"), "{s}");
         assert!((p.duration_out - 9.0).abs() < 1e-9, "{}", p.duration_out);
         // its crop is used; the second clip's covers all of it, so none
         assert!(s.contains("crop=400:1000:100:0"), "{s}");

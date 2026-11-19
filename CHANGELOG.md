@@ -7,6 +7,17 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+
+- The frame after the Out point could end the clip (1.1.1 and earlier). ffmpeg
+  counts an input's `-t` from the first frame it keeps, not from `-ss`, so a
+  range whose end fell on a frame's start let that frame in. Every WebM or
+  Matroska file (times in whole milliseconds) and many MP4s were affected: a
+  check of random ranges with the 1.1.1 rule found the wrong last frame in 17
+  of 40 on a 60 fps MP4 and 3 of 40 on a 60 fps WebM. `-t` is now a quarter
+  frame shorter; the same check found 280 of 280 ranges exact (30, 29.97 and
+  60 fps; MP4, WebM and Matroska).
+
 ## [1.1.1] - 2026-11-19
 
 ### Changed

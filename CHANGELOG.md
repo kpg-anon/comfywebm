@@ -9,6 +9,14 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- Install ffmpeg and Install yt-dlp, in Settings > Tools and on the screen
+  that says one is missing, so nothing has to be fetched by hand. ffmpeg on
+  Windows and Linux is BtbN's newest release-branch GPL build (n9.0.2 with
+  vid.stab 1.4 today, 189 MB; installed in 46 s here), on macOS Homebrew's
+  ffmpeg-full; yt-dlp is its newest release. Each goes to the app's own tools
+  folder and only comfywebm's setting points at it. Progress bar, Cancel
+  (nothing changes), Update and Remove. The macOS paths are untested.
+
 - Settings > Tools > Stabilization: Stabilize can use vid.stab (an analysis
   pass per range, then the frames moved onto a smoothed camera path) or
   deshake. Automatic picks vid.stab when ffmpeg has it. Each choice says what

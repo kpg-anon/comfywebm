@@ -229,6 +229,34 @@ pub fn parse_encoders(text: &str) -> Encoders {
     e
 }
 
+/// BtbN's release-branch GPL builds (Settings > Tools > Install ffmpeg):
+/// "ffmpeg-n9.0-latest-win64-gpl-9.0.zip" -> Some([9, 0]) for platform "win64" and
+/// extension ".zip"; master, shared and LGPL builds give None.
+pub fn btbn_rank(name: &str, plat: &str, ext: &str) -> Option<Vec<u32>> {
+    let rest = name.strip_prefix("ffmpeg-n")?;
+    let (ver, tail) = rest.split_once("-latest-")?;
+    if tail != format!("{plat}-gpl-{ver}{ext}") {
+        return None;
+    }
+    ver.split('.').map(|p| p.parse().ok()).collect()
+}
+
+#[cfg(test)]
+mod btbn_tests {
+    use super::btbn_rank;
+
+    #[test]
+    fn picks_btbn_release_builds() {
+        assert_eq!(btbn_rank("ffmpeg-n9.0-latest-win64-gpl-9.0.zip", "win64", ".zip"), Some(vec![9, 0]));
+        assert_eq!(btbn_rank("ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz", "linux64", ".tar.xz"), Some(vec![8, 1]));
+        // master builds, shared, LGPL and other systems are not taken
+        assert_eq!(btbn_rank("ffmpeg-master-latest-win64-gpl.zip", "win64", ".zip"), None);
+        assert_eq!(btbn_rank("ffmpeg-n9.0-latest-win64-gpl-shared-9.0.zip", "win64", ".zip"), None);
+        assert_eq!(btbn_rank("ffmpeg-n9.0-latest-win64-lgpl-9.0.zip", "win64", ".zip"), None);
+        assert_eq!(btbn_rank("ffmpeg-n9.0-latest-linuxarm64-gpl-9.0.tar.xz", "linux64", ".tar.xz"), None);
+    }
+}
+
 /// Filter lines look like " .S zscale            V->V       Apply resizing, ...".
 pub fn parse_filters(text: &str) -> Filters {
     let mut f = Filters::default();

@@ -264,6 +264,8 @@ export type Settings = {
   lastPreset: string | null;
   /** Stabilize's method; null = vid.stab when ffmpeg has it, else deshake */
   stabMethod?: StabMethod | null;
+  /** the Gyroflow program; null = not set */
+  gyroflowPath?: string | null;
   presets: Preset[];
 };
 

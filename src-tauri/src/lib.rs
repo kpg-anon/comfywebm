@@ -1,3 +1,4 @@
+mod install;
 mod queue;
 mod state;
 mod winstate;
@@ -1039,6 +1040,7 @@ pub fn run() {
         .manage(Downloads::default())
         .manage(Samples::default())
         .manage(Strips::default())
+        .manage(install::Installs::default())
         .setup(move |app| {
             let (config_dir, cache_dir) = match &portable {
                 Some(d) => {
@@ -1053,6 +1055,12 @@ pub fn run() {
             if let Some(win) = app.get_webview_window("main") {
                 winstate::install(&win, config_dir.join("window.json"));
             }
+            // tools installed from Settings: not in the cache (Clear cache must not remove them)
+            let tools_dir = match &portable {
+                Some(d) => d.join("tools"),
+                None => app.path().app_local_data_dir()?.join("tools"),
+            };
+            app.manage(install::ToolsDir(tools_dir));
             let desktop = app.path().desktop_dir().ok();
             trim_cache(&cache_dir);
             app.manage(AppState::new(config_dir, cache_dir, desktop));
@@ -1063,6 +1071,10 @@ pub fn run() {
             tools_status,
             tools_rescan,
             stab_test,
+            install::tool_install,
+            install::tool_install_cancel,
+            install::tool_installed,
+            install::tool_remove,
             initial_file,
             open_item,
             probe,

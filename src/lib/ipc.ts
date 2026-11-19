@@ -25,6 +25,18 @@ export const toolsRescan = () => invoke<ToolsStatus>("tools_rescan");
 /** Stabilize's self-test: the shake of a test clip before and after (mean neighbour-frame difference), and the seconds it took */
 export type StabTest = { before: number; after: number; secs: number };
 export const stabTest = (method: StabMethod) => invoke<StabTest>("stab_test", { method });
+
+/** A tool the app can download and set up itself (src-tauri install.rs) */
+export type InstallTool = "ffmpeg" | "ytdlp" | "gyroflow";
+export type InstallProgress = { tool: InstallTool; phase: "find" | "download" | "unpack" | "check" | "brew"; done: number; total: number | null; text: string | null };
+export type Installed = { tool: InstallTool; path: string; release: string };
+export const toolInstall = (tool: InstallTool) => invoke<Installed>("tool_install", { tool });
+export const toolInstallCancel = (tool: InstallTool) => invoke<void>("tool_install_cancel", { tool });
+/** the folder of the copy the app installed, or null */
+export const toolInstalled = (tool: InstallTool) => invoke<string | null>("tool_installed", { tool });
+export const toolRemove = (tool: InstallTool) => invoke<void>("tool_remove", { tool });
+export const onInstallProgress = (cb: (p: InstallProgress) => void): Promise<UnlistenFn> =>
+  listen<InstallProgress>("install-progress", (e) => cb(e.payload));
 export const initialFile = () => invoke<string | null>("initial_file");
 export const openItem = (path: string) => invoke<void>("open_item", { path });
 export const probe = (path: string) => invoke<MediaInfo>("probe", { path });

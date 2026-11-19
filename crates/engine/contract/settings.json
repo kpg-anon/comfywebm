@@ -1,6 +1,7 @@
 {
   "downloadDir": null,
   "ffmpegPath": null,
+  "gyroflowPath": null,
   "keepDir": null,
   "lastPreset": null,
   "nameTemplate": "{name}_{start}-{end}",

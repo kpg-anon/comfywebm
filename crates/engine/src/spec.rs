@@ -753,6 +753,8 @@ pub struct Settings {
     pub last_preset: Option<String>,
     /// Stabilize's method (Settings > Tools); None = vid.stab when ffmpeg has it, else deshake
     pub stab_method: Option<StabMethod>,
+    /// the Gyroflow program (Settings > Tools); None = not set
+    pub gyroflow_path: Option<String>,
     /// presets kept in settings.json by older builds; moved to presets/saved/*.toml on start
     pub presets: Vec<Preset>,
 }
@@ -771,6 +773,7 @@ impl Default for Settings {
             name_template: DEFAULT_NAME_TEMPLATE.to_string(),
             last_preset: None,
             stab_method: None,
+            gyroflow_path: None,
             presets: Vec::new(),
         }
     }

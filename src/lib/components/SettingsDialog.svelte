@@ -16,6 +16,8 @@
     type CustomTheme,
   } from "$lib/themes";
   import Select from "./Select.svelte";
+  import ToolInstall from "./ToolInstall.svelte";
+  import { ffmpegInstall } from "$lib/toolinstall";
   import type { Settings, StabMethod } from "$lib/types";
   import { updater } from "$lib/updater.svelte";
   import { getVersion } from "@tauri-apps/api/app";
@@ -492,6 +494,7 @@
         <div class="muted">Tool status not loaded.</div>
       {/if}
     </div>
+    <ToolInstall tool="ffmpeg" label={ffmpegInstall.label} note={ffmpegInstall.note} oninstalled={(p) => (ffmpegPath = p ?? "")} />
 
     <div class="col">
       <span>Stabilization</span>
@@ -525,12 +528,12 @@
           picture and looks only a short distance, so it takes out small jitter but not a large shake or a tilt; it removed about a quarter of the test shake.
         </span>
       {/if}
-      {#if !hasVidstab && app.tools?.ffmpeg}
+      {#if (!hasVidstab && app.tools?.ffmpeg) || (stabResult?.bad && stabResult.method === "vidstab")}
         <span class="hint">
-          This ffmpeg has no vid.stab. Builds that have it: on Windows, gyan.dev's "full" builds (<code>winget install Gyan.FFmpeg</code>, Scoop's <code>ffmpeg</code>,
-          or <code>versions/ffmpeg-gyan-nightly</code> for vid.stab 1.4) and BtbN's GPL builds; on macOS, <code>brew install ffmpeg-full</code> (Homebrew's plain
-          <code>ffmpeg</code> has no vid.stab); on Debian and Ubuntu, the system's ffmpeg. Then press Search again.
+          {hasVidstab ? "This ffmpeg's vid.stab did little in the test." : "This ffmpeg has no vid.stab."} The button installs an ffmpeg with vid.stab 1.4 for
+          comfywebm (your other programs keep theirs); Test again afterwards.
         </span>
+        <ToolInstall tool="ffmpeg" label={ffmpegInstall.label} note={ffmpegInstall.note} oninstalled={(p) => { ffmpegPath = p ?? ""; stabResult = null; }} />
       {/if}
       {#if stabResult && stabResult.method === stabUsed}
         <span class="hint" class:err={stabResult.bad}>{stabResult.text}</span>
@@ -545,6 +548,7 @@
         <button class="btn small" onclick={async () => { const f = await pickAnyFile("yt-dlp executable"); if (f) ytdlpPath = f; }}>File</button>
       </div>
     </label>
+    <ToolInstall tool="ytdlp" label="Install yt-dlp" note="the latest release from yt-dlp's GitHub, 23 to 41 MB" oninstalled={(p) => (ytdlpPath = p ?? "")} />
 
     <div class="col">
       <span>yt-dlp cookies from browser</span>

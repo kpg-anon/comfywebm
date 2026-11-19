@@ -126,8 +126,10 @@ your user profile; delete that file to use the normal locations. To update,
 unzip the new version over the folder; `data` stays. The portable copy needs
 the WebView2 runtime, which Windows 10 and 11 have.
 
-ffmpeg: the "full" build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/)
-(`winget install Gyan.FFmpeg`). yt-dlp: `winget install yt-dlp`.
+ffmpeg and yt-dlp: press Install ffmpeg and Install yt-dlp when the app says
+they are missing (or in Settings > Tools). To use your own instead: the "full"
+build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/)
+(`winget install Gyan.FFmpeg`) and `winget install yt-dlp`.
 
 ### macOS
 
@@ -142,8 +144,11 @@ xattr -cr /Applications/comfywebm.app
 Or: try to open it once, then System Settings > Privacy & Security > **Open
 Anyway** (on macOS 14 and older, right-click the app > **Open** also works).
 
-ffmpeg and yt-dlp with [Homebrew](https://brew.sh): `brew install ffmpeg yt-dlp`.
-The app finds them in Homebrew's folders even when started from the Dock.
+ffmpeg and yt-dlp: Install ffmpeg in the app runs `brew install ffmpeg-full`
+(needs [Homebrew](https://brew.sh)); Install yt-dlp downloads it. Or install
+them yourself with `brew install ffmpeg-full yt-dlp` (the plain `ffmpeg` formula
+has no vid.stab). The app finds them in Homebrew's folders even when started
+from the Dock.
 
 ### Linux
 
@@ -162,9 +167,9 @@ The AppImage is built on Ubuntu 22.04 and needs glibc 2.35 or newer (Ubuntu
 **.deb / .rpm**: `sudo apt install ./comfywebm_*_amd64.deb` or
 `sudo dnf install ./comfywebm-*.x86_64.rpm`.
 
-ffmpeg: `sudo apt install ffmpeg` (Fedora: from RPM Fusion,
-`sudo dnf install ffmpeg`). yt-dlp: `pipx install yt-dlp` or your package
-manager's (often outdated) `yt-dlp`.
+ffmpeg and yt-dlp: press Install ffmpeg and Install yt-dlp in the app, or use
+`sudo apt install ffmpeg` (Fedora: from RPM Fusion, `sudo dnf install ffmpeg`)
+and `pipx install yt-dlp`.
 
 ## Updating
 

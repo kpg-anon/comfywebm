@@ -369,18 +369,30 @@ and takes MP4 only with H.264 and AAC; X's MP4 with H.264 and AAC.
 
 - **ffmpeg** and **ffprobe**, with libvpx, libopus and libvorbis for WebM,
   libx264, libx265 and aac for MP4, libsvtav1 for AV1, libass for subtitles and
-  zscale (libzimg) for tone mapping. The "full" Windows builds from
+  zscale (libzimg) for tone mapping, and vid.stab for the better Stabilize.
+  The "full" Windows builds from
   [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) and
   [BtbN](https://github.com/BtbN/FFmpeg-Builds/releases) have all of them.
-  Download: <https://ffmpeg.org/download.html>.
 - **yt-dlp**, only for web links: <https://github.com/yt-dlp/yt-dlp/releases>.
+
+The app can install both itself: **Install ffmpeg** and **Install yt-dlp** in
+Settings > Tools, and on the screen that says one is missing. On Windows and
+Linux, Install ffmpeg downloads BtbN's newest release-branch GPL build (about
+190 MB, with vid.stab 1.4); on macOS it runs `brew install ffmpeg-full`
+(Homebrew's plain `ffmpeg` has no vid.stab), which needs Homebrew. Install
+yt-dlp downloads the newest yt-dlp release (23 to 41 MB). The files go to a
+`tools` folder in the app's local data folder (`data/tools` for the portable
+copy), the setting for the program is pointed at them, and nothing else on
+the computer changes: other programs keep the ffmpeg they have. Update
+fetches the newest release again and Remove deletes the copy and clears the
+setting. The macOS paths of these buttons have not been tried.
 
 comfywebm looks for each program in this order: the path set in Settings (a
 file or a folder), the folder of the comfywebm executable, then `PATH`, then
 on macOS Homebrew's and MacPorts' folders (`/opt/homebrew/bin`,
 `/usr/local/bin`, `/opt/local/bin`) and on Linux `/usr/local/bin`,
 `/snap/bin` and `~/.local/bin`. When one is missing, the app says which and
-how to install it on your system.
+offers to install it.
 Codecs that your ffmpeg lacks are disabled in the codec list.
 
 Extra yt-dlp arguments, for example `--cookies-from-browser firefox`, can be
@@ -444,8 +456,10 @@ files).
     you press Update now, it downloads the installer from the same release.
   - **yt-dlp** for a link you enter, and the thumbnail the site gives for it
     in the Open URL dialog.
-  - The links in the "ffmpeg not found" screen and "Full changelog" in the
-    update notice open in your browser.
+  - **Install ffmpeg / yt-dlp**, only when you press them: the GitHub API
+    (`api.github.com`) for the newest release of BtbN/FFmpeg-Builds or
+    yt-dlp/yt-dlp, then that release file from GitHub.
+  - "Full changelog" in the update notice opens in your browser.
 - "Cookies from browser" in Settings passes `--cookies-from-browser` to
   yt-dlp, which then reads that browser's cookies for the sites you download
   from. comfywebm does not read or keep them, and they are never written into
@@ -489,9 +503,10 @@ turn it off. Boomerang, GIF and WebP have no sound.
 errors. Sites that need an account work with "cookies from browser" in
 Settings. Update yt-dlp often (`yt-dlp -U`); sites change.
 
-**ffmpeg is not found.** Install ffmpeg (ffmpeg.org/download.html) and either
-put it on `PATH`, put `ffmpeg` and `ffprobe` beside the app, or set the folder
-in Settings and press "Search again".
+**ffmpeg is not found.** Press Install ffmpeg on that screen (or in Settings >
+Tools). To use a copy you already have, put it on `PATH`, put `ffmpeg` and
+`ffprobe` beside the app, or set the folder in Settings and press "Search
+again".
 
 **A job was "Interrupted".** The app closed while it was encoding. Retry puts
 it back in the queue; it starts from the beginning.

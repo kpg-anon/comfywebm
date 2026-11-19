@@ -1,58 +1,32 @@
 <script lang="ts">
-  // Says which tool was not found, where to get it, and where to set its path.
-  import { openUrl } from "@tauri-apps/plugin-opener";
+  // Says which tool was not found and installs it in place (src-tauri
+  // install.rs), so nobody has to leave the app; or opens Settings to point
+  // at a copy that is already on the computer.
   import { app } from "$lib/state.svelte";
-  import { errText } from "$lib/ipc";
-
+  import { ffmpegInstall } from "$lib/toolinstall";
+  import ToolInstall from "./ToolInstall.svelte";
   let { which }: { which: "ffmpeg" | "ytdlp" } = $props();
-
   const missing = $derived(
     which === "ffmpeg"
       ? [!app.tools?.ffmpeg && "ffmpeg", !app.tools?.ffprobe && "ffprobe"].filter(Boolean).join(" and ")
       : "yt-dlp",
   );
-  const link = $derived(which === "ffmpeg" ? "https://ffmpeg.org/download.html" : "https://github.com/yt-dlp/yt-dlp/releases");
-
-  // the webview tells the system: WebView2 on Windows, WebKit on macOS and Linux
-  const os = /Mac/.test(navigator.userAgent) ? "mac" : /Linux|X11/.test(navigator.userAgent) ? "linux" : "windows";
-  /** a one-line install command for this system, or null on Windows (download page) */
-  const install = $derived(
-    os === "mac"
-      ? which === "ffmpeg"
-        ? "brew install ffmpeg"
-        : "brew install yt-dlp"
-      : os === "linux"
-        ? which === "ffmpeg"
-          ? "sudo apt install ffmpeg   (Fedora: sudo dnf install ffmpeg)"
-          : "pipx install yt-dlp   (or: sudo apt install yt-dlp)"
-        : null,
-  );
-
-  async function go() {
-    try {
-      await openUrl(link);
-    } catch (e) {
-      app.error = errText(e);
-    }
-  }
 </script>
 
 <div class="missing">
   <div class="err"><b>{missing} was not found.</b></div>
   <div>
     {#if which === "ffmpeg"}
-      comfywebm needs ffmpeg and ffprobe to read and encode video.
+      comfywebm needs ffmpeg and ffprobe to read and encode video. Install them here, or point Settings at a copy you already have.
     {:else}
-      Opening URLs needs yt-dlp.
+      Opening URLs needs yt-dlp. Install it here, or point Settings at a copy you already have.
     {/if}
-    {#if install}
-      Install it with <code class="mono sel">{install}</code>{os === "mac" ? " (Homebrew, brew.sh)" : ""}, then restart comfywebm, or download it from
-    {:else}
-      Download it from
-    {/if}
-    <button class="link mono" onclick={go}>{link.replace("https://", "")}</button>. It looks in the path set in Settings, then beside the app, then on
-    PATH{os === "mac" ? ", then in Homebrew's and MacPorts' folders" : os === "linux" ? ", then in /usr/local/bin, /snap/bin and ~/.local/bin" : ""}.
   </div>
+  {#if which === "ffmpeg"}
+    <ToolInstall tool="ffmpeg" label={ffmpegInstall.label} note={ffmpegInstall.note} />
+  {:else}
+    <ToolInstall tool="ytdlp" label="Install yt-dlp" note="the latest release from yt-dlp's GitHub, 23 to 41 MB" />
+  {/if}
   <button class="btn small" onclick={() => (app.settingsOpen = true)}>Set the path in Settings</button>
 </div>
 
@@ -68,24 +42,5 @@
     color: var(--text-secondary);
     font-size: 12px;
     text-align: left;
-  }
-  code {
-    padding: 0 4px;
-    border: 1px solid var(--border-muted);
-    border-radius: 4px;
-    background: var(--bg-chip);
-    font-size: 11px;
-  }
-  .sel {
-    user-select: all;
-  }
-  .link {
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--accent);
-    text-decoration: underline;
-    font-size: 11px;
-    cursor: pointer;
   }
 </style>

@@ -920,6 +920,8 @@ class AppState {
 
   async refreshTools() {
     try {
+      // an install from Settings changes settings.json too (the tool's path)
+      this.settings = { ...this.settings, ...(await ipc.settingsGet()) };
       this.tools = await ipc.toolsStatus();
     } catch (e) {
       this.error = ipc.errText(e);

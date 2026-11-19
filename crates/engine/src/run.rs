@@ -166,6 +166,18 @@ pub fn run_ffmpeg(
     }
 }
 
+/// Runs a plan's pre-passes (the vid.stab analysis of each range) one after
+/// another; `on_progress` gets 0..1 over all of them and the speed.
+pub fn run_prepasses(ffmpeg: &Path, planned: &plan::Planned, cancel: &Cancel, mut on_progress: impl FnMut(f64, Option<f64>)) -> Result<(), RunError> {
+    let total: f64 = planned.prepasses.iter().map(|(_, d)| d.max(0.0)).sum::<f64>().max(1e-9);
+    let mut done = 0.0;
+    for (args, d) in &planned.prepasses {
+        run_ffmpeg(ffmpeg, args, *d, cancel, |p| on_progress(((done + p.fraction * d) / total).clamp(0.0, 1.0), p.speed))?;
+        done += d.max(0.0);
+    }
+    Ok(())
+}
+
 /// A unique pass log prefix in the temp dir.
 pub fn passlog_prefix() -> PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -266,25 +278,39 @@ pub fn run_job(
     loop {
         let opts = Opts { video_kbps: kbps_override, zscale, sources, ..Opts::new(&part_s, &passlog_s) };
         let planned = plan::build(spec, info, &opts)?;
-        let total_passes = planned.passes.len() as u32;
+        let encode_passes = planned.passes.len() as u32;
+        // the stabilizer's analysis runs once, before the first attempt, as an extra pass
+        // with a quarter of the attempt's progress bar; its files serve every attempt
+        let pre = attempt == 1 && !planned.prepasses.is_empty();
+        let (shift, pre_len) = if pre { (1, 0.25) } else { (0, 0.0) };
+        let total_passes = encode_passes + shift;
         // (pass number, args, start and length of this pass in the attempt's fraction)
-        let runs: Vec<(u32, &Vec<String>, f64, f64)> = if total_passes == 2 && pass1_done && planned.reuse_pass1 {
+        let runs: Vec<(u32, &Vec<String>, f64, f64)> = if encode_passes == 2 && pass1_done && planned.reuse_pass1 {
             vec![(2, &planned.passes[1], 0.0, 1.0)]
-        } else if total_passes == 2 {
+        } else if encode_passes == 2 {
             vec![(1, &planned.passes[0], 0.0, 0.3), (2, &planned.passes[1], 0.3, 0.7)]
         } else {
             vec![(1, &planned.passes[0], 0.0, 1.0)]
         };
         let attempt_start = Instant::now();
-        for (pass, args, base, len) in runs {
-            run_ffmpeg(ffmpeg, args, planned.duration_out, cancel, |p| {
-                let fraction = (base + p.fraction * len).clamp(0.0, 1.0);
-                let elapsed = attempt_start.elapsed().as_secs_f64();
-                let eta_secs = (fraction >= 0.01).then(|| elapsed * (1.0 - fraction) / fraction);
-                on_progress(&Progress { fraction, pass, passes: total_passes, attempt, speed: p.speed, eta_secs });
+        let eta = |fraction: f64| {
+            let elapsed = attempt_start.elapsed().as_secs_f64();
+            (fraction >= 0.01).then(|| elapsed * (1.0 - fraction) / fraction)
+        };
+        if pre {
+            run_prepasses(ffmpeg, &planned, cancel, |f, speed| {
+                let fraction = f * pre_len;
+                on_progress(&Progress { fraction, pass: 1, passes: total_passes, attempt, speed, eta_secs: eta(fraction) });
             })?;
         }
-        pass1_done = total_passes == 2;
+        for (pass, args, base, len) in runs {
+            let (base, len) = (pre_len + base * (1.0 - pre_len), len * (1.0 - pre_len));
+            run_ffmpeg(ffmpeg, args, planned.duration_out, cancel, |p| {
+                let fraction = (base + p.fraction * len).clamp(0.0, 1.0);
+                on_progress(&Progress { fraction, pass: pass + shift, passes: total_passes, attempt, speed: p.speed, eta_secs: eta(fraction) });
+            })?;
+        }
+        pass1_done = encode_passes == 2;
         let size = std::fs::metadata(&part).map_err(|e| format!("ffmpeg wrote no output: {e}"))?.len();
         let kbps = planned.video_kbps.unwrap_or(0.0);
 
@@ -382,9 +408,13 @@ pub fn sample(
     s.fade_in = 0.0;
     s.fade_out = 0.0;
     let out_s = out.to_string_lossy().into_owned();
-    let opts = Opts { video_kbps: full.video_kbps, zscale, single_pass: true, ..Opts::new(&out_s, "") };
+    // the stabilizer's analysis files (vid.stab) go to a temporary prefix
+    let passlog = passlog_prefix();
+    let _cleanup = Cleanup { passlog: passlog.clone(), files: Vec::new() };
+    let passlog_s = passlog.to_string_lossy().into_owned();
+    let opts = Opts { video_kbps: full.video_kbps, zscale, single_pass: true, ..Opts::new(&out_s, &passlog_s) };
     let planned = plan::build(&s, info, &opts)?;
-    let res = run_ffmpeg(ffmpeg, &planned.passes[0], planned.duration_out, cancel, |_| {});
+    let res = run_prepasses(ffmpeg, &planned, cancel, |_, _| {}).and_then(|()| run_ffmpeg(ffmpeg, &planned.passes[0], planned.duration_out, cancel, |_| {}));
     if res.is_err() {
         let _ = std::fs::remove_file(out);
     }
@@ -410,8 +440,12 @@ pub fn export_frame_processed(ffmpeg: &Path, spec: &EncodeSpec, info: &MediaInfo
     s.rate = Rate::Crf { crf: 30.0, max_bitrate_k: None };
     let part = naming::part_path(out);
     let part_s = part.to_string_lossy().into_owned();
-    let planned = plan::build(&s, info, &Opts { zscale, single_pass: true, frame: true, ..Opts::new(&part_s, "") })?;
-    let res = run_ffmpeg(ffmpeg, &planned.passes[0], planned.duration_out, &Cancel::new(), |_| {});
+    let passlog = passlog_prefix();
+    let _cleanup = Cleanup { passlog: passlog.clone(), files: Vec::new() };
+    let passlog_s = passlog.to_string_lossy().into_owned();
+    let planned = plan::build(&s, info, &Opts { zscale, single_pass: true, frame: true, ..Opts::new(&part_s, &passlog_s) })?;
+    let cancel = Cancel::new();
+    let res = run_prepasses(ffmpeg, &planned, &cancel, |_, _| {}).and_then(|()| run_ffmpeg(ffmpeg, &planned.passes[0], planned.duration_out, &cancel, |_| {}));
     if let Err(e) = res {
         let _ = std::fs::remove_file(&part);
         return Err(match e {
@@ -504,7 +538,7 @@ pub fn export_frame(ffmpeg: &Path, info: &MediaInfo, time: f64, crop: Option<Cro
         &SegmentFilters {
             deinterlace: false,
             denoise: false,
-            stabilize: false,
+            stabilize: None,
             tonemap: v.hdr && zscale,
             anamorphic: v.anamorphic,
             crop: g.crop,

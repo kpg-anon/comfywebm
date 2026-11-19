@@ -182,6 +182,8 @@ fn real_main() -> Result<(), String> {
         subs_delay: std::env::var("CWM_SUBS_DELAY").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0),
         subs_font_size: std::env::var("CWM_SUBS_SIZE").ok().and_then(|s| s.parse().ok()),
         stabilize: std::env::var("CWM_STAB").is_ok(),
+        // CWM_STAB=vidstab: vid.stab, any other value: deshake
+        stab_method: if std::env::var("CWM_STAB").as_deref() == Ok("vidstab") { comfywebm_engine::StabMethod::Vidstab } else { comfywebm_engine::StabMethod::Deshake },
         smooth_slowmo: std::env::var("CWM_SMOOTH").is_ok(),
         output_dir: None,
         cover,

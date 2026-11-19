@@ -7,6 +7,7 @@
   "outputDir": null,
   "outputMode": null,
   "presets": [],
+  "stabMethod": null,
   "ytdlpArgs": [],
   "ytdlpCookies": null,
   "ytdlpPath": null

@@ -11,6 +11,7 @@ pub mod quality;
 pub mod ramp;
 pub mod run;
 pub mod scenes;
+pub mod stab;
 pub mod spec;
 pub mod strip;
 pub mod track;

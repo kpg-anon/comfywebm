@@ -66,6 +66,7 @@
   "smoothSlowmo": false,
   "speed": 1.0,
   "speedRamp": [],
+  "stabMethod": "deshake",
   "stabilize": false,
   "streamCopy": false,
   "subs": null,

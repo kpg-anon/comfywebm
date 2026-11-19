@@ -100,7 +100,7 @@ pub fn check(ffmpeg: &Path, spec: &EncodeSpec, info: &MediaInfo, zscale: bool, d
         }
         let _ = std::fs::remove_file(&probe_out);
         let _ = std::fs::remove_file(&ref_out);
-        for ext in ["-0.log", "-0.log.mbtree", ".log", ".log.mbtree"] {
+        for ext in ["-0.log", "-0.log.mbtree", ".log", ".log.mbtree", "-stab0.trf"] {
             let _ = std::fs::remove_file(format!("{}{ext}", passlog.display()));
         }
     };
@@ -109,11 +109,14 @@ pub fn check(ffmpeg: &Path, spec: &EncodeSpec, info: &MediaInfo, zscale: bool, d
         let log_s = passlog.to_string_lossy().into_owned();
         // two passes when the job has two: one pass scored 9 points under the full encode on the same frames, two passes 4
         let p = plan::build(&probe, info, &Opts { video_kbps: full.video_kbps, zscale, ..Opts::new(&probe_s, &log_s) })?;
+        // the stabilizer's analysis (vid.stab), which the reference reads too
+        crate::run::run_prepasses(ffmpeg, &p, cancel, |_, _| {})?;
         for pass in &p.passes {
             crate::run::run_ffmpeg(ffmpeg, pass, p.duration_out, cancel, |_| {})?;
         }
         let ref_s = ref_out.to_string_lossy().into_owned();
-        let r = plan::build(&reference, info, &Opts { zscale, single_pass: true, ..Opts::new(&ref_s, "") })?;
+        // the same pass log prefix, so the reference is stabilized from the same analysis
+        let r = plan::build(&reference, info, &Opts { zscale, single_pass: true, ..Opts::new(&ref_s, &log_s) })?;
         let mut ref_args = r.passes[0].clone();
         to_matroska(&mut ref_args);
         if std::env::var_os("CWM_QUALITY_KEEP").is_some() {

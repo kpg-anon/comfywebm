@@ -438,6 +438,17 @@ pub enum Playback {
     Boomerang,
 }
 
+/// How Stabilize steadies the picture (Settings > Tools).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StabMethod {
+    /// ffmpeg's deshake: one pass, shifts only
+    #[default]
+    Deshake,
+    /// vid.stab: an analysis pass per range, then vidstabtransform
+    Vidstab,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Effort {
@@ -524,9 +535,11 @@ pub struct EncodeSpec {
     pub deinterlace: bool,
     #[serde(default)]
     pub denoise: bool,
-    /// steadies a shaky picture (deshake), per range
+    /// steadies a shaky picture, per range, with `stab_method`
     #[serde(default)]
     pub stabilize: bool,
+    #[serde(default)]
+    pub stab_method: StabMethod,
     /// slow motion (speed below 1) gets new in-between frames (minterpolate)
     /// instead of repeated ones
     #[serde(default)]
@@ -738,6 +751,8 @@ pub struct Settings {
     pub ytdlp_cookies: Option<String>,
     pub name_template: String,
     pub last_preset: Option<String>,
+    /// Stabilize's method (Settings > Tools); None = vid.stab when ffmpeg has it, else deshake
+    pub stab_method: Option<StabMethod>,
     /// presets kept in settings.json by older builds; moved to presets/saved/*.toml on start
     pub presets: Vec<Preset>,
 }
@@ -755,6 +770,7 @@ impl Default for Settings {
             ytdlp_cookies: None,
             name_template: DEFAULT_NAME_TEMPLATE.to_string(),
             last_preset: None,
+            stab_method: None,
             presets: Vec::new(),
         }
     }
@@ -789,6 +805,9 @@ pub struct Filters {
     /// needed for the quality check (quality.rs)
     #[serde(default)]
     pub libvmaf: bool,
+    /// vidstabdetect and vidstabtransform (Stabilize with vid.stab)
+    #[serde(default)]
+    pub vidstab: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

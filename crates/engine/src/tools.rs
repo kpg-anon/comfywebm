@@ -232,6 +232,7 @@ pub fn parse_encoders(text: &str) -> Encoders {
 /// Filter lines look like " .S zscale            V->V       Apply resizing, ...".
 pub fn parse_filters(text: &str) -> Filters {
     let mut f = Filters::default();
+    let (mut detect, mut transform) = (false, false);
     for line in text.lines() {
         let mut parts = line.split_whitespace();
         let (Some(flags), Some(name)) = (parts.next(), parts.next()) else {
@@ -244,9 +245,12 @@ pub fn parse_filters(text: &str) -> Filters {
             "zscale" => f.zscale = true,
             "subtitles" => f.subtitles = true,
             "libvmaf" => f.libvmaf = true,
+            "vidstabdetect" => detect = true,
+            "vidstabtransform" => transform = true,
             _ => {}
         }
     }
+    f.vidstab = detect && transform;
     f
 }
 

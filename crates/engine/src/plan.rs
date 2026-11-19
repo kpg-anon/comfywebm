@@ -3,7 +3,7 @@
 
 use crate::spec::{
     Adjust, Caption,
-    Codec, Container, Crop, Effort, EncodeSpec, MediaInfo, PlanInfo, Playback, Quality, Rate, Segment, SubsSel,
+    Codec, Container, Crop, Effort, EncodeSpec, MediaInfo, PlanInfo, Playback, Quality, Rate, Segment, StabMethod, SubsSel,
     VideoInfo,
 };
 
@@ -51,6 +51,9 @@ pub struct Planned {
     pub auto_scaled: bool,
     /// one argument list per ffmpeg run, program name not included
     pub passes: Vec<Vec<String>>,
+    /// runs before the passes, once per job (not again on a size-fit retry):
+    /// the vid.stab analysis of each range, with the range's length for progress
+    pub prepasses: Vec<(Vec<String>, f64)>,
     /// a retry may run only pass 2 and reuse the pass 1 log (libvpx, x264)
     pub reuse_pass1: bool,
     pub warnings: Vec<String>,
@@ -70,7 +73,7 @@ impl Planned {
             bits_per_pixel: self.bits_per_pixel.map(|b| (b * 10000.0).round() / 10000.0),
             quality: self.quality,
             auto_scaled: self.auto_scaled,
-            command: self.passes.iter().map(|a| shell_join("ffmpeg", a)).collect::<Vec<_>>().join("\n"),
+            command: self.prepasses.iter().map(|(a, _)| a).chain(&self.passes).map(|a| shell_join("ffmpeg", a)).collect::<Vec<_>>().join("\n"),
             warnings: self.warnings.clone(),
             output: None,
             cells: self.cells.clone(),
@@ -723,7 +726,8 @@ pub const TONEMAP: &str =
 pub struct SegmentFilters<'a> {
     pub deinterlace: bool,
     pub denoise: bool,
-    pub stabilize: bool,
+    /// the stabilizing filter of this range (`deshake`, or vidstabtransform with its analysis file)
+    pub stabilize: Option<&'a str>,
     pub tonemap: bool,
     pub anamorphic: bool,
     pub crop: Option<(u32, u32, u32, u32)>,
@@ -747,9 +751,9 @@ pub fn segment_chain(sf: &SegmentFilters, start: f64) -> Vec<String> {
     if sf.deinterlace {
         f.push("bwdif=mode=send_frame".into());
     }
-    if sf.stabilize {
+    if let Some(stab) = sf.stabilize {
         // before the crop, so the borders it pulls in can be cropped away
-        f.push("deshake".into());
+        f.push(stab.into());
     }
     if sf.denoise {
         f.push("hqdn3d".into());
@@ -1337,11 +1341,87 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         s => s,
     };
 
+    // --- stabilization ---
+    // vid.stab looks at each range once (vidstabdetect, a pre-pass writing
+    // <passlog>-stab<i>.trf) and the encode applies what it found. The
+    // analysis sees the same frames as the encode up to the stabilizer: the
+    // same -ss/-t and the filters before it (rebasing, deinterlacing).
+    let deint = |i: usize| match (layout.is_some(), seg_src[i]) {
+        (true, _) => clip_info(i).video.interlaced,
+        (false, Some(m)) => spec.deinterlace && m.video.interlaced,
+        (false, None) => spec.deinterlace,
+    };
+    let stab_base = if opts.passlog.is_empty() { "comfywebm" } else { opts.passlog };
+    let stab_file = |i: usize| format!("{stab_base}-stab{i}.trf");
+    let stabilized = |i: usize| spec.stabilize && still.is_none() && !clip_info(i).still;
+    let stab: Vec<Option<String>> = (0..segs.len())
+        .map(|i| {
+            stabilized(i).then(|| match spec.stab_method {
+                StabMethod::Deshake => "deshake".to_string(),
+                StabMethod::Vidstab => {
+                    let fps = clip_info(i).video.fps;
+                    // a second of frames on each side of a frame: vid.stab before 1.4 left
+                    // 3.7 of a test clip's 9.4 shake at half a second, 0.8 at a second
+                    let smoothing = (if fps > 0.0 { fps } else { 30.0 }).round().max(1.0);
+                    // copy: ffmpeg 8.1 hands vidstabtransform frames that are sometimes
+                    // read-only, and vid.stab before 1.4 then writes into an earlier frame's
+                    // memory (FFmpeg ticket 22595, fixed after 8.1); a copy is always writable
+                    format!(
+                        "copy,vidstabtransform=input={}:smoothing={}:optzoom=1:crop=black:interpol=bicubic",
+                        escape_filter_value(&stab_file(i)),
+                        fmt_num(smoothing)
+                    )
+                }
+            })
+        })
+        .collect();
+    let mut prepasses: Vec<(Vec<String>, f64)> = Vec::new();
+    if spec.stab_method == StabMethod::Vidstab {
+        for (i, (s, e)) in segs.iter().enumerate() {
+            if !stabilized(i) {
+                continue;
+            }
+            let m = clip_info(i);
+            let path = seg_src[i].map_or(spec.input.as_str(), |m| m.path.as_str());
+            let detect = format!("vidstabdetect=shakiness=6:accuracy=15:result={}", escape_filter_value(&stab_file(i)));
+            let chain = segment_chain(
+                &SegmentFilters {
+                    deinterlace: deint(i),
+                    denoise: false,
+                    stabilize: Some(&detect),
+                    tonemap: false,
+                    anamorphic: false,
+                    crop: None,
+                    rotate: 0,
+                    mirror: false,
+                    vflip: false,
+                    adjust: None,
+                    subtitles: None,
+                    subs_delay: 0.0,
+                    subs_font_size: None,
+                },
+                *s,
+            );
+            let mut a = Vec::new();
+            push(&mut a, &["-hide_banner"]);
+            if !opts.display {
+                push(&mut a, &["-nostdin", "-loglevel", "error", "-progress", "pipe:1", "-nostats"]);
+            }
+            push(&mut a, &["-y"]);
+            if *s > 0.0 {
+                push(&mut a, &["-ss", &fmt_num(seek_arg(*s, m.video.fps, m.video.vfr))]);
+            }
+            push(&mut a, &["-t", &fmt_num(length_arg(*s, *e, m.video.fps, m.video.vfr)), "-i", path]);
+            push(&mut a, &["-map", &format!("0:{}", m.video.stream_index), "-an", "-sn", "-dn", "-vf", &chain.join(","), "-f", "null", "-"]);
+            prepasses.push((a, e - s));
+        }
+    }
+
     // --- filter graph ---
     let sf = SegmentFilters {
         deinterlace: spec.deinterlace,
         denoise: spec.denoise,
-        stabilize: spec.stabilize,
+        stabilize: None,
         tonemap,
         anamorphic: v.anamorphic,
         crop: g.crop,
@@ -1367,9 +1447,10 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         .enumerate()
         .map(|(i, (s, _))| {
             let mut c = match seg_src[i] {
-                None => segment_chain(&sf, *s),
+                None => segment_chain(&SegmentFilters { stabilize: stab[i].as_deref(), ..sf }, *s),
                 Some(m) => segment_chain(
                     &SegmentFilters {
+                        stabilize: stab[i].as_deref(),
                         deinterlace: spec.deinterlace && m.video.interlaced,
                         tonemap: spec.tonemap && m.video.hdr && opts.zscale,
                         anamorphic: m.video.anamorphic,
@@ -1448,6 +1529,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
                 });
                 let pre = segment_chain(
                     &SegmentFilters {
+                        stabilize: stab[i].as_deref(),
                         deinterlace: m.video.interlaced,
                         tonemap: m.video.hdr && opts.zscale,
                         anamorphic: m.video.anamorphic,
@@ -1699,7 +1781,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         let pic = SegmentFilters {
             deinterlace: false,
             denoise: false,
-            stabilize: false,
+            stabilize: None,
             tonemap: false,
             anamorphic: false,
             crop: None,
@@ -1982,6 +2064,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         quality: qual,
         auto_scaled,
         passes,
+        prepasses,
         reuse_pass1,
         warnings,
         cells: if split.is_some() { cells.iter().take(segs.len()).filter_map(|(_, inner)| *inner).collect() } else { Vec::new() },
@@ -2097,6 +2180,7 @@ fn build_copy(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planne
         quality: None,
         auto_scaled: false,
         passes: vec![a],
+        prepasses: Vec::new(),
         reuse_pass1: false,
         warnings,
         cells: Vec::new(),
@@ -2213,6 +2297,7 @@ fn build_audio(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Plann
         quality: None,
         auto_scaled: false,
         passes: vec![a],
+        prepasses: Vec::new(),
         reuse_pass1: false,
         warnings,
         cells: Vec::new(),
@@ -2281,6 +2366,7 @@ mod tests {
             deinterlace: false,
             denoise: false,
             stabilize: false,
+            stab_method: StabMethod::Deshake,
             smooth_slowmo: false,
             tonemap: false,
             fade_in: 0.0,
@@ -2374,7 +2460,7 @@ mod tests {
         let sf = SegmentFilters {
             deinterlace: true,
             denoise: false,
-            stabilize: false,
+            stabilize: None,
             tonemap: false,
             anamorphic: false,
             crop: Some((0, 0, 640, 720)),
@@ -2482,6 +2568,33 @@ mod tests {
              -color_primaries bt709 -color_trc bt709 -an -map_metadata -1 -map_chapters -1 -sn -metadata \
              title=hello world -f webm out.webm"
         );
+    }
+
+    #[test]
+    fn vidstab_analysis_per_range() {
+        let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
+        sp.segments = vec![Segment { start: 1.0, end: 3.0 }, Segment { start: 10.0, end: 12.5 }];
+        sp.stabilize = true;
+        // deshake: in the chain, no analysis
+        let p = build(&sp, &media(), &opts()).unwrap();
+        assert!(p.prepasses.is_empty());
+        let g = strs(&p.passes[0]).join(" ");
+        assert_eq!(g.matches(",deshake").count(), 2, "{g}");
+        // vid.stab: one analysis per range, with the range's input arguments and the filters before it
+        sp.stab_method = StabMethod::Vidstab;
+        let p = build(&sp, &media(), &opts()).unwrap();
+        assert_eq!(p.prepasses.len(), 2);
+        let a = strs(&p.prepasses[1].0);
+        assert_eq!(&a[1..7], ["-y", "-ss", "9.992", "-t", "2.492", "-i"]);
+        let vf = a[a.iter().position(|x| *x == "-vf").unwrap() + 1];
+        assert_eq!(vf, "setpts=PTS-STARTPTS,vidstabdetect=shakiness=6:accuracy=15:result=log-stab1.trf");
+        assert!((p.prepasses[1].1 - 2.5).abs() < 1e-9);
+        // the encode reads each range's file, after a copy (FFmpeg ticket 22595)
+        let g = strs(&p.passes[0]).join(" ");
+        assert!(g.contains("setpts=PTS-STARTPTS,copy,vidstabtransform=input=log-stab0.trf:smoothing=30:optzoom=1:crop=black:interpol=bicubic"), "{g}");
+        assert!(g.contains("input=log-stab1.trf"), "{g}");
+        // the displayed command shows the analysis first
+        assert!(p.info().command.starts_with("ffmpeg -hide_banner -y -ss 0.992 -t 1.992 -i in.mp4 -map 0:0 -an"), "{}", p.info().command);
     }
 
     #[test]

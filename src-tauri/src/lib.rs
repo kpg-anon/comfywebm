@@ -115,7 +115,9 @@ async fn track_box(app: AppHandle, path: String, start: f64, end: f64, rect: com
                 let _ = app.emit("track-progress", CutsProgress { path: path.clone(), fraction });
             };
             match &py {
-                Some(t) => comfywebm_engine::pytrack::run(&ffmpeg, &info, start, end, rect, t, c, progress, |_| {}),
+                Some(t) => comfywebm_engine::pytrack::run(&ffmpeg, &info, start, end, rect, t, c, progress, |device| {
+                    let _ = app.emit("track-device", TrackDevice { method: t.method.arg(), device: device.to_string() });
+                }),
                 None => track::run(&ffmpeg, &info, start, end, rect, c, progress),
             }
         })
@@ -129,6 +131,13 @@ fn track_cancel(strips: State<Strips>) {
     if let Some(c) = strips.0.lock().unwrap().remove("track") {
         c.cancel();
     }
+}
+
+/// Which Python tracker runs, and on what ("cuda", "mps" or "cpu").
+#[derive(Clone, Serialize)]
+struct TrackDevice {
+    method: &'static str,
+    device: String,
 }
 
 #[derive(Clone, Serialize)]

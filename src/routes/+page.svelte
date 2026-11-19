@@ -156,6 +156,11 @@
       }),
     );
     keep(
+      ipc.onTrackDevice((d) => {
+        if (app.following !== null) app.trackingWith = app.trackerLabel(d.method, d.device);
+      }),
+    );
+    keep(
       ipc.onCutsProgress((p) => {
         if (app.findingCuts && p.path === app.media?.path) app.cutsFraction = Math.min(1, Math.max(0, p.fraction));
       }),

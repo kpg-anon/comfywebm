@@ -176,7 +176,7 @@
   {/each}
   <div class="bar" role="presentation" onpointerdown={(e) => e.stopPropagation()} oncontextmenu={(e) => e.stopPropagation()}>
     {#if app.following !== null}
-      <span class="mono small">Tracking {Math.round(app.following * 100)}%</span>
+      <span class="mono small" title="Tracking with {app.trackingWith}">Tracking {Math.round(app.following * 100)}%</span>
       <button class="btn small" onclick={() => app.cancelFollow()}>Stop</button>
     {:else if app.followMode}
       <span class="small">Draw a box on the picture</span>

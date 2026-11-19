@@ -414,7 +414,7 @@
         <div class="row">
           <span title="Move the zoomed view over the clip with keyframes on the Follow lane under the timeline. Track a person: draw a box around them and the app adds keyframes that follow them from the playhead to the end of the range. Drag the picture to aim the view at the playhead.">Follow</span>
           {#if app.following !== null}
-            <span class="small grow">Tracking {Math.round(app.following * 100)}%</span>
+            <span class="small grow">Tracking with {app.trackingWith}: {Math.round(app.following * 100)}%</span>
             <button class="btn small" onclick={() => app.cancelFollow()}>Stop</button>
           {:else if app.followMode}
             <span class="small grow">Draw a box around the person on the picture</span>

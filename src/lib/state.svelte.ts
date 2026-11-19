@@ -1585,6 +1585,13 @@ class AppState {
   following = $state<number | null>(null);
   /** the zoom before Follow set one (Remove puts it back), or null */
   private zoomBeforeFollow: number | null = null;
+  /** while following: the tracker, as said in the progress and the toast */
+  trackingWith = $state("");
+  trackerLabel(method: string, device = ""): string {
+    const name = method === "vittrack" ? "VitTrack" : method === "sam2" ? "SAM 2" : "the built-in tracker";
+    const on = device === "cuda" ? " on the graphics card" : device === "mps" ? " on the graphics chip" : device === "cpu" && method === "sam2" ? " on the processor (slow)" : "";
+    return name + on;
+  }
 
   /** Follow the box drawn on the picture (as shown) from the playhead to the end of the
    *  selected range (or of the file), and make the follow path that keeps it in the picture. */
@@ -1603,6 +1610,10 @@ class AppState {
     const src = fromView(viewBox, this.srcW, this.srcH, this.turn);
     const rect = { x: Math.round(src.x), y: Math.round(src.y), w: Math.max(8, Math.round(src.w)), h: Math.max(8, Math.round(src.h)) };
     this.following = 0;
+    // the setting names a tracker; it runs when installed (src-tauri install.rs), else the built-in one
+    const want = this.settings.trackMethod ?? "";
+    const have = want === "vittrack" || want === "sam2" ? await ipc.toolInstalled(want).catch(() => null) : null;
+    this.trackingWith = this.trackerLabel(have ? want : "");
     try {
       const pts = await ipc.trackBox(m.path, start, end, rect);
       if (this.media?.path !== m.path || !pts.length) return;
@@ -1636,7 +1647,7 @@ class AppState {
       const weak = pts.filter((p) => p.score < 0.35).length;
       this.toast({
         kind: "info",
-        title: `Following for ${fmtSecs(end - start)}: ${made.length} keyframes`,
+        title: `Following for ${fmtSecs(end - start)}: ${made.length} keyframes (${this.trackingWith})`,
         text: `At ${this.zoomLevel}x (Advanced > Zoom).${weak ? ` In ${weak} of ${pts.length} frames the box was hard to find (something in front of it); it stayed where it was there.` : ""} Drag the picture to correct the view at the playhead; the keyframes are on the Follow lane under the timeline.`,
         path: null,
       });

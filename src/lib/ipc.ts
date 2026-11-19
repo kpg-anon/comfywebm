@@ -80,6 +80,9 @@ export const trackBox = (path: string, start: number, end: number, rect: { x: nu
 export const trackCancel = () => invoke<void>("track_cancel");
 export const onTrackProgress = (cb: (p: ProxyProgress) => void): Promise<UnlistenFn> =>
   listen<ProxyProgress>("track-progress", (e) => cb(e.payload));
+/** A Python tracker started: which one, and on what ("cuda", "mps" or "cpu"). */
+export type TrackDevice = { method: string; device: string };
+export const onTrackDevice = (cb: (d: TrackDevice) => void): Promise<UnlistenFn> => listen<TrackDevice>("track-device", (e) => cb(e.payload));
 export type CutSensitivity = "low" | "normal" | "high";
 export const sceneCuts = (path: string, sensitivity: CutSensitivity) => invoke<number[]>("scene_cuts", { path, sensitivity });
 export const timelineWave = (path: string, track: number) => invoke<string>("timeline_wave", { path, track });

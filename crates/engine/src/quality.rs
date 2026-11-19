@@ -19,7 +19,7 @@
 
 use crate::plan::{self, Opts};
 use crate::run::{Cancel, RunError};
-use crate::spec::{Codec, Container, EncodeSpec, MediaInfo, Rate, Segment};
+use crate::spec::{Codec, Container, Effort, EncodeSpec, MediaInfo, Rate, Segment};
 use std::path::Path;
 
 /// Output seconds measured.
@@ -79,6 +79,8 @@ pub fn check(ffmpeg: &Path, spec: &EncodeSpec, info: &MediaInfo, zscale: bool, d
         // CRF 1: practically lossless (the engine's High profile does not allow 0, true lossless)
         rate: Rate::Crf { crf: 1.0, max_bitrate_k: None },
         two_pass: false,
+        // the reference is practically lossless at any effort; Best would only make the check slower
+        effort: Effort::Balanced,
         max_width: Some(rw),
         max_height: Some(rh),
         extra_args: Vec::new(),

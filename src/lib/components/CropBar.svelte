@@ -111,7 +111,7 @@
 
   {@render children?.()}
   <button class="btn small" onclick={() => oncrop(null)} disabled={!crop}>Clear</button>
-  <button class="btn small" onclick={ondone}>Done <kbd>Esc</kbd></button>
+  <button class="btn small" onclick={ondone}>Done <kbd>Enter</kbd></button>
   {#if hint}<span class="hint muted">{hint}</span>{/if}
 </div>
 

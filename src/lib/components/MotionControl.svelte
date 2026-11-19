@@ -23,6 +23,9 @@
   const m = $derived(motion(src, app.speed || 1, cap, hz));
   const list = $derived(smoothSpeeds(src, cap, hz, LO, HI));
   const near = $derived(nearestSmooth(app.speed, list));
+  // 0.4x and 0.8x are always offered: they turn 60 and 30 fps footage into 24 fps
+  // playback, even where that is not smooth on this display
+  const chips = $derived([...new Set([...list, 0.4, 0.8])].sort((a, b) => a - b));
   const bad = $derived(!smooth(m) && (app.speed !== 1 || m.capped));
 
   const fpsOptions = $derived([
@@ -94,8 +97,8 @@
 
   {#if app.media && !ramped}
     <div class="chips" aria-label="Speeds that play evenly" title="Speeds whose output frame rate divides evenly into your display's refresh rate (Settings), so motion stays smooth">
-      {#each list as s (s)}
-        <button class="chip" class:on={Math.abs(s - app.speed) < 1e-6} title={`${fmtFps(outFpsOf(s))}`} onclick={() => (app.speed = s)}>{fmtSpeed(s)}</button>
+      {#each chips as s (s)}
+        <button class="chip" class:on={Math.abs(s - app.speed) < 1e-6} class:uneven={!list.includes(s)} title={`${fmtFps(outFpsOf(s))}${list.includes(s) ? "" : `, not even on ${hz} Hz`}`} onclick={() => (app.speed = s)}>{fmtSpeed(s)}</button>
       {/each}
     </div>
     <div class="out mono" class:bad>
@@ -180,6 +183,9 @@
   .chip:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
+  }
+  .chip.uneven {
+    border-style: dashed;
   }
   .chip.on {
     background: var(--accent-bg);

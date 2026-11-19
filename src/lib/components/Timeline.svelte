@@ -16,27 +16,42 @@
   // Filmstrip and waveform behind the track. Made in the background after a
   // file opens (cached on disk); a newer file or track replaces the request.
   let filmUrl = $state<string | null>(null);
+  /** thumbnails side by side in the strip */
+  let filmN = $state(60);
   // Slots across the whole (zoomed) strip at the picture's aspect ratio, as
   // high as the track; each shows the sprite tile nearest its middle.
-  const THUMBS = 60;
   const film = $derived.by(() => {
     const m = app.media;
     if (!m || m.audioOnly || !trackW || !m.video.height) return null;
     const slotW = (app.trackH * m.video.width) / m.video.height;
     const count = Math.max(1, Math.min(400, Math.round((trackW * zoom) / Math.max(12, slotW))));
+    const n = filmN;
     return {
-      n: THUMBS,
+      n,
       slots: Array.from({ length: count }, (_, i) => i),
-      pick: (k: number) => Math.min(THUMBS - 1, Math.floor(((k + 0.5) / count) * THUMBS)),
+      pick: (k: number) => Math.min(n - 1, Math.floor(((k + 0.5) / count) * n)),
     };
   });
   let waveUrl = $state<string | null>(null);
   $effect(() => {
     const path = app.media?.path;
+    const exact = app.exactThumbs;
     filmUrl = null;
     if (!path || app.audioOnly || !app.showFilm || app.ffmpegMissing) return;
     let live = true;
-    ipc.timelineThumbs(path).then((p) => live && (filmUrl = convertFileSrc(p))).catch(() => {});
+    const show = ([p, n]: [string, number]) => {
+      if (!live) return;
+      filmUrl = convertFileSrc(p);
+      filmN = n;
+    };
+    // the key frame strip first (about a second), then the one from every frame replaces it
+    ipc
+      .timelineThumbs(path, false)
+      .then((r) => {
+        show(r);
+        if (exact && live) return ipc.timelineThumbs(path, true).then(show);
+      })
+      .catch(() => {});
     return () => (live = false);
   });
   $effect(() => {
@@ -247,7 +262,7 @@
   {#if filmUrl && hoverT !== null && !drag && app.media && dur > 0}
     {@const ph = 96}
     {@const pw = Math.round((ph * app.media.video.width) / Math.max(1, app.media.video.height))}
-    {@const k = Math.min(THUMBS - 1, Math.max(0, Math.floor((hoverT / dur) * THUMBS)))}
+    {@const k = Math.min(filmN - 1, Math.max(0, Math.floor((hoverT / dur) * filmN)))}
     {@const x = (track?.offsetLeft ?? 0) + (pct(hoverT) / 100) * trackW}
     <div
       class="peek"
@@ -255,7 +270,7 @@
       style:width="{pw}px"
       style:height="{ph}px"
       style:background-image="url('{filmUrl}')"
-      style:background-size="{THUMBS * pw}px {ph}px"
+      style:background-size="{filmN * pw}px {ph}px"
       style:background-position="{-k * pw}px 0"
     ></div>
   {/if}
@@ -376,7 +391,7 @@
   <section class="panel ctl">
     <div class="sec play">
       <header class="ph"><Icon name="playLine" size={14} /><span>Playback</span></header>
-      <div class="bigtime mono" title="The playhead">{app.media ? fmtTime(app.current) : "0:00.000"}</div>
+      <div class="bigtime mono" class:pending={app.seekPending && app.paused} title={app.seekPending && app.paused ? "The playhead; the picture is still loading this frame" : "The playhead"}>{app.media ? fmtTime(app.current) : "0:00.000"}</div>
       <div class="transport">
         <button class="btn icon" disabled={!app.media} onclick={() => app.seek(app.selSeg ? app.selSeg.start : 0)} aria-label="To the start of the range (Shift+I), or of the file"><Icon name="prevFrame" /></button>
         <button class="btn icon" disabled={!app.media || app.audioOnly} onclick={() => app.stepFrame(-1)} aria-label="One frame back (,)"><Icon name="stepBack" /></button>
@@ -547,6 +562,10 @@
     line-height: 28px;
     text-align: center;
     letter-spacing: 0.02em;
+  }
+  .bigtime.pending {
+    opacity: 0.55;
+    transition: opacity 0s linear 150ms;
   }
   .transport {
     display: flex;

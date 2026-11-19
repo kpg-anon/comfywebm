@@ -43,7 +43,7 @@
   }
 
   /** common speeds a dragged point snaps to when it is within 4% of one (Alt: no snapping) */
-  const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+  const SPEEDS = [0.25, 0.4, 0.5, 0.75, 0.8, 1, 1.25, 1.5, 2, 3, 4];
   function snapS(s: number, alt: boolean) {
     if (alt) return s;
     for (const x of SPEEDS) if (Math.abs(Math.log(s / x)) < 0.04) return x;
@@ -98,7 +98,7 @@
     if (!p) return;
     const set = (s: number) => () => app.setRampPoint(i, p.t, s);
     const items: MenuItem[] = [
-      ...[0.25, 0.5, 1, 2, 4].map((s) => ({ label: `${s}x`, disabled: p.speed === s, action: set(s) })),
+      ...[0.25, 0.4, 0.5, 0.8, 1, 2, 4].map((s) => ({ label: `${s}x`, disabled: p.speed === s, action: set(s) })),
       "sep",
       { label: "Move to the playhead", action: () => app.setRampPoint(i, app.current, p.speed) },
       { label: "Remove this point", danger: true, action: () => app.removeRampPoint(i) },

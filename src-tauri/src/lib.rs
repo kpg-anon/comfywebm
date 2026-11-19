@@ -47,15 +47,16 @@ fn proxy_cancel(strips: State<Strips>) {
     }
 }
 
-/// Filmstrip JPEG for the timeline (cached).
+/// Filmstrip JPEG for the timeline (cached) and its number of thumbnails;
+/// `exact`: from every frame, not only key frames.
 #[tauri::command]
-async fn timeline_thumbs(app: AppHandle, path: String) -> Result<String, String> {
+async fn timeline_thumbs(app: AppHandle, path: String, exact: bool) -> Result<(String, u32), String> {
     blocking(move || {
         let state = app.state::<AppState>();
         let ffmpeg = state.ffmpeg()?;
         let info = state.media(&path)?;
-        let out = strip_job(&app, "thumbs", |c| strip::thumbs(&ffmpeg, &info, &state.cache_dir, c))?;
-        Ok(out.to_string_lossy().into_owned())
+        let (out, n) = strip_job(&app, "thumbs", |c| strip::thumbs(&ffmpeg, &info, &state.cache_dir, c, exact))?;
+        Ok((out.to_string_lossy().into_owned(), n))
     })
     .await
 }

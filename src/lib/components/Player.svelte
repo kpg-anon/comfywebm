@@ -322,8 +322,11 @@
       void app.useProxy();
       return;
     }
+    // a new source: a seek on the old one ends without a seeked event
+    app.queuedSeek = null;
+    app.seekPending = false;
     // keep the playhead when switching to the proxy
-    if (app.current > 0) v.currentTime = app.current;
+    if (app.current > 0) app.seek(app.current);
   }
 </script>
 
@@ -346,7 +349,10 @@
         if (video) app.current = video.currentTime;
       }}
       onseeked={() => {
-        if (video && video.paused) app.current = video.currentTime;
+        if (!app.seekDone()) return;
+        // the playhead keeps its time when the player went to the middle of its frame;
+        // it takes the player's time when the player ended elsewhere (past the end)
+        if (video && video.paused && Math.abs(video.currentTime - app.videoTimeOf(app.current)) > 1e-3) app.current = video.currentTime;
       }}
       onended={() => app.onEnded()}
       onclick={() => {
@@ -546,12 +552,34 @@
     {/if}
     </div>
   {/if}
+  {#if app.seekPending && app.paused && app.media && !app.audioOnly}
+    <!-- shown after 150 ms, so quick seeks do not flash it -->
+    <span class="loading" title="The player is still decoding the frame at the playhead; the picture is the previous one until this goes away">Loading frame...</span>
+  {/if}
   {#if app.usingProxy}
     <span class="badge" title={app.proxyRemuxed ? "The source's own video and audio, copied into an MP4 the player can read" : "A 480p H.264 copy for the player; encoding uses the original"}>{app.proxyRemuxed ? "Preview copy (full quality)" : "Preview copy (480p)"}</span>
   {/if}
 </div>
 
 <style>
+  .loading {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    background: rgba(0, 0, 0, 0.7);
+    color: #fff;
+    font-size: 11px;
+    pointer-events: none;
+    opacity: 0;
+    animation: loading-show 0s linear 150ms forwards;
+  }
+  @keyframes loading-show {
+    to {
+      opacity: 1;
+    }
+  }
   .logo {
     position: absolute;
     cursor: move;

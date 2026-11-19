@@ -42,7 +42,8 @@
 
   <div class="row">
     <span class="lbl" title="Maps every input light level (left to right) to an output level (bottom to top). Drag a point, click to add one, double-click a point to remove it.">Curve</span>
-    <span class="grow"></span>
+  </div>
+  <div class="presets">
     {#each CURVE_PRESETS as p (p.name)}
       <button class="chip" onclick={() => set("curve", isIdentity(p.points) ? [] : p.points.map((q) => [...q] as Pt))}>{p.name}</button>
     {/each}
@@ -88,8 +89,11 @@
   .val.changed {
     color: var(--accent-strong);
   }
-  .grow {
-    flex: 1;
+  /* the six curve presets in two columns, three rows */
+  .presets {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3px;
   }
   .chip {
     height: 20px;

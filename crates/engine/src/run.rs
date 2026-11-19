@@ -520,6 +520,10 @@ pub fn export_frame(ffmpeg: &Path, info: &MediaInfo, time: f64, crop: Option<Cro
     )
     .join(",");
     let mut args: Vec<String> = ["-hide_banner", "-nostdin", "-loglevel", "error", "-y"].iter().map(|s| s.to_string()).collect();
+    // the frame the player shows at `time`, not the next one (plan::snap_to_frames)
+    let mut at = [(time, time + 1.0)];
+    plan::snap_to_frames(&mut at, v.fps, v.vfr);
+    let time = plan::seek_arg(at[0].0, v.fps, v.vfr);
     if time > 0.0 {
         args.extend(["-ss".into(), plan::fmt_num(time)]);
     }

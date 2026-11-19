@@ -43,7 +43,8 @@ export function fmtFps(fps: number): string {
 }
 
 /**
- * ["1280x720", "30 fps", "audio", "12.0 s", "up to 3.96 MiB"], the length written by `fmtLength` (time.ts fmtLen).
+ * ["1280x720", "30 fps", "audio", "12.0 s", "~3.96MiB"], the length written by `fmtLength` (time.ts fmtLen).
+ * The size is an upper bound in size limit mode and an estimate otherwise; both are written "~".
  * `files` > 1: each range is its own file, each under the limit.
  */
 export function outputParts(plan: PlanInfo, rate: Rate, fmtLength: (secs: number) => string, files = 1): string[] {
@@ -58,6 +59,6 @@ export function outputParts(plan: PlanInfo, rate: Rate, fmtLength: (secs: number
   }
   parts.push(fmtLength(plan.durationOut));
   const e = expectedSize(plan, rate);
-  parts.push(e ? `${e.atMost ? "up to" : "about"} ${fmtSize(e.bytes, unit)}` : "size unknown");
+  parts.push(e ? `~${fmtSize(e.bytes, unit).replace(" ", "")}` : "size unknown");
   return parts;
 }

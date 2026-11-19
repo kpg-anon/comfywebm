@@ -254,6 +254,12 @@ class AppState {
   /** Timeline pictures (Settings), remembered. */
   showFilm = $state(load<boolean>("timelineFilm") ?? true);
   showWave = $state(load<boolean>("timelineWave") ?? false);
+  /** Thumbnails from every frame (made after the key frame ones, cached), not only from key frames. Remembered. */
+  exactThumbs = $state(load<boolean>("timelineExact") ?? true);
+  setExactThumbs(on: boolean) {
+    this.exactThumbs = on;
+    save("timelineExact", on);
+  }
   setTimelinePics(film: boolean, wave: boolean) {
     this.showFilm = film;
     this.showWave = wave;
@@ -323,7 +329,7 @@ class AppState {
   adjustPreview = $state(true);
   fadeIn = $state(0);
   fadeOut = $state(0);
-  effort = $state<Effort>("balanced");
+  effort = $state<Effort>("best");
   twoPass = $state(true);
   audioOn = $state(false);
   audioTrack = $state(0);
@@ -1098,12 +1104,48 @@ class AppState {
   /** the playhead at the last tick or seek: playback that crosses a range's end stops (or loops) there */
   private lastT = 0;
 
+  /** True from a seek until the player shows the frame at the playhead (Player's seeked). */
+  seekPending = $state(false);
+  /** A seek asked for while the player was still seeking: done when that one ends, newest only. */
+  queuedSeek: number | null = null;
+
   seek(t: number) {
     const d = this.duration || this.video?.duration || 0;
     const v = Math.min(Math.max(0, t), d > 0 ? d : t);
     this.current = v;
     this.lastT = v;
-    if (this.video) this.video.currentTime = v;
+    const el = this.video;
+    if (!el) return;
+    const at = this.videoTimeOf(v);
+    // A new seek would cancel one under way, and with key frames seconds apart
+    // each takes a few hundred ms: held keys or a drag would then show no
+    // frame until they stop. Wait for it and go to the newest time.
+    if (el.seeking) this.queuedSeek = at;
+    else el.currentTime = at;
+    this.seekPending = true;
+  }
+
+  /**
+   * Where the player is sent for playhead time t: the middle of the frame that
+   * holds t, as the engine counts it (plan.rs snap_to_frames). At a frame's exact
+   * start (a typed 10.000) the player picks either neighbour depending on rounding.
+   */
+  videoTimeOf(t: number): number {
+    const f = this.fpsSrc;
+    if (!(f > 0) || this.media?.video.vfr || this.audioOnly) return t;
+    return (Math.floor(t * f + 1e-4) + 0.5) / f;
+  }
+
+  /** Player: the video finished a seek. Returns false when a queued one started instead. */
+  seekDone(): boolean {
+    const el = this.video;
+    if (el && this.queuedSeek !== null) {
+      el.currentTime = this.queuedSeek;
+      this.queuedSeek = null;
+      return false;
+    }
+    this.seekPending = false;
+    return true;
   }
 
   togglePlay() {
@@ -1148,7 +1190,13 @@ class AppState {
   stepFrame(n: number) {
     if (!this.media || this.audioOnly) return;
     this.video?.pause();
-    this.seek(this.current + n / this.fpsSrc);
+    // to the middle of the frame: at a frame's exact start time rounding decides
+    // which of two frames the player shows. The engine cuts at the frame that
+    // holds a time (plan.rs snap_to_frames), so this is the frame that gets cut.
+    const f = this.fpsSrc;
+    if (!(f > 0)) return;
+    const k = Math.floor(this.current * f + 1e-4) + n;
+    this.seek((Math.max(0, k) + 0.5) / f);
   }
 
   /** Called every animation frame while playing. */
@@ -2108,11 +2156,13 @@ class AppState {
   }
 
   /** Move a job up (-1) or down (+1) in the list. */
+  /** Moves a waiting job past its neighbour among the jobs still to run (finished ones are listed apart). */
   async moveJob(id: number, delta: number) {
-    const i = this.jobs.findIndex((x) => x.id === id);
-    if (i < 0) return;
+    const live = this.jobs.filter((x) => x.status === "pending" || x.status === "running");
+    const nb = live[live.findIndex((x) => x.id === id) + delta];
+    if (!nb) return;
     try {
-      this.jobs = await ipc.queueMove(id, Math.max(0, i + delta));
+      this.jobs = await ipc.queueMove(id, this.jobs.findIndex((x) => x.id === nb.id));
     } catch (e) {
       this.error = ipc.errText(e);
     }

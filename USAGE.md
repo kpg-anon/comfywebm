@@ -85,7 +85,10 @@ building it yourself. For an overview and the downloads, see
   Loop, `L`, again from its start). Click past the end while playing to keep
   watching there.
 - **Timeline**: thumbnails and the audio waveform behind the ranges (made in
-  the background, cached; switch off in Settings). Ctrl+wheel zooms (the wheel
+  the background, cached; switch off in Settings). Thumbnails come from every
+  frame, one per second, after a first set from key frames only; Settings can
+  keep them to key frames, which is faster but can repeat one picture for
+  several seconds. Ctrl+wheel zooms (the wheel
   pans while zoomed), a button zooms to the selected range, with a time ruler,
   an overview of the whole file while zoomed, and the time under the pointer.
   Range edges snap to the playhead, the other ranges and the file's ends (hold
@@ -287,7 +290,7 @@ Keys do nothing while a text field has focus.
 | Space | play / pause (in Splits: the preview) |
 | Left / Right | seek 1 s back / forward |
 | Shift + Left / Right | seek 5 s |
-| `,` / `.` | one frame back / forward (also `<` / `>`; the mouse wheel over the player does the same) |
+| `,` / `.` | one frame back / forward (also `<` / `>`; the mouse wheel over the player does the same). The frame shown is the one a range starting there begins with; "Loading frame..." on the picture means it is not shown yet |
 | `I` / `O` | set the start / end of the range under or nearest the playhead |
 | Shift + `I` / `O` | jump to the start / end of the selected range |
 | `N` | add a range at the playhead |
@@ -295,7 +298,7 @@ Keys do nothing while a text field has focus.
 | `L` | loop the selected range |
 | `M` | mute / unmute the preview (also the speaker at the bottom right of the picture; the wheel over it sets the volume) |
 | `C` | crop mode on / off |
-| Esc | leave crop mode |
+| Enter or Esc | leave crop mode (the crop is kept) |
 | Arrows (crop mode) | move the crop 1 px; with Shift 10 px |
 | Alt + arrows (crop mode) | resize the crop |
 | `P` | sample: encode 3 s at the playhead |
@@ -339,6 +342,10 @@ MiB limits are binary: 1 MiB = 1,048,576 bytes.
 | GIF (4 MiB) | GIF | 4,194,304 bytes | none | at most 640x640, 15 fps, auto size | none |
 
 The longest clip is advisory: the app warns when the output is longer.
+
+Every built-in preset uses Best effort and two passes (Advanced > Encoder).
+Two passes only change VP9 and VP8 in quality (CRF) mode; size limit mode
+always uses two passes, except with AV1, which has one.
 
 Formats and codecs the preset's site does not accept are grayed out in the
 sidebar, with the reason on hover; the site is read from the preset's name, so

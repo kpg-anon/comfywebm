@@ -80,6 +80,7 @@
     refreshHz: app.refreshHz,
     timelineFilm: app.showFilm,
     timelineWave: app.showWave,
+    timelineExact: app.exactThumbs,
     showRecent: app.showRecent,
     sideResize: app.sideResize,
     timelineResize: app.timelineResize,
@@ -96,6 +97,7 @@
     if (typeof o.uiScale === "number" && o.uiScale >= 0.5 && o.uiScale <= 2) app.setUiScale(o.uiScale);
     if (typeof o.refreshHz === "number" && REFRESH_RATES.includes(o.refreshHz)) app.setRefreshHz(o.refreshHz);
     if (typeof o.timelineFilm === "boolean" && typeof o.timelineWave === "boolean") app.setTimelinePics(o.timelineFilm, o.timelineWave);
+    if (typeof o.timelineExact === "boolean") app.setExactThumbs(o.timelineExact);
     if (typeof o.showRecent === "boolean") app.setShowRecent(o.showRecent);
     if (typeof o.sideResize === "boolean") app.setSideResize(o.sideResize);
     if (typeof o.timelineResize === "boolean") app.setTimelineResize(o.timelineResize);
@@ -392,7 +394,19 @@
         <label><input type="checkbox" checked={app.showFilm} onchange={(e) => app.setTimelinePics((e.currentTarget as HTMLInputElement).checked, app.showWave)} /> Thumbnails</label>
         <label><input type="checkbox" checked={app.showWave} onchange={(e) => app.setTimelinePics(app.showFilm, (e.currentTarget as HTMLInputElement).checked)} /> Audio waveform</label>
       </div>
+      <div class="line">
+        <Select
+          label="Thumbnails from"
+          value={app.exactThumbs ? "exact" : "key"}
+          onchange={(v) => app.setExactThumbs(v === "exact")}
+          options={[
+            { value: "exact", label: "Thumbnails from every frame" },
+            { value: "key", label: "Thumbnails from key frames only" },
+          ]}
+        />
+      </div>
       <span class="hint">Drawn behind the ranges (the waveform is off to start with, so the thumbnails show clearly). Made once per file in the background and kept in the cache. Applies at once.</span>
+      <span class="hint">Every frame: one thumbnail per second, each from the frame at its time; the whole file is decoded (about 3 s for 4 minutes of 1080p), and the key frame thumbnails show until it is done. Key frames only: ready at once, but a file with key frames far apart repeats one picture for several seconds.</span>
     </div>
 
     <div class="col">

@@ -651,6 +651,35 @@ pub fn resolve_segments(segments: &[Segment], duration: f64) -> Result<Vec<(f64,
     Ok(out)
 }
 
+/// Moves range edges onto frame start times, the frames the player shows.
+/// The player shows the frame whose time span holds the playhead, so a start
+/// inside frame k means frame k; ffmpeg's `-ss` starts at the first frame at
+/// or after the time, which began such a cut at frame k + 1. The end includes
+/// a frame that starts before it (as before). Pass the start to `-ss` through
+/// `seek_arg`. Variable frame rate files have no frame grid and are left as
+/// they are.
+pub fn snap_to_frames(segs: &mut [(f64, f64)], fps: f64, vfr: bool) {
+    if vfr || !(fps.is_finite() && fps > 0.0) {
+        return;
+    }
+    for (s, e) in segs.iter_mut() {
+        let first = (*s * fps + 1e-4).floor();
+        let end = (*e * fps - 1e-4).ceil().max(first + 1.0);
+        *s = first / fps;
+        *e = end / fps;
+    }
+}
+
+/// The `-ss` value for a range start made by `snap_to_frames`: a quarter of a
+/// frame early, so neither the 3-decimal argument nor a container's rounded
+/// timestamps (Matroska keeps milliseconds) can put the frame before it.
+pub fn seek_arg(start: f64, fps: f64, vfr: bool) -> f64 {
+    if vfr || !(fps.is_finite() && fps > 0.0) {
+        return start;
+    }
+    (start - 0.25 / fps).max(0.0)
+}
+
 /// `eq`, `hue` and `curves` for the color adjustments; empty when all are neutral.
 pub fn adjust_filters(a: &Adjust) -> Vec<String> {
     let mut f = Vec::new();
@@ -1042,11 +1071,19 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             // a picture has no length of its own: it lasts as long as its range says
             let m = clip_info(i);
             let d = if m.still { 0.0 } else { m.duration };
-            out.extend(resolve_segments(std::slice::from_ref(g), d).map_err(|e| e.replace("Range 1", &format!("Range {}", i + 1)))?);
+            let mut r = resolve_segments(std::slice::from_ref(g), d).map_err(|e| e.replace("Range 1", &format!("Range {}", i + 1)))?;
+            if !m.still {
+                snap_to_frames(&mut r, m.video.fps, m.video.vfr);
+            }
+            out.extend(r);
         }
         out
     } else {
-        resolve_segments(&spec.segments, info.duration)?
+        let mut r = resolve_segments(&spec.segments, info.duration)?;
+        if still.is_none() {
+            snap_to_frames(&mut r, info.video.fps, info.video.vfr);
+        }
+        r
     };
     let lens: Vec<f64> = segs.iter().map(|(s, e)| e - s).collect();
     let clip: f64 = match split.map(|l| l.length) {
@@ -1681,7 +1718,8 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
                 continue;
             }
             if *s > 0.0 {
-                push(&mut a, &["-ss", &fmt_num(*s)]);
+                let m = clip_info(i);
+                push(&mut a, &["-ss", &fmt_num(seek_arg(*s, m.video.fps, m.video.vfr))]);
             }
             let path = seg_src[i].map_or(spec.input.as_str(), |m| m.path.as_str());
             push(&mut a, &["-t", &fmt_num(e - s), "-i", path]);
@@ -1704,7 +1742,8 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             let path = seg_src[i].map_or(spec.input.as_str(), |m| m.path.as_str());
             for _ in idx {
                 if s > 0.0 {
-                    push(&mut a, &["-ss", &fmt_num(s)]);
+                    let m = clip_info(i);
+                    push(&mut a, &["-ss", &fmt_num(seek_arg(s, m.video.fps, m.video.vfr))]);
                 }
                 push(&mut a, &["-t", &fmt_num(e - s), "-i", path]);
             }
@@ -2363,13 +2402,30 @@ mod tests {
     }
 
     #[test]
+    fn range_edges_snap_to_the_frames_the_player_shows() {
+        // 30 fps: a start inside frame 100 (3.333..3.367 s) is frame 100, an end inside frame 200 keeps it
+        let mut r = [(3.35, 6.69), (10.0, 12.0)];
+        snap_to_frames(&mut r, 30.0, false);
+        assert!((r[0].0 - 100.0 / 30.0).abs() < 1e-12 && (r[0].1 - 201.0 / 30.0).abs() < 1e-12, "{r:?}");
+        assert!((r[1].0 - 10.0).abs() < 1e-12 && (r[1].1 - 12.0).abs() < 1e-12, "{r:?}");
+        // the argument comes before frame 100 and after frame 99, even rounded to milliseconds
+        let ss: f64 = fmt_num(seek_arg(r[0].0, 30.0, false)).parse().unwrap();
+        assert!(ss > 99.0 / 30.0 && ss < 100.0 / 30.0, "{ss}");
+        // variable frame rate: unchanged
+        let mut v = [(3.35, 6.69)];
+        snap_to_frames(&mut v, 30.0, true);
+        assert_eq!(v, [(3.35, 6.69)]);
+    }
+
+    #[test]
     fn size_mode_args() {
         let p = build(&spec(Rate::Size { max_bytes: 300_000.0 }), &media(), &opts()).unwrap();
         assert_eq!(p.passes.len(), 2);
         // 300000*8/1000/4 = 600; (600-64)*0.985 = 527.96
         assert_eq!(p.video_kbps.unwrap().round(), 528.0);
         let vp9 = "-c:v libvpx-vp9 -row-mt 1 -tile-columns 2 -frame-parallel 0 -deadline good";
-        let head = "-hide_banner -y -ss 10 -t 4 -i in.mp4";
+        // the range starts at 10 s; -ss is a quarter frame early (seek_arg)
+        let head = "-hide_banner -y -ss 9.992 -t 4 -i in.mp4";
         let tags = "-colorspace bt709 -color_primaries bt709 -color_trc bt709";
         assert_eq!(
             strs(&p.passes[0]).join(" "),
@@ -2418,7 +2474,7 @@ mod tests {
         let p = build(&sp, &media(), &opts()).unwrap();
         assert!((p.duration_out - 4.5).abs() < 1e-9);
         let s = strs(&p.passes[1]);
-        assert_eq!(&s[2..12], ["-ss", "1", "-t", "2", "-i", "in.mp4", "-ss", "10", "-t", "2.5"]);
+        assert_eq!(&s[2..12], ["-ss", "0.992", "-t", "2", "-i", "in.mp4", "-ss", "9.992", "-t", "2.5"]);
         let g = s[s.iter().position(|a| *a == "-filter_complex").unwrap() + 1];
         assert_eq!(
             g,
@@ -2732,7 +2788,7 @@ mod tests {
         let (sp, m) = split_spec(crate::spec::Layout { length: SplitLength::Loop, width: 3840, height: 2160, ..test_layout(LayoutMode::Columns) });
         let p = build(&sp, &media(), &Opts { sources: Some(&m), ..opts() }).unwrap();
         let s = strs(&p.passes[0]).join(" ");
-        assert_eq!(s.matches("-ss 10 -t 4 -i in.mp4").count(), 3, "{s}");
+        assert_eq!(s.matches("-ss 9.992 -t 4 -i in.mp4").count(), 3, "{s}");
         // inputs: 0 in.mp4, 1 b.mp4, then the two copies
         for k in [0, 2, 3] {
             assert!(s.contains(&format!("[{k}:0]setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:stop=1,trim=end_frame=120")), "{k}: {s}");

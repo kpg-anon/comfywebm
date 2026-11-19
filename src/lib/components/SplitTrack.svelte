@@ -24,7 +24,8 @@
     film = null;
     if (app.ffmpegMissing) return;
     let live = true;
-    ipc.timelineThumbs(path).then((p) => live && (film = convertFileSrc(p))).catch(() => {});
+    // key frames only: the clip rows are small, and an exact strip per clip would decode every file
+    ipc.timelineThumbs(path, false).then(([p]) => live && (film = convertFileSrc(p))).catch(() => {});
     return () => (live = false);
   });
 

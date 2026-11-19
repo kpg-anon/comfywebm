@@ -47,7 +47,8 @@ export const detectCrop = (path: string) => invoke<Crop | null>("detect_crop", {
 /** The frame at `time` with every filter and the output size applied, as a PNG. */
 export const exportFrameProcessed = (spec: EncodeSpec, time: number) => invoke<string>("export_frame_processed", { spec, time });
 /** Filmstrip JPEG / waveform PNG for the timeline; paths in the cache dir. */
-export const timelineThumbs = (path: string) => invoke<string>("timeline_thumbs", { path });
+/** [JPEG path, number of thumbnails side by side]; `exact`: from every frame, not only key frames */
+export const timelineThumbs = (path: string, exact: boolean) => invoke<[string, number]>("timeline_thumbs", { path, exact });
 export const proxyCancel = () => invoke<void>("proxy_cancel");
 export const poster = (path: string) => invoke<string>("poster", { path });
 /** The embedded cover picture of a sound file, as a PNG in the cache dir. */

@@ -150,7 +150,7 @@ fn fourchan(name: &str, order: i64, max_bytes: f64, audio: bool, max_duration: f
             max_height: Some(2048),
             fps: None,
             audio_bitrate_k: audio.then_some(96.0),
-            effort: Effort::Balanced,
+            effort: Effort::Best,
             two_pass: true,
             max_duration: Some(max_duration),
         },
@@ -169,7 +169,7 @@ fn default_platform() -> Vec<(&'static str, i64, Preset)> {
         max_height: None,
         fps: None,
         audio_bitrate_k: Some(128.0),
-        effort: Effort::Balanced,
+        effort: Effort::Best,
         two_pass: true,
         max_duration: None,
     };
@@ -183,8 +183,8 @@ fn default_platform() -> Vec<(&'static str, i64, Preset)> {
         max_height: None,
         fps: None,
         audio_bitrate_k: Some(audio),
-        effort: Effort::Balanced,
-        two_pass: false,
+        effort: Effort::Best,
+        two_pass: true,
         max_duration: None,
     };
     let mut v: Vec<(&'static str, i64, Preset)> = Vec::new();
@@ -212,8 +212,8 @@ fn default_platform() -> Vec<(&'static str, i64, Preset)> {
             max_height: Some(1280),
             fps: Some(60.0),
             audio_bitrate_k: Some(128.0),
-            effort: Effort::Balanced,
-            two_pass: false,
+            effort: Effort::Best,
+            two_pass: true,
             max_duration: Some(1200.0),
         },
     ));
@@ -232,8 +232,8 @@ fn default_platform() -> Vec<(&'static str, i64, Preset)> {
             max_height: Some(640),
             fps: Some(15.0),
             audio_bitrate_k: None,
-            effort: Effort::Balanced,
-            two_pass: false,
+            effort: Effort::Best,
+            two_pass: true,
             max_duration: None,
         },
     ));
@@ -326,8 +326,8 @@ fn parse_preset(text: &str, fallback_name: &str) -> Result<(Option<i64>, Preset)
             max_height: f.max_height.filter(|v| *v > 0),
             fps: f.fps.filter(|v| *v > 0.0),
             audio_bitrate_k: f.audio_bitrate_k.filter(|v| *v > 0.0),
-            effort: f.effort.unwrap_or(Effort::Balanced),
-            two_pass: f.two_pass.unwrap_or(false),
+            effort: f.effort.unwrap_or(Effort::Best),
+            two_pass: f.two_pass.unwrap_or(true),
             max_duration: f.max_duration.filter(|v| *v > 0.0),
         },
     ))
@@ -372,6 +372,8 @@ impl Config {
         let platform = self.presets_dir().join("platform");
         if !platform.exists() {
             self.write_platform();
+        } else {
+            self.update_platform();
         }
         for p in legacy {
             let _ = self.save(p, None);
@@ -384,6 +386,22 @@ impl Config {
         let _ = std::fs::create_dir_all(&dir);
         for (file, order, p) in default_platform() {
             let _ = std::fs::write(dir.join(file), preset_toml(&p, Some(order)));
+        }
+    }
+
+    /// Rewrites the platform presets that 1.1.0 and earlier wrote and nobody
+    /// has edited since, so they get the current defaults (Best effort, two
+    /// passes). A file that differs from what was written is left alone.
+    fn update_platform(&self) {
+        let dir = self.presets_dir().join("platform");
+        for (file, order, p) in default_platform() {
+            let path = dir.join(file);
+            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            // 1.1.0 wrote Balanced everywhere, and two passes only for the size limit presets of 4chan and Discord
+            let old = Preset { effort: Effort::Balanced, two_pass: file.starts_with("4chan") || file.starts_with("discord"), ..p.clone() };
+            if text == preset_toml(&old, Some(order)) {
+                let _ = std::fs::write(&path, preset_toml(&p, Some(order)));
+            }
         }
     }
 
@@ -550,6 +568,31 @@ mod tests {
             assert_eq!(o, Some(order));
             assert_eq!(serde_json::to_value(&back).unwrap(), serde_json::to_value(&p).unwrap(), "{text}");
         }
+    }
+
+    #[test]
+    fn unedited_platform_presets_get_the_new_defaults() {
+        let dir = std::env::temp_dir().join(format!("cwm-platform-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let c = Config::new(dir.clone());
+        let plat = dir.join("presets").join("platform");
+        std::fs::create_dir_all(&plat).unwrap();
+        // as 1.1.0 wrote them: one left as written, one edited by hand
+        for (file, order, p) in default_platform() {
+            let old = Preset { effort: Effort::Balanced, two_pass: file.starts_with("4chan") || file.starts_with("discord"), ..p };
+            let mut text = preset_toml(&old, Some(order));
+            if file == "quality-mp4.toml" {
+                text = text.replace("crf = 20", "crf = 18");
+            }
+            std::fs::write(plat.join(file), text).unwrap();
+        }
+        c.ensure(&[]);
+        let read = |f: &str| parse_preset(&std::fs::read_to_string(plat.join(f)).unwrap(), "x").unwrap().1;
+        let webm = read("quality-webm.toml");
+        assert_eq!((webm.effort, webm.two_pass), (Effort::Best, true));
+        let mp4 = read("quality-mp4.toml");
+        assert_eq!((mp4.effort, mp4.two_pass), (Effort::Balanced, false), "an edited file is kept");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

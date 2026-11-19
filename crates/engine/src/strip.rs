@@ -6,8 +6,12 @@ use crate::run::{run_ffmpeg, Cancel, RunError};
 use crate::spec::MediaInfo;
 use std::path::{Path, PathBuf};
 
-/// Thumbnails in the filmstrip.
+/// Thumbnails in the key frame filmstrip.
 pub const THUMBS: u32 = 60;
+/// Exact filmstrip: one thumbnail per this many seconds, at least THUMBS of them.
+const EXACT_EVERY: f64 = 1.0;
+/// The most thumbnails in an exact filmstrip; the JPEG is one row, at most 65,535 pixels wide.
+const EXACT_MAX: u32 = 1200;
 /// Height of one thumbnail in pixels.
 const THUMB_H: u32 = 54;
 const WAVE_W: u32 = 2400;
@@ -28,10 +32,14 @@ fn publish(part: &Path, out: &Path, res: Result<(), RunError>) -> Result<PathBuf
     Ok(out.to_path_buf())
 }
 
-/// A JPEG of `THUMBS` frames side by side, evenly spaced over the file. Only
-/// key frames are decoded, so a long file takes seconds, not minutes; a file
-/// with few key frames shows the nearest one.
-pub fn thumbs(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path, cancel: &Cancel) -> Result<PathBuf, RunError> {
+/// A JPEG of frames side by side, evenly spaced over the file, and how many.
+///
+/// `exact` false: `THUMBS` frames, and only key frames are decoded, so a long
+/// file takes seconds; a file with few key frames shows the nearest one over
+/// and over. `exact` true: every frame is decoded (2.6 s for 4 min of 1080p
+/// H.264 with key frames 10 s apart, against 0.5 s for key frames only) and
+/// there is a thumbnail per `EXACT_EVERY` seconds, at least `THUMBS`.
+pub fn thumbs(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path, cancel: &Cancel, exact: bool) -> Result<(PathBuf, u32), RunError> {
     if info.audio_only {
         return Err(RunError::Failed("The file has no video stream.".into()));
     }
@@ -40,29 +48,35 @@ pub fn thumbs(ffmpeg: &Path, info: &MediaInfo, cache_dir: &Path, cancel: &Cancel
     }
     let dir = cache_dir.join("strips");
     std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
-    let out = dir.join(format!("thumbs2-{}.jpg", source_key(&info.path)?));
-    if out.is_file() {
-        return Ok(out);
-    }
-    let part = out.with_extension(format!("{}.part.jpg", std::process::id()));
     let v = &info.video;
     let w = if v.height > 0 { ((THUMB_H as f64 * v.width as f64 / v.height as f64 / 2.0).round() as u32 * 2).clamp(16, 256) } else { 96 };
-    let rate = THUMBS as f64 / info.duration;
+    let n = if exact { exact_count(info.duration, w) } else { THUMBS };
+    let key = source_key(&info.path)?;
+    let out = dir.join(if exact { format!("thumbsx{n}-{key}.jpg") } else { format!("thumbs2-{key}.jpg") });
+    if out.is_file() {
+        return Ok((out, n));
+    }
+    let part = out.with_extension(format!("{}.part.jpg", std::process::id()));
+    let rate = n as f64 / info.duration;
     // the last key frame is often seconds before the end: repeat it so the
     // last tiles are filled (the stream is endless; -frames:v 1 stops it)
-    let vf = format!("tpad=stop=-1:stop_mode=clone,fps={rate:.6},scale={w}:{THUMB_H},setsar=1,tile={THUMBS}x1");
-    let args: Vec<String> = [
-        "-hide_banner", "-nostdin", "-loglevel", "error", "-progress", "pipe:1", "-nostats", "-y",
-        "-skip_frame", "nokey", "-i", &info.path,
-        "-map", &format!("0:{}", v.stream_index), "-an", "-sn", "-dn",
-        "-vf", &vf, "-frames:v", "1", "-q:v", "5", "-f", "image2",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .chain(std::iter::once(part.to_string_lossy().into_owned()))
-    .collect();
+    let vf = format!("tpad=stop=-1:stop_mode=clone,fps={rate:.6},scale={w}:{THUMB_H},setsar=1,tile={n}x1");
+    // exact: a thumbnail does not need the deblocking filter (about 20% faster)
+    let skip: &[&str] = if exact { &["-skip_loop_filter", "all", "-flags2", "fast"] } else { &["-skip_frame", "nokey"] };
+    let map = format!("0:{}", v.stream_index);
+    let mut args: Vec<&str> = vec!["-hide_banner", "-nostdin", "-loglevel", "error", "-progress", "pipe:1", "-nostats", "-y"];
+    args.extend_from_slice(skip);
+    args.extend_from_slice(&["-i", &info.path, "-map", &map, "-an", "-sn", "-dn", "-vf", &vf, "-frames:v", "1", "-q:v", "5", "-f", "image2"]);
+    let mut args: Vec<String> = args.into_iter().map(str::to_string).collect();
+    args.push(part.to_string_lossy().into_owned());
     let res = run_ffmpeg(ffmpeg, &args, 0.0, cancel, |_| {});
-    publish(&part, &out, res)
+    publish(&part, &out, res).map(|p| (p, n))
+}
+
+/// Thumbnails in an exact filmstrip of a `secs` long file whose tiles are `tile_w` wide.
+fn exact_count(secs: f64, tile_w: u32) -> u32 {
+    let fit = 65_000 / tile_w.max(1);
+    ((secs / EXACT_EVERY).ceil() as u32).clamp(THUMBS, EXACT_MAX.min(fit))
 }
 
 /// One small JPEG (160 px wide) from 10% into the file, for lists. Cached.

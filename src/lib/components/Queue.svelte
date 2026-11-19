@@ -39,6 +39,9 @@
   let errorOpen = $state<Record<number, boolean>>({});
 
   const pending = $derived(app.jobs.filter((j) => j.status === "pending").length);
+  // the jobs still to run on top, in the order they run; finished ones below, newest first
+  const live = $derived(app.jobs.filter((j) => j.status === "pending" || j.status === "running"));
+  const shown = $derived([...live, ...app.jobs.filter((j) => j.status !== "pending" && j.status !== "running").reverse()]);
   const finished = $derived(app.jobs.filter((j) => j.status !== "pending" && j.status !== "running").length);
 
   const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
@@ -128,7 +131,7 @@
       {#if !app.jobs.length}
         <div class="muted empty">Nothing queued. "Add to queue" collects jobs here and "Start" runs them one at a time; "Encode" adds a job and starts it.</div>
       {/if}
-      {#each app.jobs as j, i (j.id)}
+      {#each shown as j, i (j.id)}
         <div class="job {j.status}">
           <div class="top">
             {#if posters[j.spec.input]}<img class="poster" src={posters[j.spec.input]} alt="" draggable="false" />{:else}<span class="poster"></span>{/if}
@@ -150,7 +153,7 @@
               <span class="grow"></span>
               {#if j.status === "pending"}
                 <button class="btn small icon" aria-label="Move up" disabled={i === 0} onclick={() => app.moveJob(j.id, -1)}><Icon name="up" size={11} /></button>
-                <button class="btn small icon" aria-label="Move down" disabled={i === app.jobs.length - 1} onclick={() => app.moveJob(j.id, 1)}><Icon name="chevron" size={11} /></button>
+                <button class="btn small icon" aria-label="Move down" disabled={i === live.length - 1} onclick={() => app.moveJob(j.id, 1)}><Icon name="chevron" size={11} /></button>
               {/if}
               <button class="btn small danger" onclick={() => app.cancelJob(j.id)}><Icon name="stop" size={11} />{j.status === "pending" ? "Remove" : "Cancel"}</button>
             </div>

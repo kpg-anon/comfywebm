@@ -183,8 +183,9 @@
       app.captionText.trim() && "caption",
       app.logoPath && "watermark",
       app.extraArgs.trim() && "extra args",
-      app.effort !== "balanced" && `${app.effort} effort`,
+      app.effort !== "best" && `${app.effort} effort`,
       app.rateMode === "crf" && app.maxBitrateK && "bitrate cap",
+      app.rateMode === "crf" && !app.twoPass && "one pass",
     ].filter((x): x is string => !!x),
   );
 
@@ -430,14 +431,14 @@
 
       <Group id="encoder" title="Encoder" note={app.effort}>
         <div class="row">
-          <span title="How hard the encoder works. Best gives a slightly better picture at the same size and takes several times longer; Fast is for quick tests.">Effort</span>
+          <span title="How hard the encoder works to find the best picture for the bits it has. It changes the encoder's speed setting (VP9/VP8 -cpu-used, x264/x265 -preset, SVT-AV1 -preset), not the size: the file size comes from the size limit or CRF either way.">Effort</span>
           <Seg
             label="Effort"
             bind:value={app.effort}
             options={[
-              { value: "fast", label: "Fast" },
-              { value: "balanced", label: "Balanced" },
-              { value: "best", label: "Best" },
+              { value: "fast", label: "Fast", title: "For quick tests: much faster than Best, with a worse picture at the same size (VP9 -cpu-used 4, x264 fast, x265 fast, SVT-AV1 preset 10)" },
+              { value: "balanced", label: "Balanced", title: "Faster than Best, with a slightly worse picture at the same size (VP9 -cpu-used 2, x264 slow, x265 medium, SVT-AV1 preset 7)" },
+              { value: "best", label: "Best", title: "The best picture at the same size, and the slowest (VP9 -cpu-used 1, x264 veryslow, x265 slow, SVT-AV1 preset 4)" },
             ]}
           />
         </div>
@@ -760,8 +761,10 @@
   }
   .tab {
     position: relative;
+    flex: 1;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     height: 30px;
     padding: 0 10px;

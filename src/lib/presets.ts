@@ -13,7 +13,7 @@ const fourchan = (name: string, maxBytes: number, audio: boolean, maxDuration: n
   maxHeight: 2048,
   fps: null,
   audioBitrateK: audio ? 96 : null,
-  effort: "balanced",
+  effort: "best",
   twoPass: true,
   maxDuration,
 });
@@ -28,7 +28,7 @@ const discord = (name: string, maxBytes: number): Preset => ({
   maxHeight: null,
   fps: null,
   audioBitrateK: 128,
-  effort: "balanced",
+  effort: "best",
   twoPass: true,
   maxDuration: null,
 });
@@ -51,8 +51,8 @@ export const BUILTIN_PRESETS: Preset[] = [
     maxHeight: 1280,
     fps: 60,
     audioBitrateK: 128,
-    effort: "balanced",
-    twoPass: false,
+    effort: "best",
+    twoPass: true,
     maxDuration: 1200,
   },
   {
@@ -65,8 +65,8 @@ export const BUILTIN_PRESETS: Preset[] = [
     maxHeight: null,
     fps: null,
     audioBitrateK: 128,
-    effort: "balanced",
-    twoPass: false,
+    effort: "best",
+    twoPass: true,
     maxDuration: null,
   },
   {
@@ -79,8 +79,8 @@ export const BUILTIN_PRESETS: Preset[] = [
     maxHeight: null,
     fps: null,
     audioBitrateK: 160,
-    effort: "balanced",
-    twoPass: false,
+    effort: "best",
+    twoPass: true,
     maxDuration: null,
   },
   {
@@ -93,8 +93,8 @@ export const BUILTIN_PRESETS: Preset[] = [
     maxHeight: 640,
     fps: 15,
     audioBitrateK: null,
-    effort: "balanced",
-    twoPass: false,
+    effort: "best",
+    twoPass: true,
     maxDuration: null,
   },
 ];

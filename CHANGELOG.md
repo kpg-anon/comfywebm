@@ -7,8 +7,48 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- The expected size beside Encode is written "~3.94MiB" instead of
+  "up to 3.94 MiB".
+- The Basic, Advanced and File info tabs share the sidebar's width, with
+  their names centered.
+- New default: Best effort and two passes. The built-in preset files get
+  this when they are still as the app wrote them; a preset file you edited
+  is left alone. Each Effort choice says on hover which encoder setting it
+  uses. One pass in quality mode now counts as a changed Advanced setting.
+- Adjustments: the six curve presets sit in two columns under "Curve".
+- 0.4x and 0.8x are always among the speed chips (60 and 30 fps footage
+  play at 24 fps; drawn dashed when not even on the display), in the speed
+  ramp's snapping and in its point menu.
+- Crop mode: Enter leaves it too, keeping the crop, like Esc.
+- Queue: the running and waiting jobs are listed first, in the order they
+  run; finished jobs follow, newest first.
+- Frame steps (`,` `.` and the wheel) go to the middle of the frame, so the
+  player cannot show the frame next to it.
+- While the player is still decoding the frame at the playhead (a few hundred
+  ms for a 1080p file with key frames 10 s apart), the picture shows
+  "Loading frame..." and the time above the controls is dimmed. Seeks asked
+  for during a seek wait for it and only the newest runs, so holding `,` or
+  dragging the playhead shows frames on the way instead of none.
+
+### Added
+
+- Settings > Look > Timeline: thumbnails from every frame (the default) or
+  from key frames only. Every frame gives one thumbnail per second, each
+  from the frame at its time (a 4-minute 1080p file: 240 thumbnails in about
+  4 s), and the key frame ones show until it is done. Before, a file with key
+  frames far apart showed the same picture for several seconds.
+
 ### Fixed
 
+- Cuts started one frame late: a range start inside a frame (nearly every
+  start set by clicking, I or frame stepping) began the output at the next
+  frame, and the Frame button (S) saved the next frame. ffmpeg's `-ss`
+  starts at the first frame at or after the time, while the player shows the
+  frame that holds it. Range edges now snap to the frame the player shows;
+  checked against ffmpeg on 30, 29.97 and 60 fps files in MP4 and Matroska.
+  Files with a variable frame rate are cut as before.
 - The quality check scored MP4 jobs far too low (a CRF 18 H.264 encode got
   68 instead of 99.7; a 4 MiB one 66 instead of 83): every third frame of the
   MP4 probe was compared with the next frame of the reference. Frames are now

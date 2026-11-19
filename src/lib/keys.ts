@@ -53,7 +53,7 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
     group: "Crop",
     keys: [
       ["C", "crop mode on / off"],
-      ["Esc", "leave crop mode"],
+      ["Enter or Esc", "leave crop mode (the crop is kept)"],
       ["Arrows", "move the crop 1 px (Shift: 10 px)"],
       ["Alt + arrows", "resize the crop"],
     ],
@@ -128,7 +128,7 @@ export function installKeys(actions: KeyActions): () => void {
       if ((e.target as Element).closest("[role=dialog]")) return;
       (e.target as HTMLElement).blur();
       e.preventDefault();
-      if (e.key === "Enter") return;
+      if (e.key === "Enter" && !app.cropMode) return;
     }
 
     const ctrl = e.ctrlKey || e.metaKey;
@@ -217,6 +217,10 @@ export function installKeys(actions: KeyActions): () => void {
           break;
         case "c":
           if (app.media && !app.audioOnly) app.cropMode = !app.cropMode;
+          break;
+        case "Enter":
+          if (app.cropMode) app.cropMode = false;
+          else handled = false;
           break;
         case "Escape":
           if (app.followMode) app.cancelFollow();

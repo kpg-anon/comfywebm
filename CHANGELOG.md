@@ -15,6 +15,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   double-click or right-click it to remove it. Track... follows a person and
   adds keyframes fitted to the tracked path (within 1% of it; 15 keyframes for
   8 s of a moving box) instead of a point every 0.25 s.
+- Track moves the view like a camera operator: the person may sit off centre
+  within a band (70% of the room between their box and the view's edge) and
+  the camera holds still or pans evenly within it, instead of copying every
+  movement. On a 4.6 s 60 fps dance clip the frame-to-frame change in camera
+  speed went from 0.62 to 0.01 px per frame squared and the face stayed in
+  the view. The zoom Track sets now has the box fill 60% of the view (was
+  85%), so there is room for this.
 - `Ctrl+E` adds to the queue; the Add to queue button shows it.
 - Settings > Files > Queue: Add to queue can start encoding at once instead of
   leaving the job waiting.

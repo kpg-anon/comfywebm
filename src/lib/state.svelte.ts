@@ -1609,18 +1609,23 @@ class AppState {
       // the zoom's frame: the crop (or the whole picture) as shown
       const frame = this.zoomFrame;
       const first = toView({ x: pts[0].x - pts[0].w / 2, y: pts[0].y - pts[0].h / 2, w: pts[0].w, h: pts[0].h }, this.srcW, this.srcH, this.turn);
-      // the box fills about 85% of the frame
-      const zoom = Math.round(Math.min(zoomMath.MAX_ZOOM, Math.max(zoomMath.MIN_ZOOM, 0.85 * Math.min(frame.w / first.w, frame.h / first.h))) * 100) / 100;
-      // the path on every tracked frame, then as few keyframes as keep within 1% of it
+      // the box fills about 60% of the view, which leaves the camera room to hold still while the person moves
+      const zoom = Math.round(Math.min(zoomMath.MAX_ZOOM, Math.max(zoomMath.MIN_ZOOM, 0.6 * Math.min(frame.w / first.w, frame.h / first.h))) * 100) / 100;
+      // the person's centre on every tracked frame (0..1 of the frame)
       const dense: ZoomPoint[] = pts.map((p) => {
         const c = toView({ x: p.x, y: p.y, w: 0, h: 0 }, this.srcW, this.srcH, this.turn);
         return { t: Math.round(p.t * 1000) / 1000, zoom: 1, x: (c.x - frame.x) / frame.w, y: (c.y - frame.y) / frame.h };
       });
-      const made = zoomMath.simplify(dense, 0.01);
+      const z = this.zoomLevel > 1.001 ? this.zoomLevel : zoom;
+      // the camera may leave the person off centre by 70% of the room between their box and the view's edge
+      const mx = Math.max(0, ((1 / z - first.w / frame.w) / 2) * 0.7);
+      const my = Math.max(0, ((1 / z - first.h / frame.h) / 2) * 0.7);
+      // a steady camera path, then as few keyframes as keep within a tenth of that room of it
+      const made = zoomMath.simplify(zoomMath.camera(dense, mx, my), Math.max(0.001, 0.1 * Math.min(mx, my)));
       const keep = this.zoomPoints.filter((q) => q.t < start - 0.01 || q.t > end + 0.01);
       this.zoomPoints = zoomMath.clean([...keep, ...made]);
       this.followLane = true;
-      // following needs a zoom past the frame; the box then fills about 85% of it
+      // following needs a zoom past the frame; the box then fills about 60% of it
       if (this.zoomLevel <= 1.001) {
         this.zoomBeforeFollow = this.zoomLevel;
         this.zoomLevel = zoom;

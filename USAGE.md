@@ -171,13 +171,17 @@ building it yourself. For an overview and the downloads, see
   centre down. The first keyframe sets a 2x zoom when there is none.
   **Track...** (on the lane, or "Track a person..." in Advanced > Zoom): draw a
   box around the person on the picture; the app follows the box from the
-  playhead to the end of the range (or of the file) and adds as few keyframes
-  as keep the view within 1% of the tracked path (15 for 8 s of a box moving
-  across and back). Without a zoom yet, it sets one where the box fills about
-  85% of the picture; the zoom slider changes it. It reads the video small and
-  grey once, looks for the box near where it was in each frame (it learns
-  slowly as the person turns), and keeps the last position where something
-  covers it. Remove takes the keyframes away (and the zoom they set); Esc
+  playhead to the end of the range (or of the file). The view then moves like
+  a camera operator would, not with every bob and sway: the person may sit
+  off centre by up to 70% of the room between their box and the view's edge,
+  and within that the camera holds still or pans evenly (on a 4.6 s dance
+  clip: 3 keyframes, the face never left the view). Without a zoom yet, it
+  sets one where the box fills about 60% of the view, which leaves that room;
+  at a closer zoom the camera has to follow more closely. It reads the video
+  small and grey once, looks for the box near where it was in each frame (to a
+  fraction of a pixel; it learns slowly as the person turns), and keeps the
+  last position where something covers it. While the preview plays, the view
+  is placed for the frame on screen. Remove takes the keyframes away (and the zoom they set); Esc
   cancels drawing. The output
   is the size of the window it moves, not the whole picture enlarged. It
   applies to ranges of the open file (not Splits or a still picture).

@@ -6,7 +6,8 @@
 //! The frames are read once, small and grey (long side SIDE). Each frame,
 //! the template (the box's picture) is looked for around where it was:
 //! normalised cross-correlation over a coarse grid, then the best spot
-//! refined to the pixel. The template takes in a little of each good match
+//! refined to the pixel and then between pixels (a parabola through the
+//! match and its neighbours). The template takes in a little of each good match
 //! (it turns, the light changes); a weak match (someone in front, a blur)
 //! keeps the last position instead of jumping. The path is then smoothed.
 
@@ -111,7 +112,19 @@ pub fn follow(frames: &[Gray], b: (usize, usize, usize, usize)) -> Vec<(f32, f32
                 }
             }
         }
+        let (mut sx, mut sy) = (bx as f32, by as f32);
         if best >= LOST {
+            // between pixels: the top of a parabola through the match and its neighbours
+            let peak = |l: f32, c: f32, r: f32| {
+                let d = l - 2.0 * c + r;
+                if d < -1e-6 { ((l - r) / (2.0 * d)).clamp(-0.5, 0.5) } else { 0.0 }
+            };
+            if bx > 0 && bx < f.w - w {
+                sx += peak(ncc(f, &t, bx - 1, by, 1), ncc(f, &t, bx, by, 1), ncc(f, &t, bx + 1, by, 1));
+            }
+            if by > 0 && by < f.h - h {
+                sy += peak(ncc(f, &t, bx, by - 1, 1), ncc(f, &t, bx, by, 1), ncc(f, &t, bx, by + 1, 1));
+            }
             x = bx;
             y = by;
             // the template takes in a little of what it matched
@@ -119,18 +132,23 @@ pub fn follow(frames: &[Gray], b: (usize, usize, usize, usize)) -> Vec<(f32, f32
             for (a, b) in t.px.iter_mut().zip(now.px) {
                 *a += (b - *a) * LEARN;
             }
+            out.push((sx, sy, best));
+        } else {
+            out.push((x as f32, y as f32, best));
         }
-        out.push((x as f32, y as f32, best));
     }
     out
 }
 
-/// A centred moving average over `half` values on each side.
+/// A centred moving average over `half` values on each side, fewer near the
+/// ends so that it stays centred (a one-sided window pulled the first and
+/// last positions towards the middle of the path).
 pub fn smooth(v: &[f32], half: usize) -> Vec<f32> {
     (0..v.len())
         .map(|i| {
-            let a = i.saturating_sub(half);
-            let b = (i + half + 1).min(v.len());
+            let k = half.min(i).min(v.len() - 1 - i);
+            let a = i - k;
+            let b = i + k + 1;
             v[a..b].iter().sum::<f32>() / (b - a) as f32
         })
         .collect()
@@ -201,8 +219,10 @@ pub fn run(ffmpeg: &Path, info: &MediaInfo, start: f64, end: f64, bx: Rect, canc
     let b = |v: u32| (v as f64 * k).round() as usize;
     let path = follow(&frames, (b(bx.x), b(bx.y), b(bx.w), b(bx.h)));
     progress(0.95);
-    // smooth over about half a second, then back to source pixels (centre)
-    let half = ((fps * 0.25).round() as usize).max(1);
+    // take out the frame-to-frame noise (about a fifth of a second); the app
+    // makes a steady camera path from this (zoom.ts camera), then back to
+    // source pixels (centre)
+    let half = ((fps * 0.1).round() as usize).max(1);
     let xs = smooth(&path.iter().map(|p| p.0).collect::<Vec<_>>(), half);
     let ys = smooth(&path.iter().map(|p| p.1).collect::<Vec<_>>(), half);
     let (bw, bh) = (b(bx.w).max(4) as f64, b(bx.h).max(4) as f64);
@@ -255,7 +275,8 @@ mod tests {
         let path = follow(&frames, (10, 20, 16, 16));
         assert_eq!(path.len(), 30);
         for (k, p) in path.iter().enumerate() {
-            assert_eq!((p.0 as usize, p.1 as usize), (10 + k * 2, 20 + k), "frame {k}");
+            let (ex, ey) = ((10 + k * 2) as f32, (20 + k) as f32);
+            assert!((p.0 - ex).abs() <= 0.5 && (p.1 - ey).abs() <= 0.5, "frame {k}: {:?}", p);
         }
     }
 
@@ -273,6 +294,6 @@ mod tests {
     #[test]
     fn smooths_jitter() {
         let v = [0.0, 10.0, 0.0, 10.0, 0.0];
-        assert_eq!(smooth(&v, 1), vec![5.0, 10.0 / 3.0, 20.0 / 3.0, 10.0 / 3.0, 5.0]);
+        assert_eq!(smooth(&v, 1), vec![0.0, 10.0 / 3.0, 20.0 / 3.0, 10.0 / 3.0, 0.0]);
     }
 }

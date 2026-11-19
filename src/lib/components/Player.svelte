@@ -161,11 +161,33 @@
     const ah = (m?.audioOnly ? still?.[1] : m?.video.height) || 9;
     return turned ? { w: ah, h: aw } : { w: aw, h: ah };
   });
+  // While playing with follow keyframes, the window is placed for the frame on
+  // screen: requestVideoFrameCallback gives that frame's time. currentTime,
+  // read on each animation frame, runs ahead of or behind the shown frame, and
+  // the window placed for another frame made the picture shake.
+  let frameT = $state<number | null>(null);
+  $effect(() => {
+    const v = video as (HTMLVideoElement & { requestVideoFrameCallback?: (cb: (now: number, m: { mediaTime: number }) => void) => number; cancelVideoFrameCallback?: (id: number) => void }) | undefined;
+    if (!v || app.paused || !app.zoomPoints.length || !v.requestVideoFrameCallback) {
+      frameT = null;
+      return;
+    }
+    let id = 0;
+    const each = (_: number, m: { mediaTime: number }) => {
+      frameT = m.mediaTime;
+      id = v.requestVideoFrameCallback!(each);
+    };
+    id = v.requestVideoFrameCallback(each);
+    return () => {
+      v.cancelVideoFrameCallback?.(id);
+      frameT = null;
+    };
+  });
   /** the part of the picture (as shown) the stage is fitted to */
   const focus = $derived.by(() => {
     const whole = { x: 0, y: 0, w: vsize.w, h: vsize.h };
     if (app.cropMode || app.followMode || app.audioOnly || !app.viewW) return whole;
-    const o = app.outViewAt(app.current);
+    const o = app.outViewAt(frameT ?? app.current);
     // outViewAt is in viewW pixels, the same as vsize for a video
     const k = vsize.w / app.viewW;
     return { x: o.x * k, y: o.y * k, w: Math.max(1, o.w * k), h: Math.max(1, o.h * k) };

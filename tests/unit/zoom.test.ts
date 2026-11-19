@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { at, clean, simplify, windowOf } from "../../src/lib/zoom.ts";
+import { at, camera, clean, simplify, windowOf } from "../../src/lib/zoom.ts";
 
 const pt = (t, zoom, x, y) => ({ t, zoom, x, y });
 
@@ -37,6 +37,19 @@ test("simplify keeps few keyframes within the tolerance of a dense path", () => 
     const c = at(keys, q.t);
     assert.ok(Math.hypot(c.x - q.x, c.y - q.y) <= 0.01 + 1e-9);
   }
+});
+
+test("camera holds still while the subject bobs inside the band, and keeps a travelling one in it", () => {
+  // bobbing 0.03 around 0.5, band 0.06: the camera does not move
+  const bob = Array.from({ length: 241 }, (_, i) => pt(i / 60, 1, 0.5 + 0.03 * Math.sin(i / 4), 0.5));
+  const c = camera(bob, 0.06, 0.06);
+  const xs = c.map((q) => q.x);
+  assert.ok(Math.max(...xs) - Math.min(...xs) < 0.002, `moved ${Math.max(...xs) - Math.min(...xs)}`);
+  // travelling from 0.2 to 0.8 with a bob: the camera follows and the subject stays within the band
+  const go = Array.from({ length: 481 }, (_, i) => pt(i / 60, 1, 0.2 + (0.6 * i) / 480 + 0.02 * Math.sin(i / 3), 0.5));
+  const keys = camera(go, 0.05, 0.05);
+  for (const q of go) assert.ok(Math.abs(at(keys, q.t).x - q.x) <= 0.05 + 1e-3, `t ${q.t}`);
+  assert.ok(Math.abs(at(keys, 8).x - 0.8) < 0.05);
 });
 
 test("the window stays inside the picture", () => {

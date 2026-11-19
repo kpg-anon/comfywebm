@@ -57,6 +57,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- Follow in the preview: while playing, the view is placed for the frame on
+  screen (requestVideoFrameCallback). It used the playhead read on each
+  screen refresh, which ran a median of 20 ms (more than a 60 fps frame) and
+  up to 670 ms away from the frame shown, so the picture shook.
+- Track reads positions to a fraction of a pixel and smooths over a fifth of
+  a second without pulling the first and last positions towards the middle
+  (the first point was 64 px off the drawn box on a test clip).
 - Zoom and follow keyframes: the view moves on a smooth curve through the
   keyframes (cubic, slopes limited as in Fritsch-Carlson) instead of easing
   to a stop at each one. It still starts and stops gently at the first and

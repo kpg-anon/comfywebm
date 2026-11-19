@@ -38,6 +38,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   detail gives Gyroflow's own reason ("Not enough of the image could be
   tracked").
 
+## [1.1.2] - 2026-11-19
+
 ### Fixed
 
 - The frame after the Out point could end the clip (1.1.1 and earlier). ffmpeg
@@ -48,6 +50,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   of 40 on a 60 fps MP4 and 3 of 40 on a 60 fps WebM. `-t` is now a quarter
   frame shorter; the same check found 280 of 280 ranges exact (30, 29.97 and
   60 fps; MP4, WebM and Matroska).
+- Two-pass encodes with sound failed with ffmpeg builds from its master
+  branch (for example gyan.dev's November 2026 nightlies): pass 2 looked for
+  a pass log for the sound. The pass options now apply to the video only.
 
 ## [1.1.1] - 2026-11-19
 

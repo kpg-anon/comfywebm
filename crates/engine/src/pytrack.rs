@@ -21,6 +21,8 @@ pub const SIDE: u32 = 1024;
 pub enum Method {
     Vittrack,
     Sam2,
+    /// OpenCV's YuNet face finder (run_face), in the VitTrack environment
+    Face,
 }
 
 impl Method {
@@ -28,6 +30,7 @@ impl Method {
         match self {
             Method::Vittrack => "vittrack",
             Method::Sam2 => "sam2",
+            Method::Face => "face",
         }
     }
 }
@@ -58,11 +61,24 @@ struct Line {
     s: Option<f64>,
     p: Option<f64>,
     device: Option<String>,
+    /// face: the two eyes
+    e: Option<Vec<(f64, f64)>>,
 }
 
 /// Follows `bx` (source display pixels, on the frame at `start`) to `end`.
 /// `progress` gets 0..1; `device` gets "cuda", "mps" or "cpu" once the script knows.
-pub fn run(
+/// What a run of the script gives: each frame's time (source seconds), the
+/// frames' scale against the source, and its frame rate.
+struct Ran {
+    times: Vec<f64>,
+    k: f64,
+    fps: f64,
+}
+
+/// Runs the script over `start`..`end` with ffmpeg feeding it; `on` gets each
+/// line and says whether it held a frame's result (none at all is an error).
+#[allow(clippy::too_many_arguments)]
+fn run_script(
     ffmpeg: &Path,
     info: &MediaInfo,
     start: f64,
@@ -72,7 +88,8 @@ pub fn run(
     cancel: &Cancel,
     mut progress: impl FnMut(f64),
     mut device: impl FnMut(&str),
-) -> Result<Vec<TrackPoint>, RunError> {
+    mut on: impl FnMut(&Line) -> bool,
+) -> Result<Ran, RunError> {
     if info.audio_only || end <= start {
         return Err(RunError::Failed("Nothing to follow here.".into()));
     }
@@ -131,7 +148,7 @@ pub fn run(
     let err_tail = crate::run::tail_thread(pyc.stderr.take().expect("piped stderr"), 6);
     cancel.attach(pyc);
 
-    let mut found: Vec<(usize, f64, f64, f64, f64, f64)> = Vec::new();
+    let mut got = 0usize;
     crate::run::each_line(out, |line| {
         let Ok(l) = serde_json::from_str::<Line>(line) else { return };
         if let Some(d) = &l.device {
@@ -140,8 +157,8 @@ pub fn run(
         if let Some(p) = l.p {
             progress(p.clamp(0.0, 1.0) * 0.95);
         }
-        if let (Some(i), Some(x), Some(y), Some(w), Some(h)) = (l.i, l.x, l.y, l.w, l.h) {
-            found.push((i, x, y, w, h, l.s.unwrap_or(1.0)));
+        if on(&l) {
+            got += 1;
         }
     });
     let status = cancel.detach().map(|mut c| c.wait());
@@ -153,7 +170,7 @@ pub fn run(
     if cancel.is_canceled() {
         return Err(RunError::Canceled);
     }
-    if !matches!(status, Some(Ok(s)) if s.success()) || found.is_empty() {
+    if !matches!(status, Some(Ok(s)) if s.success()) || got == 0 {
         // uv's launcher could not find the Python the environment was made with
         if tail.iter().any(|l| l.contains("trampoline")) {
             return Err(RunError::Failed(format!(
@@ -162,8 +179,36 @@ pub fn run(
             )));
         }
         let why = tail.iter().rev().find(|l| !l.trim().is_empty() && !l.contains("Warning") && !l.contains("warn(")).cloned().unwrap_or_else(|| "no message".into());
+        if t.method == Method::Face && got == 0 && matches!(status, Some(Ok(s)) if s.success()) {
+            return Err(RunError::Failed("No face was found near where you clicked.".into()));
+        }
         return Err(RunError::Failed(format!("The {} tracker stopped: {why}", t.method.arg())));
     }
+    Ok(Ran { times, k, fps })
+}
+
+/// Follows `bx` (source display pixels, on the frame at `start`) to `end`.
+/// `progress` gets 0..1; `device` gets "cuda", "mps" or "cpu" once the script knows.
+#[allow(clippy::too_many_arguments)]
+pub fn run(
+    ffmpeg: &Path,
+    info: &MediaInfo,
+    start: f64,
+    end: f64,
+    bx: Rect,
+    t: &PyTracker,
+    cancel: &Cancel,
+    progress: impl FnMut(f64),
+    device: impl FnMut(&str),
+) -> Result<Vec<TrackPoint>, RunError> {
+    let mut found: Vec<(usize, f64, f64, f64, f64, f64)> = Vec::new();
+    let Ran { times, k, fps } = run_script(ffmpeg, info, start, end, bx, t, cancel, progress, device, |l| {
+        if let (Some(i), Some(x), Some(y), Some(w), Some(h)) = (l.i, l.x, l.y, l.w, l.h) {
+            found.push((i, x, y, w, h, l.s.unwrap_or(1.0)));
+            return true;
+        }
+        false
+    })?;
     found.sort_by_key(|f| f.0);
     found.dedup_by_key(|f| f.0);
     // take out frame-to-frame noise over about a fifth of a second of analysed frames
@@ -181,6 +226,42 @@ pub fn run(
             w: f.3 / k,
             h: f.4 / k,
             score: f.5,
+        })
+        .collect())
+}
+
+/// Follows the face nearest `near` (source display pixels, on the frame at `start`)
+/// to `end` with the face finder: its two eyes in each frame (left one in the picture
+/// first, source display pixels) and how sure the finder was (0 = not found, held).
+#[allow(clippy::too_many_arguments)]
+pub fn run_face(
+    ffmpeg: &Path,
+    info: &MediaInfo,
+    start: f64,
+    end: f64,
+    near: (f64, f64),
+    t: &PyTracker,
+    cancel: &Cancel,
+    progress: impl FnMut(f64),
+) -> Result<Vec<crate::track::PointsFrame>, RunError> {
+    let mut found: Vec<(usize, Vec<(f64, f64)>, f64)> = Vec::new();
+    let bx = Rect { x: near.0.max(0.0) as u32, y: near.1.max(0.0) as u32, w: 1, h: 1 };
+    let Ran { times, k, fps } = run_script(ffmpeg, info, start, end, bx, t, cancel, progress, |_| {}, |l| {
+        if let (Some(i), Some(e)) = (l.i, l.e.as_ref()) {
+            if e.len() == 2 {
+                found.push((i, e.clone(), l.s.unwrap_or(1.0)));
+                return true;
+            }
+        }
+        false
+    })?;
+    found.sort_by_key(|f| f.0);
+    found.dedup_by_key(|f| f.0);
+    Ok(found
+        .into_iter()
+        .map(|(i, e, s)| crate::track::PointsFrame {
+            t: start + times.get(i).copied().unwrap_or(i as f64 / fps),
+            p: e.iter().map(|&(x, y)| (x / k, y / k, s)).collect(),
         })
         .collect())
 }

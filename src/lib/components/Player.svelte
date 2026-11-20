@@ -184,14 +184,17 @@
     };
   });
   /** the part of the picture (as shown) the stage is fitted to */
+  /** what the output shows now, or null while the whole picture is shown (crop mode, drawing a box, clicking points) */
+  const view = $derived(app.cropMode || app.followMode || app.pointsMode || app.audioOnly || !app.viewW ? null : app.outViewAt(frameT ?? app.current));
   const focus = $derived.by(() => {
     const whole = { x: 0, y: 0, w: vsize.w, h: vsize.h };
-    if (app.cropMode || app.followMode || app.audioOnly || !app.viewW) return whole;
-    const o = app.outViewAt(frameT ?? app.current);
+    if (!view) return whole;
     // outViewAt is in viewW pixels, the same as vsize for a video
     const k = vsize.w / app.viewW;
-    return { x: o.x * k, y: o.y * k, w: Math.max(1, o.w * k), h: Math.max(1, o.h * k) };
+    return { x: view.x * k, y: view.y * k, w: Math.max(1, view.w * k), h: Math.max(1, view.h * k) };
   });
+  /** Follow's turn: the picture turns clockwise around the view's middle, which is the stage's middle */
+  const spin = $derived(view?.rot ?? 0);
   /** the picture's box as shown on screen (may reach past the stage) */
   const shown = $derived.by(() => {
     if (sw <= 0 || sh <= 0) return { x: 0, y: 0, w: 0, h: 0 };
@@ -226,7 +229,7 @@
   let pan: { x0: number; y0: number; i: number; cx: number; cy: number; moved: boolean } | null = null;
   let panned = false;
   function panDown(e: PointerEvent) {
-    if (e.button !== 0 || !app.zoomPoints.length || app.cropMode || app.followMode) return;
+    if (e.button !== 0 || !app.zoomPoints.length || app.cropMode || app.followMode || app.pointsMode) return;
     const i = app.followKeyAt(app.current);
     const p = i >= 0 ? app.zoomPoints[i] : zoomMath.at(app.zoomPoints, app.current);
     pan = { x0: e.clientX, y0: e.clientY, i, cx: p.x, cy: p.y, moved: false };
@@ -242,11 +245,11 @@
       app.video?.pause();
       if (pan.i < 0) pan.i = app.addFollowKey(app.current);
     }
-    // screen pixels per frame width
-    const f = app.zoomFrame;
-    const k = (shown.w / app.viewW) * f.w;
-    const kh = (shown.h / app.viewH) * f.h;
-    app.setZoomPoint(pan.i, { x: pan.cx - dx / k, y: pan.cy - dy / kh });
+    // the drag on the screen, turned back onto the picture (it is shown turned by spin)
+    const a = (-spin * Math.PI) / 180;
+    const [px, py] = [dx * Math.cos(a) - dy * Math.sin(a), dx * Math.sin(a) + dy * Math.cos(a)];
+    // keyframes are 0..1 of the whole picture; shown.w is its width on the screen
+    app.setZoomPoint(pan.i, { x: pan.cx - px / shown.w, y: pan.cy - py / shown.h });
   }
   function panUp() {
     if (pan?.moved) panned = true;
@@ -356,6 +359,7 @@
 
 <div class="stage" class:panning={app.zoomPoints.length > 0 && !app.cropMode} bind:clientWidth={sw} bind:clientHeight={sh} onwheel={onWheel} onpointerdown={panDown} onpointermove={panMove} onpointerup={panUp} onpointercancel={panUp} role="presentation">
   {#if app.videoSrc}
+    <div class="spin" style:transform={spin ? `rotate(${spin}deg)` : null}>
     <div class="pic" style:left="{box.x}px" style:top="{box.y}px" style:width="{box.w}px" style:height="{box.h}px" style:transform={transform}>
       <!-- svelte-ignore a11y_media_has_caption -->
       <video
@@ -391,6 +395,7 @@
         <img class="still" src={app.stillUrl} alt="" draggable="false" style:filter={showAdj ? "url(#cwm-adjust)" : null} />
       {/if}
     </div>
+    </div>
     {#if !app.cropMode && !app.followMode && !app.audioOnly}
       <!-- outside the output's area: the stage's own colour, as the encode has nothing there -->
       <div class="outmask" style:left="{outRect.x}px" style:top="{outRect.y}px" style:width="{outRect.w}px" style:height="{outRect.h}px"></div>
@@ -408,6 +413,43 @@
         oncommit={(c) => (c ? void app.follow(c) : (app.followBox = null))}
       />
       <div class="followhint">Draw a box around the person to follow (Esc cancels)</div>
+    {/if}
+    {#if app.pointsMode}
+      <!-- click points to follow: one for position, two (for example the eyes) to keep the line between them level -->
+      <div
+        class="ptpick"
+        style:left="{shown.x}px"
+        style:top="{shown.y}px"
+        style:width="{shown.w}px"
+        style:height="{shown.h}px"
+        role="presentation"
+        onpointerdown={(e) => {
+          if (e.button !== 0) return;
+          e.stopPropagation();
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          app.addTrackPt(((e.clientX - r.left) / r.width) * app.viewW, ((e.clientY - r.top) / r.height) * app.viewH);
+        }}
+      >
+        {#each app.trackPts as p, i (i)}
+          <span class="ptmark" style:left="{(p.x / app.viewW) * 100}%" style:top="{(p.y / app.viewH) * 100}%">{i + 1}</span>
+        {/each}
+        {#if app.trackPts.length === 2}
+          <svg class="ptline" viewBox="0 0 {app.viewW} {app.viewH}" preserveAspectRatio="none" aria-hidden="true">
+            <line x1={app.trackPts[0].x} y1={app.trackPts[0].y} x2={app.trackPts[1].x} y2={app.trackPts[1].y} vector-effect="non-scaling-stroke" />
+          </svg>
+        {/if}
+      </div>
+      <div class="followhint pts">
+        {app.pointsKind === "face"
+          ? "Click on the face to follow; the view stays on it and keeps the eyes level"
+          : app.trackPts.length === 0
+          ? "Click a point to follow, or two (her eyes) to also keep the line between them level"
+          : app.trackPts.length === 1
+            ? "One point: follows its position. Click a second to also keep the face level."
+            : "Two points: follows them and turns the view to keep the line level."}
+        {#if app.pointsKind !== "face"}<button class="btn small" disabled={!app.trackPts.length} onclick={() => void app.trackPoints()}>Track <kbd>Enter</kbd></button>{/if}
+        <button class="btn small" onclick={() => app.cancelPoints()}>Cancel <kbd>Esc</kbd></button>
+      </div>
     {/if}
     <!-- over the picture as shown (turned and flipped), so the crop is drawn on what you see;
          outside crop mode the stage shows the crop itself -->
@@ -735,6 +777,54 @@
     color: #fff;
     font-size: 12px;
     pointer-events: none;
+  }
+  .followhint.pts {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    pointer-events: auto;
+    white-space: nowrap;
+  }
+  /* turns the picture for Follow around the stage's middle (where the view's middle is) */
+  .spin {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .spin > :global(*) {
+    pointer-events: auto;
+  }
+  .ptpick {
+    position: absolute;
+    cursor: crosshair;
+  }
+  .ptmark {
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    margin: -9px 0 0 -9px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 14px;
+    text-align: center;
+    pointer-events: none;
+    box-shadow: 0 0 0 1px rgb(0 0 0 / 0.6);
+  }
+  .ptline {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+  .ptline line {
+    stroke: #fff;
+    stroke-width: 1.5;
+    stroke-dasharray: 5 4;
   }
   .outmask {
     position: absolute;

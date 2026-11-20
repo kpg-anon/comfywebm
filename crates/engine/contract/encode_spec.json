@@ -26,6 +26,7 @@
   "extraArgs": [],
   "fadeIn": 0.0,
   "fadeOut": 0.0,
+  "followWindow": null,
   "fps": null,
   "input": "in.mp4",
   "layout": {

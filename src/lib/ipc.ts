@@ -78,6 +78,13 @@ export type TrackPoint = { t: number; x: number; y: number; w: number; h: number
 export const trackBox = (path: string, start: number, end: number, rect: { x: number; y: number; w: number; h: number }) =>
   invoke<TrackPoint[]>("track_box", { path, start, end, rect });
 export const trackCancel = () => invoke<void>("track_cancel");
+/** Each frame's time and the followed points there (source display pixels: x, y, match), engine track.rs run_points. */
+export type PointsFrame = { t: number; p: [number, number, number][] };
+export const trackPoints = (path: string, start: number, end: number, points: [number, number][]) =>
+  invoke<PointsFrame[]>("track_points", { path, start, end, points });
+/** The face nearest `near` followed with OpenCV's face finder: its two eyes per frame (needs VitTrack installed). */
+export const trackFace = (path: string, start: number, end: number, near: [number, number]) =>
+  invoke<PointsFrame[]>("track_face", { path, start, end, near });
 export const onTrackProgress = (cb: (p: ProxyProgress) => void): Promise<UnlistenFn> =>
   listen<ProxyProgress>("track-progress", (e) => cb(e.payload));
 /** A Python tracker started: which one, and on what ("cuda", "mps" or "cpu"). */

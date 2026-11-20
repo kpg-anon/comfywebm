@@ -160,7 +160,7 @@ building it yourself. For an overview and the downloads, see
   edge. Double-click the slider or Reset for 1x. The zoom works like a crop:
   the picture area shows exactly what the output will, and the caption and
   watermark are not zoomed.
-- **Follow** (Video tools under the timeline, or Advanced > Zoom): a lane
+- **Follow** (Video tools under the timeline): a lane
   under the timeline with keyframes that move the zoomed view over the clip.
   Click the lane to add a keyframe (the playhead goes there), then drag the
   picture to aim the view; dragging the picture anywhere else adds a keyframe
@@ -168,10 +168,29 @@ building it yourself. For an overview and the downloads, see
   right-click it to remove it. Between keyframes the view moves on a smooth
   curve that does not stop at each keyframe, and nothing overshoots a turning
   point. The lane's solid line is the view's centre across, the dashed line its
-  centre down. Follow has its own zoom (2x to start with), set with the Zoom
-  slider on the lane for all its keyframes; the sidebar's Zoom is for the
-  picture without Follow and is greyed out while Follow has keyframes.
-  **Track...** (on the lane, or "Track a person..." in Advanced > Zoom): draw a
+  centre down. Follow's view has the crop's shape (or the picture's, without a
+  crop) and moves over the whole picture, not only inside the crop: with a
+  1:1 crop the output is a square that goes wherever the keyframes say. Its
+  size is that shape over Follow's own zoom (2x to start with), set with the
+  Zoom slider on the lane for all its keyframes; the sidebar's Global zoom is
+  for the picture without Follow and is greyed out while Follow has keyframes.
+  Keyframes can also turn the view (made by Track face and Track points).
+  **Track face...** (on the lane): click on a face. OpenCV's face finder looks
+  for it in every frame (the face nearest the one before), so a blink, a hand
+  or a fast move does not lose it; the view stays on the face and turns to
+  keep the eyes level. Each frame is first turned upright by the tilt found in
+  the frame before, because the finder reads a tilted face as less tilted than
+  it is. On a 4.4 s dance clip the eye line was off level by 11.4 degrees on
+  average in the source (27.4 at the 95th percentile) and 2.2 (5.1) in the
+  output; 4.4 s of 4K took about 11 s. Needs VitTrack installed (Settings >
+  Tools > Tracking; it brings OpenCV), and fetches the face model (230 KB) the
+  first time. **Track points...**: click one point (the view stays on it) or
+  two (the view also turns to keep the line between them level), then Enter.
+  The built-in point tracker matches a small patch around each point at three
+  sizes per frame; two points are kept at a plausible distance and angle from
+  each other. It can slide onto a nearby feature (an eye onto an eyebrow), so
+  for a face Track face holds better.
+  **Track box...** (on the lane): draw a
   box around the person on the picture; the app follows the box from the
   playhead to the end of the range (or of the file). The view then moves like
   a camera operator would, not with every bob and sway: the person may sit

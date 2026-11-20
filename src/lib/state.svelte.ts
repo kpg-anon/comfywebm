@@ -133,7 +133,8 @@ type EditSnap = {
   zoom: ZoomPoint[];
   zoomLevel: number;
 };
-type EditMemory = { segments: Segment[]; order: number[] | null; crop: Crop | null; speedRamp?: SpeedPoint[]; zoom?: ZoomPoint[]; zoomLevel?: number; t: number };
+/** followV 2: follow keyframes are 0..1 of the whole picture; before, of the crop */
+type EditMemory = { segments: Segment[]; order: number[] | null; crop: Crop | null; speedRamp?: SpeedPoint[]; zoom?: ZoomPoint[]; followV?: number; zoomLevel?: number; t: number };
 
 function loadRecent(): string[] {
   const r = load<unknown>("recent");
@@ -604,6 +605,7 @@ class AppState {
       // the ramp is the open file's own (file time): Batch and Splits items do not get it
       speedRamp: own ? (ramp.clean($state.snapshot(this.speedRamp) as SpeedPoint[])) : [],
       zoom: own && this.zoomPoints.length ? zoomMath.clean($state.snapshot(this.zoomPoints) as ZoomPoint[]) : [],
+      followWindow: own && this.zoomPoints.length ? { w: this.zoomFrame.w, h: this.zoomFrame.h } : null,
       playback: this.playback,
       deinterlace: own ? this.deinterlace : m.video.interlaced,
       denoise: this.denoise,
@@ -968,6 +970,7 @@ class AppState {
         crop: s.crop,
         speedRamp: s.speedRamp.length ? s.speedRamp : undefined,
         zoom: s.zoom.length ? s.zoom : undefined,
+        followV: s.zoom.length ? 2 : undefined,
         zoomLevel: s.zoomLevel !== 1 ? s.zoomLevel : undefined,
         t: Date.now(),
       };
@@ -1055,6 +1058,11 @@ class AppState {
         if (this.zoomPoints.length && this.zoomPoints.every((p) => p.zoom <= 1.001) && this.zoomLevel > 1.001) {
           this.zoomPoints = this.zoomPoints.map((p) => ({ ...p, zoom: this.zoomLevel }));
           this.zoomLevel = 1;
+        }
+        // saved when keyframes were 0..1 of the crop: now of the whole picture
+        const vc = this.viewCrop;
+        if (this.zoomPoints.length && !mem.followV && vc && this.viewW && this.viewH) {
+          this.zoomPoints = this.zoomPoints.map((p) => ({ ...p, x: (vc.x + p.x * vc.w) / this.viewW, y: (vc.y + p.y * vc.h) / this.viewH }));
         }
         this.sel = this.segments.length ? 0 : -1;
         if (this.segments.length) this.loop = true;
@@ -1503,17 +1511,18 @@ class AppState {
   /** The crop the job gets (source pixels): the crop with the zoom in it; with a follow path the crop
    *  alone (the zoom then moves along the path in the encode). */
   get jobCrop(): Crop | null {
-    if (this.zoomPoints.length || Math.abs(this.zoomLevel - 1) < 1e-9 || !this.viewW) return this.crop ? { ...this.crop } : null;
+    // Follow: the crop is the view's shape and size, and the view moves over the whole picture
+    if (this.zoomPoints.length) return null;
+    if (Math.abs(this.zoomLevel - 1) < 1e-9 || !this.viewW) return this.crop ? { ...this.crop } : null;
     const r = round(fromView(this.zoomView, this.srcW, this.srcH, this.turn), this.srcW, this.srcH);
     return isFull(r, this.srcW, this.srcH) ? null : r;
   }
-  /** What the output shows at source time t, as shown: the follow window there, or the zoom's view. */
-  outViewAt(t: number): Crop {
-    if (!this.zoomPoints.length) return this.zoomView;
-    const p = zoomMath.at(this.zoomPoints, t);
+  /** What the output shows at source time t, as shown: Follow's view there (the crop's shape over
+   *  Follow's zoom, anywhere on the picture, turned by `rot` degrees), or the global zoom's view. */
+  outViewAt(t: number): Crop & { rot: number } {
+    if (!this.zoomPoints.length) return { ...this.zoomView, rot: 0 };
     const f = this.zoomFrame;
-    const w = zoomMath.windowOf({ zoom: Math.max(1, p.zoom), x: p.x, y: p.y }, f.w, f.h);
-    return { x: f.x + w.x, y: f.y + w.y, w: w.w, h: w.h };
+    return zoomMath.viewAt(this.zoomPoints, t, f.w, f.h, this.viewW, this.viewH);
   }
   /** The follow keyframe on the frame that holds source time t (within half a frame), or -1. */
   followKeyAt(t: number): number {
@@ -1580,6 +1589,7 @@ class AppState {
       zoom: cl(ch.zoom ?? q.zoom, zoomMath.MIN_ZOOM, zoomMath.MAX_ZOOM),
       x: cl(ch.x ?? q.x, 0, 1),
       y: cl(ch.y ?? q.y, 0, 1),
+      rot: ch.rot ?? q.rot ?? 0,
     };
     this.zoomPoints = p;
   }
@@ -1634,11 +1644,16 @@ class AppState {
       const z = this.zoomPoints.length ? this.followZoom : zoom;
       // the camera may leave the person off centre by 70% of the room between their box
       // (its size at that moment: VitTrack and SAM 2 follow it) and the view's edge
-      const band = (w: number, h: number) => ({ mx: Math.max(0, ((1 / z - w / frame.w) / 2) * 0.7), my: Math.max(0, ((1 / z - h / frame.h) / 2) * 0.7) });
+      // (as fractions of the whole picture, which Follow's view moves over)
+      const [W, H] = [this.viewW, this.viewH];
+      const band = (w: number, h: number) => ({
+        mx: Math.max(0, ((frame.w / z / W - w / W) / 2) * 0.7),
+        my: Math.max(0, ((frame.h / z / H - h / H) / 2) * 0.7),
+      });
       const dense: zoomMath.CamPoint[] = pts.map((p) => {
         const c = toView({ x: p.x, y: p.y, w: 0, h: 0 }, this.srcW, this.srcH, this.turn);
         const b = toView({ x: p.x - p.w / 2, y: p.y - p.h / 2, w: p.w, h: p.h }, this.srcW, this.srcH, this.turn);
-        return { t: Math.round(p.t * 1000) / 1000, zoom: z, x: (c.x - frame.x) / frame.w, y: (c.y - frame.y) / frame.h, ...band(b.w, b.h) };
+        return { t: Math.round(p.t * 1000) / 1000, zoom: z, x: c.x / W, y: c.y / H, ...band(b.w, b.h) };
       });
       const { mx, my } = band(first.w, first.h);
       // a steady camera path, then as few keyframes as keep within a tenth of that room of it
@@ -1659,6 +1674,123 @@ class AppState {
     } finally {
       this.following = null;
     }
+  }
+
+  // ---------- follow points (engine track.rs run_points) ----------
+
+  /** Clicking points on the picture to follow; "face": one click on a face (OpenCV's face finder). */
+  pointsMode = $state(false);
+  pointsKind = $state<"points" | "face">("points");
+  /** the points clicked, in picture-as-shown pixels (at most 2) */
+  trackPts = $state<{ x: number; y: number }[]>([]);
+
+  startPoints(kind: "points" | "face" = "points") {
+    this.cropMode = false;
+    this.followMode = false;
+    this.trackPts = [];
+    this.pointsKind = kind;
+    this.pointsMode = true;
+    this.followLane = true;
+  }
+
+  addTrackPt(x: number, y: number) {
+    if (!this.pointsMode) return;
+    const p = { x: Math.min(Math.max(0, x), this.viewW), y: Math.min(Math.max(0, y), this.viewH) };
+    if (this.pointsKind === "face") {
+      // one click on the face starts it
+      this.trackPts = [p];
+      void this.trackPoints();
+      return;
+    }
+    // a third click replaces the second
+    this.trackPts = this.trackPts.length < 2 ? [...this.trackPts, p] : [this.trackPts[0], p];
+  }
+
+  /** Follow the clicked points from the playhead to the end of the range (or of the file).
+   *  Follow's view centres on them (their middle); with two, it also turns so the line
+   *  between them stays level. */
+  async trackPoints() {
+    const m = this.media;
+    const pts = this.trackPts;
+    if (!m || m.audioOnly || !pts.length || this.following !== null) return;
+    this.pointsMode = false;
+    this.trackPts = [];
+    const start = this.current;
+    const s = this.selSeg;
+    const end = s && start >= s.start && start < s.end ? s.end : this.duration;
+    if (end - start < 0.2) {
+      this.toast({ kind: "info", title: "Nothing to follow", text: "Put the playhead before the end of the range first.", path: null });
+      return;
+    }
+    const src = pts.map((p) => {
+      const c = fromView({ x: p.x, y: p.y, w: 0, h: 0 }, this.srcW, this.srcH, this.turn);
+      return [c.x, c.y] as [number, number];
+    });
+    const face = this.pointsKind === "face";
+    this.following = 0;
+    this.trackingWith = face ? "the face finder (OpenCV)" : pts.length > 1 ? "the point tracker (2 points: position and turn)" : "the point tracker";
+    try {
+      const fr = face ? await ipc.trackFace(m.path, start, end, src[0]) : await ipc.trackPoints(m.path, start, end, src);
+      if (this.media?.path !== m.path || !fr.length) return;
+      const [W, H] = [this.viewW, this.viewH];
+      const ts = fr.map((f) => f.t);
+      const shown = fr.map((f) => f.p.map(([x, y]) => toView({ x, y, w: 0, h: 0 }, this.srcW, this.srcH, this.turn)));
+      let cx = shown.map((ps) => ps.reduce((a, c) => a + c.x, 0) / ps.length / W);
+      let cy = shown.map((ps) => ps.reduce((a, c) => a + c.y, 0) / ps.length / H);
+      if (face) {
+        // the face's middle: half the eyes' distance below them, across the face (as it is turned)
+        cx = shown.map((ps, i) => cx[i] - ((ps[1].y - ps[0].y) * 0.5) / W);
+        cy = shown.map((ps, i) => cy[i] + ((ps[1].x - ps[0].x) * 0.5) / H);
+      }
+      // the line between two points, -90..90 degrees, kept continuous; the picture turns the other way
+      let rot = shown.map(() => 0);
+      if (face || pts.length > 1) {
+        let last = 0;
+        rot = shown.map((ps, i) => {
+          let a = (Math.atan2(ps[1].y - ps[0].y, ps[1].x - ps[0].x) * 180) / Math.PI;
+          while (a > 90) a -= 180;
+          while (a <= -90) a += 180;
+          if (i > 0) {
+            while (a - last > 90) a -= 180;
+            while (a - last < -90) a += 180;
+          }
+          last = a;
+          return -a;
+        });
+      }
+      // a steady view: the frame-to-frame wobble smoothed out. The face finder looks at every
+      // frame afresh and wobbles less than matched patches, so it gets less (it lags less):
+      // on a dance clip 0.05 s kept the turn within 1.1 degrees of the face on average, 0.12 s 2.0
+      const sigma = face ? 0.05 : 0.12;
+      const sx = zoomMath.gauss(ts, cx, sigma);
+      const sy = zoomMath.gauss(ts, cy, sigma);
+      const sr = zoomMath.gauss(ts, rot, sigma);
+      const z = this.zoomPoints.length ? this.followZoom : 2;
+      const dense: ZoomPoint[] = ts.map((t, i) => ({ t: Math.round(t * 1000) / 1000, zoom: z, x: sx[i], y: sy[i], rot: sr[i] }));
+      const made = zoomMath.simplify(dense, 0.002).map((q) => ({ ...q, zoom: z }));
+      const keep = this.zoomPoints.filter((q) => q.t < start - 0.01 || q.t > end + 0.01);
+      this.zoomPoints = zoomMath.clean([...keep, ...made]);
+      this.followLane = true;
+      const weak = fr.filter((f) => f.p.some((p) => p[2] < 0.5)).length;
+      const turned = face || pts.length > 1 ? ` The view turns ${Math.round(Math.min(...sr))} to ${Math.round(Math.max(...sr))} degrees to keep ${face ? "the eyes" : "the line between the points"} level.` : "";
+      this.toast({
+        kind: "info",
+        title: face
+          ? `Following the face for ${fmtSecs(end - start)}: ${made.length} keyframes`
+          : `Following ${pts.length} point${pts.length > 1 ? "s" : ""} for ${fmtSecs(end - start)}: ${made.length} keyframes`,
+        text: `At ${z}x (the zoom on the Follow lane).${turned}${weak ? ` In ${weak} of ${fr.length} frames ${face ? "no face was found" : "a point was hard to find"}; it stayed where it was there.` : ""}`,
+        path: null,
+      });
+    } catch (e) {
+      if (ipc.errText(e) !== "Canceled") this.error = `Could not follow the ${face ? "face" : "points"}: ${ipc.errText(e)}`;
+    } finally {
+      this.following = null;
+    }
+  }
+
+  cancelPoints() {
+    this.pointsMode = false;
+    this.trackPts = [];
   }
 
   cancelFollow() {

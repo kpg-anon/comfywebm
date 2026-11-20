@@ -313,13 +313,27 @@ pub struct SpeedPoint {
 
 /// A point of the zoom: at `t` seconds of the source file the picture is
 /// zoomed `zoom` times (1 = all of it) around the centre (`x`, `y`), 0..1 of
-/// the picture after crop, rotation and flips (zoom.rs).
+/// the picture after crop, rotation and flips (zoom.rs). With a follow window
+/// (`EncodeSpec::follow_window`) the centre is 0..1 of the whole picture
+/// (rotation and flips, no crop) and `rot` turns the view.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ZoomPoint {
     pub t: f64,
     pub zoom: f64,
     pub x: f64,
     pub y: f64,
+    /// degrees the picture is turned clockwise around the view's centre (follow window only)
+    #[serde(default)]
+    pub rot: f64,
+}
+
+/// Follow's view at 1x: its size in pixels of the whole picture after rotation and
+/// flips (the crop's size, or the whole picture). At zoom z the view is this over z,
+/// and it moves over the whole picture (zoom.rs `window_filter`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct FollowWindow {
+    pub w: f64,
+    pub h: f64,
 }
 
 /// A rectangle in canvas pixels.
@@ -531,6 +545,11 @@ pub struct EncodeSpec {
     /// zoom points in source file time (zoom.rs); empty = no zoom. Ranges of `input` only.
     #[serde(default)]
     pub zoom: Vec<ZoomPoint>,
+    /// with zoom points: Follow's view (its shape and size at 1x), which moves over the
+    /// whole picture and can turn; `crop` is then not used. None = the zoom points move
+    /// a window inside the cropped picture (zoompan).
+    #[serde(default)]
+    pub follow_window: Option<FollowWindow>,
     #[serde(default)]
     pub playback: Playback,
     #[serde(default)]

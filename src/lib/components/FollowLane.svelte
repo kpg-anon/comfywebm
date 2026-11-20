@@ -103,7 +103,9 @@
     showMenu(e, [
       { label: `Add a keyframe here (${fmtTime(t)})`, action: () => app.seek(app.zoomPoints[app.addFollowKey(t)].t) },
       { label: "Add a keyframe at the playhead", action: () => app.addFollowKey(app.current) },
-      { label: "Track a person from the playhead...", disabled: app.following !== null, action: ontrack },
+      { label: "Track a person from the playhead (box)...", disabled: app.following !== null, action: ontrack },
+      { label: "Track a face from the playhead...", disabled: app.following !== null, action: () => app.startPoints("face") },
+      { label: "Track points from the playhead...", disabled: app.following !== null, action: () => app.startPoints() },
       "sep",
       { label: "Remove all keyframes", danger: true, disabled: !pts.length, action: () => app.clearFollow() },
     ]);
@@ -181,6 +183,8 @@
     {:else if app.followMode}
       <span class="small">Draw a box on the picture</span>
       <button class="btn small" onclick={() => app.cancelFollow()}>Cancel</button>
+    {:else if app.pointsMode}
+      <span class="small">Click points on the picture</span>
     {:else}
       {#if pts.length}
         <span class="mono small muted">{pts.length} key{pts.length === 1 ? "" : "s"}</span>
@@ -199,7 +203,9 @@
           <span class="mono small">{app.followZoom.toFixed(2)}x</span>
         </label>
       {/if}
-      <button class="btn small" disabled={!app.media || app.audioOnly} title="Draw a box around a person; the app follows them from the playhead to the end of the range and adds keyframes along the way" onclick={ontrack}>Track...</button>
+      <button class="btn small" disabled={!app.media || app.audioOnly} title="Draw a box around a person; the app follows them from the playhead to the end of the range and adds keyframes along the way, with a steady camera" onclick={ontrack}>Track box...</button>
+      <button class="btn small" disabled={!app.media || app.audioOnly} title="Click on a face: the view stays on it and turns to keep the eyes level, found afresh in every frame (OpenCV's face finder; needs VitTrack from Settings > Tools > Tracking)" onclick={() => app.startPoints("face")}>Track face...</button>
+      <button class="btn small" disabled={!app.media || app.audioOnly} title="Click one point to follow (the view stays centred on it), or two to also turn the view so the line between them stays level. For a face, Track face holds better." onclick={() => app.startPoints()}>Track points...</button>
     {/if}
   </div>
 </div>

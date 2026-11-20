@@ -527,12 +527,32 @@ pub fn py_tracker(tools: &Path, name: &str) -> Option<comfywebm_engine::pytrack:
     };
     let dir = tools.join(name).join("current");
     let python = venv_python(&dir.join("env"));
-    let model = std::fs::read_dir(&dir)
-        .ok()?
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| p.extension().is_some_and(|x| x == "onnx" || x == "pt"))?;
-    python.is_file().then(|| PyTracker { method, python, script: dir.join("track.py"), model })
+    let model = match method {
+        Method::Sam2 => std::fs::read_dir(&dir).ok()?.flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|x| x == "pt"))?,
+        _ => dir.join("vittrack.onnx"),
+    };
+    (python.is_file() && model.is_file()).then(|| PyTracker { method, python, script: dir.join("track.py"), model })
+}
+
+const YUNET_MODEL: &str = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx";
+
+/// Track face: OpenCV's YuNet face finder, run in the VitTrack environment (it has OpenCV).
+/// The model (230 KB) is fetched on first use when an older install lacks it. None when
+/// VitTrack is not installed.
+pub async fn face_tracker(app: &AppHandle) -> Result<Option<comfywebm_engine::pytrack::PyTracker>, String> {
+    let tools = app.state::<ToolsDir>().0.clone();
+    let Some(mut t) = py_tracker(&tools, "vittrack") else { return Ok(None) };
+    let model = tools.join("vittrack").join("current").join("yunet.onnx");
+    if !model.is_file() {
+        let c = client()?;
+        let a = Asset { name: "yunet.onnx".into(), url: YUNET_MODEL.into(), size: 0 };
+        let part = model.with_extension("part");
+        download(app, Tool::Vittrack, &c, &a, &part, &AtomicBool::new(false)).await?;
+        std::fs::rename(&part, &model).map_err(|e| e.to_string())?;
+    }
+    t.method = comfywebm_engine::pytrack::Method::Face;
+    t.model = model;
+    Ok(Some(t))
 }
 
 fn uv_asset() -> Result<&'static str, String> {
@@ -730,6 +750,11 @@ async fn python_install(app: &AppHandle, tool: Tool, cancel: Arc<AtomicBool>) ->
     };
     let asset = Asset { name: file.clone(), url, size: 0 };
     download(app, tool, &c, &asset, &fresh.join(&file), &cancel).await.map_err(fail)?;
+    if tool == Tool::Vittrack {
+        // the face finder for Track face uses the same OpenCV
+        let a = Asset { name: "yunet.onnx".into(), url: YUNET_MODEL.into(), size: 0 };
+        download(app, tool, &c, &a, &fresh.join("yunet.onnx"), &cancel).await.map_err(fail)?;
+    }
     std::fs::write(fresh.join("track.py"), comfywebm_engine::pytrack::SCRIPT).map_err(|e| fail(e.to_string()))?;
     // the packages load
     let mut cmd = comfywebm_engine::tools::command(&python);

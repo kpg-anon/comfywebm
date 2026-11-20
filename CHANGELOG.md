@@ -34,6 +34,19 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   VitTrack and SAM 2 stayed on her. SAM 2 was only run on the CPU here (about
   7.5 s per analysed frame); the CUDA install was not tried because the test
   machine had 6.4 GB free.
+- Track face (Follow lane): click on a face and the view stays on it and turns
+  to keep the eyes level. OpenCV's YuNet face finder (230 KB, fetched on first
+  use, run with VitTrack's OpenCV) looks at every frame afresh, after turning
+  it upright by the last tilt (YuNet read a 41 degree tilt as 26). On a 4.4 s
+  dance clip with a 1:1 crop the output's eye line was 2.2 degrees off level
+  on average (5.1 at the 95th percentile), against 11.4 (27.4) in the source.
+- Track points (Follow lane): one or two clicked points followed by a patch
+  matcher at three sizes per frame; two points also turn the view.
+- Follow's view has the crop's shape and moves over the whole picture (with a
+  1:1 crop, a square anywhere on a vertical video), and keyframes can turn it.
+  The encode uses crop with per-frame x/y and rotate with a per-frame angle
+  instead of zoompan.
+- Settings > Tools > Tracking: SAM 2 is marked * for the best results.
 - Follow has its own zoom, separate from the sidebar's: a Zoom slider on the
   Follow lane sets it for all keyframes (they carry it to the encode), and
   Track no longer changes the sidebar zoom. The sidebar's Zoom is for the
@@ -80,6 +93,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   screen (requestVideoFrameCallback). It used the playhead read on each
   screen refresh, which ran a median of 20 ms (more than a 60 fps frame) and
   up to 670 ms away from the frame shown, so the picture shook.
+- The sidebar's zoom is "Global zoom" (its slider "Level") and no longer shows
+  Follow; Follow is only in Video tools and on its lane.
+- The built-in tracker's progress no longer stops at 72% while it matches the
+  box (it reported only the reading of the video).
 - Track reads positions to a fraction of a pixel and smooths over a fifth of
   a second without pulling the first and last positions towards the middle
   (the first point was 64 px off the drawn box on a test clip).

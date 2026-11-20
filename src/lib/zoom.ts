@@ -9,12 +9,12 @@ export function clean(points: ZoomPoint[]): ZoomPoint[] {
   const cl = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
   const p = points
     .filter((q) => [q.t, q.zoom, q.x, q.y].every(Number.isFinite))
-    .map((q) => ({ t: Math.max(0, q.t), zoom: cl(q.zoom, MIN_ZOOM, MAX_ZOOM), x: cl(q.x, 0, 1), y: cl(q.y, 0, 1) }))
+    .map((q) => ({ t: Math.max(0, q.t), zoom: cl(q.zoom, MIN_ZOOM, MAX_ZOOM), x: cl(q.x, 0, 1), y: cl(q.y, 0, 1), rot: Number.isFinite(q.rot) ? cl(q.rot ?? 0, -90, 90) : 0 }))
     .sort((a, b) => a.t - b.t);
   return p.filter((q, i) => i === 0 || Math.abs(q.t - p[i - 1].t) >= 1e-6);
 }
 
-type Key = "zoom" | "x" | "y";
+type Key = "zoom" | "x" | "y" | "rot";
 
 /** The slope of one value at point i: 0 at the first and last point and where
  *  the value turns back (so a held point holds and nothing overshoots), else
@@ -22,7 +22,7 @@ type Key = "zoom" | "x" | "y";
  *  zoom.rs `slopes`. */
 export function slopes(p: ZoomPoint[], k: Key): number[] {
   const n = p.length;
-  const d = p.slice(1).map((b, i) => (b[k] - p[i][k]) / Math.max(1e-6, b.t - p[i].t));
+  const d = p.slice(1).map((b, i) => ((b[k] ?? 0) - (p[i][k] ?? 0)) / Math.max(1e-6, b.t - p[i].t));
   return p.map((_, i) => {
     if (i === 0 || i === n - 1) return 0;
     const a = d[i - 1];
@@ -36,12 +36,12 @@ export function slopes(p: ZoomPoint[], k: Key): number[] {
 
 /** Zoom and centre at source time t: a smooth curve through the points that
  *  starts and stops gently at the first and last; outside them it holds. */
-export function at(points: ZoomPoint[], t: number): { zoom: number; x: number; y: number } {
+export function at(points: ZoomPoint[], t: number): { zoom: number; x: number; y: number; rot: number } {
   const p = clean(points);
-  if (!p.length) return { zoom: 1, x: 0.5, y: 0.5 };
-  if (t <= p[0].t) return { zoom: p[0].zoom, x: p[0].x, y: p[0].y };
+  if (!p.length) return { zoom: 1, x: 0.5, y: 0.5, rot: 0 };
+  if (t <= p[0].t) return { zoom: p[0].zoom, x: p[0].x, y: p[0].y, rot: p[0].rot ?? 0 };
   const q = p[p.length - 1];
-  if (t >= q.t) return { zoom: q.zoom, x: q.x, y: q.y };
+  if (t >= q.t) return { zoom: q.zoom, x: q.x, y: q.y, rot: q.rot ?? 0 };
   let i = 0;
   while (i + 2 < p.length && t > p[i + 1].t) i++;
   const a = p[i];
@@ -50,9 +50,9 @@ export function at(points: ZoomPoint[], t: number): { zoom: number; x: number; y
   const u = (t - a.t) / h;
   const v = (k: Key) => {
     const m = slopes(p, k);
-    return hermite(a[k], b[k], m[i] * h, m[i + 1] * h, u);
+    return hermite(a[k] ?? 0, b[k] ?? 0, m[i] * h, m[i + 1] * h, u);
   };
-  return { zoom: v("zoom"), x: v("x"), y: v("y") };
+  return { zoom: v("zoom"), x: v("x"), y: v("y"), rot: v("rot") };
 }
 
 function hermite(a: number, b: number, ma: number, mb: number, u: number): number {
@@ -75,7 +75,8 @@ export function simplify(dense: ZoomPoint[], tol: number, maxKeys = 200): ZoomPo
     p.forEach((q, i) => {
       if (keep.has(i)) return;
       const c = at(keys, q.t);
-      const dd = Math.hypot(c.x - q.x, c.y - q.y);
+      // a degree of turn counts as much as the tolerance in position
+      const dd = Math.max(Math.hypot(c.x - q.x, c.y - q.y), (Math.abs(c.rot - (q.rot ?? 0)) / 1) * tol);
       if (dd > wd) {
         wd = dd;
         worst = i;
@@ -163,6 +164,44 @@ export function camera(dense: CamPoint[], mx: number, my: number): ZoomPoint[] {
   const cx = axis(s.map((q) => q.x), "x");
   const cy = axis(s.map((q) => q.y), "y");
   return ts.map((t, i) => ({ t: Math.round(t * 1000) / 1000, zoom: 1, x: cx[i], y: cy[i] }));
+}
+
+/** Follow's view at source time t (engine zoom.rs window_filter): `fw` x `fh` (its size at 1x)
+ *  over the zoom, centred on the path in a W x H picture; a box that holds the view at the
+ *  path's largest turn is kept inside the picture, and the view is that box's middle, turned
+ *  by `rot` degrees (the picture clockwise). */
+export function viewAt(points: ZoomPoint[], t: number, fw: number, fh: number, W: number, H: number): Crop & { rot: number } {
+  const p = at(points, t);
+  const z = Math.max(1, p.zoom);
+  const w = Math.min(W, fw / z);
+  const h = Math.min(H, fh / z);
+  const turn = (Math.min(90, Math.max(0, ...clean(points).map((q) => Math.abs(q.rot ?? 0)))) * Math.PI) / 180;
+  const bw = turn > 1e-6 ? Math.min(W, w * Math.cos(turn) + h * Math.sin(turn)) : w;
+  const bh = turn > 1e-6 ? Math.min(H, w * Math.sin(turn) + h * Math.cos(turn)) : h;
+  const cx = Math.min(Math.max(0, p.x * W - bw / 2), W - bw) + bw / 2;
+  const cy = Math.min(Math.max(0, p.y * H - bh / 2), H - bh) + bh / 2;
+  return { x: cx - w / 2, y: cy - h / 2, w, h, rot: p.rot };
+}
+
+/** A centred Gaussian over values sampled at times `ts`, sigma `sigma` seconds (ends not pulled in). */
+export function gauss(ts: number[], v: number[], sigma: number): number[] {
+  return v.map((_, i) => {
+    let sum = 0;
+    let ws = 0;
+    // a window that stays centred near the ends
+    const reach = Math.min(3 * sigma, ts[i] - ts[0], ts[ts.length - 1] - ts[i]);
+    for (let j = i; j >= 0 && ts[i] - ts[j] <= reach + 1e-9; j--) {
+      const w = Math.exp(-((ts[i] - ts[j]) ** 2) / (2 * sigma * sigma));
+      sum += w * v[j];
+      ws += w;
+    }
+    for (let j = i + 1; j < v.length && ts[j] - ts[i] <= reach + 1e-9; j++) {
+      const w = Math.exp(-((ts[j] - ts[i]) ** 2) / (2 * sigma * sigma));
+      sum += w * v[j];
+      ws += w;
+    }
+    return sum / ws;
+  });
 }
 
 /** The part of a W x H picture that shows at zoom z around (x, y), kept inside it (as zoompan does). */

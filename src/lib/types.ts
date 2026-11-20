@@ -38,7 +38,11 @@ export type SpeedPoint = { t: number; speed: number };
 
 /** A zoom point: at `t` seconds of the source the picture is zoomed `zoom` times (1 = all of it)
  *  around (`x`, `y`), 0..1 of the picture after crop, rotation and flips (engine zoom.rs). */
-export type ZoomPoint = { t: number; zoom: number; x: number; y: number };
+/** With a follow window, x and y are 0..1 of the whole picture as shown and `rot` turns the
+ *  view (degrees the picture turns clockwise); without one, 0..1 of the cropped picture. */
+export type ZoomPoint = { t: number; zoom: number; x: number; y: number; rot?: number };
+/** Follow's view at 1x, in pixels of the whole picture after rotation and flips (engine FollowWindow). */
+export type FollowWindow = { w: number; h: number };
 
 export type MediaInfo = {
   path: string;
@@ -126,6 +130,8 @@ export type EncodeSpec = {
   speedRamp: SpeedPoint[];
   /** zoom points (engine zoom.rs); empty = none */
   zoom?: ZoomPoint[];
+  /** Follow's view (the crop's shape and size); it moves over the whole picture and the crop is not used */
+  followWindow?: FollowWindow | null;
   playback: Playback;
   deinterlace: boolean;
   denoise: boolean;

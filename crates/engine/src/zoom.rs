@@ -19,7 +19,13 @@ pub fn clean(points: &[ZoomPoint]) -> Vec<ZoomPoint> {
     let mut p: Vec<ZoomPoint> = points
         .iter()
         .filter(|p| p.t.is_finite() && p.zoom.is_finite() && p.x.is_finite() && p.y.is_finite())
-        .map(|p| ZoomPoint { t: p.t.max(0.0), zoom: p.zoom.clamp(MIN_ZOOM, MAX_ZOOM), x: p.x.clamp(0.0, 1.0), y: p.y.clamp(0.0, 1.0) })
+        .map(|p| ZoomPoint {
+            t: p.t.max(0.0),
+            zoom: p.zoom.clamp(MIN_ZOOM, MAX_ZOOM),
+            x: p.x.clamp(0.0, 1.0),
+            y: p.y.clamp(0.0, 1.0),
+            rot: if p.rot.is_finite() { p.rot.clamp(-90.0, 90.0) } else { 0.0 },
+        })
         .collect();
     p.sort_by(|a, b| a.t.total_cmp(&b.t));
     p.dedup_by(|b, a| (b.t - a.t).abs() < 1e-6);
@@ -83,11 +89,16 @@ fn num(v: f64) -> String {
 /// The source time from zoompan's `it` (time in the joined output, before
 /// speed changes): `segs` are the ranges in output order as (start, end).
 fn source_time(segs: &[(f64, f64)]) -> String {
+    source_time_of(segs, "it")
+}
+
+/// The same from another filter's time variable (crop and rotate call it `t`).
+fn source_time_of(segs: &[(f64, f64)], it: &str) -> String {
     let mut off = 0.0;
     let mut parts = Vec::new();
     for (i, (s, e)) in segs.iter().enumerate() {
         let len = e - s;
-        let here = format!("it-{}+{}", num(off), num(*s));
+        let here = format!("{it}-{}+{}", num(off), num(*s));
         if i + 1 < segs.len() {
             parts.push((num(off + len), here));
         } else {
@@ -96,9 +107,9 @@ fn source_time(segs: &[(f64, f64)]) -> String {
         off += len;
     }
     // if(lt(it,end1), it-off1+s1, if(lt(it,end2), ..., last))
-    let mut expr = parts.last().map(|p| p.1.clone()).unwrap_or_else(|| "it".into());
+    let mut expr = parts.last().map(|p| p.1.clone()).unwrap_or_else(|| it.into());
     for (end, here) in parts.iter().rev().skip(1) {
-        expr = format!("if(lt(it,{end}),{here},{expr})");
+        expr = format!("if(lt({it},{end}),{here},{expr})");
     }
     expr
 }
@@ -142,12 +153,61 @@ pub fn filter(points: &[ZoomPoint], segs: &[(f64, f64)], w: u32, h: u32, fps: f6
     ))
 }
 
+/// Follow's view in pixels: `fw` x `fh` (its size at 1x) over the zoom, even, at least 2.
+pub fn window_size(fw: f64, fh: f64, zoom: f64) -> (u32, u32) {
+    let z = zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+    let even = |v: f64| (((v / z / 2.0).round() as u32) * 2).max(2);
+    (even(fw), even(fh))
+}
+
+/// Follow's view (`window_size`) moved over a `pw` x `ph` picture and turned:
+/// a box large enough to hold the view at the path's largest turn is cut out
+/// around the path's centre (kept inside the picture), turned by the path's
+/// angle around its middle, and the view cut from that middle. ffmpeg's crop
+/// keeps one size for the whole clip, so the zoom is the first point's (the
+/// app gives all keyframes one zoom). None without points.
+pub fn window_filter(points: &[ZoomPoint], segs: &[(f64, f64)], fw: f64, fh: f64, pw: u32, ph: u32) -> Option<String> {
+    let p = clean(points);
+    let first = p.first()?;
+    let (w, h) = window_size(fw, fh, first.zoom);
+    let (w, h) = (w.min(pw.max(2)), h.min(ph.max(2)));
+    let turn = p.iter().map(|q| q.rot.abs()).fold(0.0, f64::max).min(90.0).to_radians();
+    let (c, s) = (turn.cos(), turn.sin());
+    let even = |v: f64| (((v / 2.0).ceil() as u32) * 2).max(2);
+    let (bw, bh) = if turn > 1e-6 { (even(w as f64 * c + h as f64 * s).min(pw), even(w as f64 * s + h as f64 * c).min(ph)) } else { (w, h) };
+    let t = source_time_of(segs, "t");
+    let cx = value(&p, |q| q.x);
+    let cy = value(&p, |q| q.y);
+    let mut f = format!("crop=w={bw}:h={bh}:x='st(0,{t});clip(({cx})*iw-{bw}/2,0,iw-{bw})':y='st(0,{t});clip(({cy})*ih-{bh}/2,0,ih-{bh})':exact=1");
+    if turn > 1e-6 {
+        let a = value(&p, |q| q.rot);
+        f.push_str(&format!(",rotate=a='st(0,{t});({a})*PI/180':ow={bw}:oh={bh}:c=black,crop={w}:{h}"));
+    }
+    Some(f)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn pt(t: f64, zoom: f64, x: f64, y: f64) -> ZoomPoint {
-        ZoomPoint { t, zoom, x, y }
+        ZoomPoint { t, zoom, x, y, rot: 0.0 }
+    }
+
+    #[test]
+    fn window_filter_moves_a_fixed_view_and_turns_it() {
+        assert_eq!(window_size(1080.0, 1080.0, 2.0), (540, 540));
+        assert_eq!(window_filter(&[], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920), None);
+        // no turn: one crop of the view's size
+        let f = window_filter(&[pt(1.0, 2.0, 0.5, 0.3)], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920).unwrap();
+        assert_eq!(f, "crop=w=540:h=540:x='st(0,t-0+0);clip((0.5)*iw-540/2,0,iw-540)':y='st(0,t-0+0);clip((0.3)*ih-540/2,0,ih-540)':exact=1");
+        // a 45 degree turn: a box sqrt(2) larger, turned, then the view from its middle
+        let mut a = pt(1.0, 2.0, 0.5, 0.3);
+        a.rot = 45.0;
+        let f = window_filter(&[pt(0.0, 2.0, 0.5, 0.3), a], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920).unwrap();
+        assert!(f.starts_with("crop=w=764:h=764:"), "{f}");
+        assert!(f.contains(",rotate=a='st(0,t-0+0);"), "{f}");
+        assert!(f.ends_with(":ow=764:oh=764:c=black,crop=540:540"), "{f}");
     }
 
     #[test]

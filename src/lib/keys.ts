@@ -130,7 +130,7 @@ export function installKeys(actions: KeyActions): () => void {
       if ((e.target as Element).closest("[role=dialog]")) return;
       (e.target as HTMLElement).blur();
       e.preventDefault();
-      if (e.key === "Enter" && !app.cropMode) return;
+      if (e.key === "Enter" && !app.cropMode && !app.pointsMode) return;
     }
 
     const ctrl = e.ctrlKey || e.metaKey;
@@ -222,11 +222,13 @@ export function installKeys(actions: KeyActions): () => void {
           if (app.media && !app.audioOnly) app.cropMode = !app.cropMode;
           break;
         case "Enter":
-          if (app.cropMode) app.cropMode = false;
+          if (app.pointsMode) void app.trackPoints();
+          else if (app.cropMode) app.cropMode = false;
           else handled = false;
           break;
         case "Escape":
-          if (app.followMode) app.cancelFollow();
+          if (app.pointsMode) app.cancelPoints();
+          else if (app.followMode) app.cancelFollow();
           else if (app.cropMode) app.cropMode = false;
           else handled = false;
           break;

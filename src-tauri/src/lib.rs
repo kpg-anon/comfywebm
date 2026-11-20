@@ -125,6 +125,43 @@ async fn track_box(app: AppHandle, path: String, start: f64, end: f64, rect: com
     .await
 }
 
+/// Follow points (source display pixels, on the frame at `start`) to `end` (engine
+/// track.rs run_points); "track-progress" events, stopped by track_cancel.
+#[tauri::command]
+async fn track_points(app: AppHandle, path: String, start: f64, end: f64, points: Vec<(f64, f64)>) -> Result<Vec<track::PointsFrame>, String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let ffmpeg = state.ffmpeg()?;
+        let info = state.media(&path)?;
+        strip_job(&app, "track", |c| {
+            track::run_points(&ffmpeg, &info, start, end, &points, c, |fraction| {
+                let _ = app.emit("track-progress", CutsProgress { path: path.clone(), fraction });
+            })
+        })
+    })
+    .await
+}
+
+/// Follow the face nearest `near` (source display pixels, on the frame at `start`) to
+/// `end` with OpenCV's face finder (engine pytrack.rs run_face): its eyes in each frame.
+#[tauri::command]
+async fn track_face(app: AppHandle, path: String, start: f64, end: f64, near: (f64, f64)) -> Result<Vec<track::PointsFrame>, String> {
+    let Some(t) = install::face_tracker(&app).await? else {
+        return Err("Track face uses OpenCV, which comes with VitTrack: Settings > Tools > Tracking > VitTrack > Install.".into());
+    };
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let ffmpeg = state.ffmpeg()?;
+        let info = state.media(&path)?;
+        strip_job(&app, "track", |c| {
+            comfywebm_engine::pytrack::run_face(&ffmpeg, &info, start, end, near, &t, c, |fraction| {
+                let _ = app.emit("track-progress", CutsProgress { path: path.clone(), fraction });
+            })
+        })
+    })
+    .await
+}
+
 /// Stops following a box.
 #[tauri::command]
 fn track_cancel(strips: State<Strips>) {
@@ -1160,6 +1197,8 @@ pub fn run() {
             tools_rescan,
             stab_test,
             track_test,
+            track_points,
+            track_face,
             install::tool_install,
             install::tool_install_cancel,
             install::tool_installed,

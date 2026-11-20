@@ -594,7 +594,7 @@
           options={[
             { value: "builtin", label: "Built-in", hint: "nothing to install" },
             { value: "vittrack", label: "VitTrack", hint: trackHave.vittrack ? "installed" : "not installed" },
-            { value: "sam2", label: "SAM 2", hint: trackHave.sam2 ? "installed" : "not installed" },
+            { value: "sam2", label: "SAM 2 *", hint: trackHave.sam2 ? "installed, best results" : "not installed, best results" },
           ]}
         />
         <button
@@ -607,12 +607,12 @@
       {#if trackChoice === "vittrack"}
         <span class="hint">
           <b>VitTrack</b> (OpenCV's small neural tracker). Follows the box much like the built-in one but keeps hold through turns and changes of size; runs on the
-          processor, faster than the built-in one (a 4.6 s 4K clip in 5 s).
+          processor, faster than the built-in one (a 4.6 s 4K clip in 5 s). Its OpenCV also runs Track face on the Follow lane.
         </span>
         <ToolInstall tool="vittrack" label="Install VitTrack" note={trackHave.vittrack ? "" : "a Python environment for comfywebm alone, about 250 MB"} oninstalled={() => void refreshTrackers()} />
       {:else if trackChoice === "sam2"}
         <span class="hint">
-          <b>SAM 2</b> (Meta's video segmentation model). Follows the person's outline, not a box of pixels, so turns, arms and people passing in front throw it off
+          <b>SAM 2</b> (Meta's video segmentation model; the best results). Follows the person's outline, not a box of pixels, so turns, arms and people passing in front throw it off
           least. Fast on an NVIDIA graphics card; without one it takes about 7 s per analysed frame (10 a second of video).
         </span>
         <ToolInstall tool="sam2" label="Install SAM 2" note={trackHave.sam2 ? "" : "PyTorch and SAM 2 in a Python environment for comfywebm alone: about 5 GB with an NVIDIA card, 1 GB without"} oninstalled={() => void refreshTrackers()} />
@@ -622,6 +622,7 @@
       {#if trackChoice !== "builtin" && !trackHave[trackChoice as "vittrack" | "sam2"]}
         <span class="hint">Until it is installed, Track uses the built-in tracker.</span>
       {/if}
+      <span class="hint">* best results. This is the tracker for Track box on the Follow lane. Track face needs VitTrack installed (it uses its OpenCV); Track points uses the built-in point tracker.</span>
       {#if trackResult && trackResult.method === trackChoice}
         <span class="hint" class:err={trackResult.bad}>{trackResult.text}</span>
       {/if}

@@ -59,12 +59,7 @@
     app.zoomLevel >= 1 ? Math.round((100 * Math.log(app.zoomLevel)) / Math.log(4)) : app.zoomMin < 1 ? -Math.round((100 * Math.log(app.zoomLevel)) / Math.log(app.zoomMin)) : 0,
   );
   const zoomOfPos = (v: number) => (v >= 0 ? Math.pow(4, v / 100) : app.zoomMin < 1 ? Math.pow(app.zoomMin, -v / 100) : 1);
-  const zoomNote = $derived(app.zoomPoints.length ? `following ${app.followZoom}x` : app.zoomLevel !== 1 ? `${app.zoomLevel}x` : "");
-  function startFollow() {
-    app.cropMode = false;
-    app.followMode = true;
-    app.followLane = true;
-  }
+  const zoomNote = $derived(app.zoomLevel !== 1 ? `${app.zoomLevel}x` : "");
   const warnings = $derived([
     ...app.uiWarnings,
     ...(app.plan?.warnings ?? []).filter((w) => qv === null || !w.includes("Expect a blurry picture")),
@@ -165,7 +160,6 @@
   const changed = $derived(
     [
       app.zoomLevel !== 1 && `zoom ${app.zoomLevel}x`,
-      app.zoomPoints.length > 0 && "follow",
       app.deinterlace !== !!app.media?.video.interlaced && "deinterlace",
       app.denoise && "denoise",
       app.stabilize && "stabilize",
@@ -384,16 +378,16 @@
         <div class="path small muted">{app.outputPath ?? "Beside each source file"}</div>
       </Group>
     {:else}
-      <Group id="zoom" title="Zoom" note={zoomNote}>
+      <Group id="zoom" title="Global zoom" note={zoomNote}>
         <div class="row">
-          <span title="Zoom in on the picture (right) or, with a crop, show more of the picture around it (left). 1x in the middle is the crop, or the whole picture. Double-click the slider for 1x.">Zoom</span>
+          <span title="Zoom in on the picture (right) or, with a crop, show more of the picture around it (left). 1x in the middle is the crop, or the whole picture. Double-click the slider for 1x. Follow (Video tools) has its own zoom.">Level</span>
           <input
             class="zslider"
             type="range"
             min="-100"
             max="100"
             step="1"
-            aria-label="Zoom"
+            aria-label="Global zoom"
             disabled={!app.media || app.audioOnly || app.zoomPoints.length > 0}
             value={zoomPos}
             oninput={(e) => app.setZoomLevel(zoomOfPos(Number((e.currentTarget as HTMLInputElement).value)))}
@@ -404,28 +398,11 @@
         </div>
         <div class="muted small">
           {#if app.zoomPoints.length}
-            Follow is on, with its own zoom ({app.followZoom}x of {app.crop ? "the crop" : "the picture"}, set on the Follow lane); this zoom applies without Follow.
+            Not used while Follow (Video tools, under the timeline) has keyframes.
           {:else if app.crop}
             1x is the crop. Right zooms in on its middle; left shows more of the picture around it.
           {:else}
             1x is the whole picture; right zooms in on its middle. Crop first to zoom out around a crop.
-          {/if}
-        </div>
-        <div class="row">
-          <span title="Move the zoomed view over the clip with keyframes on the Follow lane under the timeline. Track a person: draw a box around them and the app adds keyframes that follow them from the playhead to the end of the range. Drag the picture to aim the view at the playhead.">Follow</span>
-          {#if app.following !== null}
-            <span class="small grow">Tracking with {app.trackingWith}: {Math.round(app.following * 100)}%</span>
-            <button class="btn small" onclick={() => app.cancelFollow()}>Stop</button>
-          {:else if app.followMode}
-            <span class="small grow">Draw a box around the person on the picture</span>
-            <button class="btn small" onclick={() => app.cancelFollow()}>Cancel</button>
-          {:else if app.zoomPoints.length}
-            <span class="small grow">{app.zoomPoints.length} keyframe{app.zoomPoints.length === 1 ? "" : "s"}, {fmtLen(app.zoomPoints[app.zoomPoints.length - 1].t - app.zoomPoints[0].t)}</span>
-            <button class="btn small" disabled={app.followLane} onclick={() => (app.followLane = true)}>Show</button>
-            <button class="btn small" onclick={() => app.clearFollow()}>Remove</button>
-          {:else}
-            <span class="muted small grow">off</span>
-            <button class="btn small" disabled={!app.media || app.audioOnly} onclick={startFollow}>Track a person...</button>
           {/if}
         </div>
       </Group>

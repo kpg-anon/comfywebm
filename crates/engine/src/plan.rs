@@ -1248,12 +1248,25 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     // --- geometry ---
     // crop is drawn on a video frame; a still picture is used whole
     // splits: the canvas is used as it is (crop and rotation belong to one file)
-    let crop = if still.is_some() || layout.is_some() { None } else { spec.crop };
+    // Follow's own view (zoom.rs window_filter): it moves over the whole picture, so no crop
+    let follow = spec.follow_window.filter(|f| !spec.zoom.is_empty() && still.is_none() && layout.is_none() && !mixed && f.w >= 2.0 && f.h >= 2.0);
+    let crop = if still.is_some() || layout.is_some() || follow.is_some() { None } else { spec.crop };
     let rotate = if layout.is_some() { 0 } else { spec.rotate };
     let mut g = geometry(v.width, v.height, crop, rotate, spec.max_width, spec.max_height);
+    // the whole picture (after rotation) that Follow's view moves over
+    let (pic_w, pic_h) = (g.rot_w, g.rot_h);
+    if let Some(f) = follow {
+        let z = crate::zoom::clean(&spec.zoom).first().map(|p| p.zoom).unwrap_or(1.0);
+        let (w, h) = crate::zoom::window_size(f.w, f.h, z);
+        g.rot_w = w.min(pic_w);
+        g.rot_h = h.min(pic_h);
+        let k = fit_factor(g.rot_w, g.rot_h, spec.max_width, spec.max_height);
+        g.out_w = even_down(g.rot_w as f64 * k);
+        g.out_h = even_down(g.rot_h as f64 * k);
+    }
     // a follow path (zoom points): the output is the size of the window it moves (the picture over
     // the zoom), not the whole picture enlarged (a 2.89x path on 2160x3840 planned 2160x3840)
-    let zoom_k = if spec.zoom.is_empty() || still.is_some() || layout.is_some() || mixed {
+    let zoom_k = if spec.zoom.is_empty() || still.is_some() || layout.is_some() || mixed || follow.is_some() {
         1.0
     } else {
         crate::zoom::clean(&spec.zoom).iter().map(|p| p.zoom).reduce(f64::min).unwrap_or(1.0).max(1.0)
@@ -1599,6 +1612,8 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     } else if mixed {
         warnings.push("The zoom applies to one file, so it is not used when ranges come from other files.".into());
         None
+    } else if let Some(f) = follow {
+        crate::zoom::window_filter(&spec.zoom, &segs, f.w, f.h, pic_w, pic_h)
     } else {
         crate::zoom::filter(&spec.zoom, &segs, g.out_w, g.out_h, if v.fps > 0.0 { v.fps } else { 30.0 })
     };
@@ -2365,6 +2380,7 @@ mod tests {
             speed: 1.0,
             speed_ramp: vec![],
             zoom: vec![],
+            follow_window: None,
             playback: Playback::Forward,
             deinterlace: false,
             denoise: false,
@@ -2898,10 +2914,30 @@ mod tests {
     fn zoom_output_is_the_window_size() {
         // a 2x path on 1280x720: the output is 640x360, not 1280x720 enlarged
         let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
-        sp.zoom = vec![crate::spec::ZoomPoint { t: 10.0, zoom: 2.0, x: 0.5, y: 0.5 }, crate::spec::ZoomPoint { t: 12.0, zoom: 2.0, x: 0.3, y: 0.5 }];
+        sp.zoom = vec![crate::spec::ZoomPoint { t: 10.0, zoom: 2.0, x: 0.5, y: 0.5, rot: 0.0 }, crate::spec::ZoomPoint { t: 12.0, zoom: 2.0, x: 0.3, y: 0.5, rot: 0.0 }];
         let p = build(&sp, &media(), &opts()).unwrap();
         assert_eq!((p.out_width, p.out_height), (640, 360));
         assert!(strs(&p.passes[0]).join(" ").contains(":s=640x360:"));
+    }
+
+    #[test]
+    fn follow_window_is_its_own_size_and_turns() {
+        // a 720x720 view (a square crop at 1x) at 2x on 1280x720: 360x360, moving over the
+        // whole picture (no crop in the command), turned up to 20 degrees
+        let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
+        sp.crop = Some(Crop { x: 0.0, y: 0.0, w: 720.0, h: 720.0 });
+        sp.follow_window = Some(crate::spec::FollowWindow { w: 720.0, h: 720.0 });
+        sp.zoom = vec![
+            crate::spec::ZoomPoint { t: 10.0, zoom: 2.0, x: 0.2, y: 0.5, rot: 0.0 },
+            crate::spec::ZoomPoint { t: 12.0, zoom: 2.0, x: 0.8, y: 0.5, rot: -20.0 },
+        ];
+        let p = build(&sp, &media(), &opts()).unwrap();
+        assert_eq!((p.out_width, p.out_height), (360, 360));
+        let s = strs(&p.passes[0]).join(" ");
+        assert!(!s.contains("zoompan") && !s.contains("crop=720:720"), "{s}");
+        // 360 * (cos 20 + sin 20) = 461.4: a 462 px box, turned, then 360x360 from its middle
+        assert!(s.contains("crop=w=462:h=462:x='"), "{s}");
+        assert!(s.contains(":ow=462:oh=462:c=black,crop=360:360"), "{s}");
     }
 
     #[test]

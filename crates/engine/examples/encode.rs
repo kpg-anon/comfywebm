@@ -148,6 +148,7 @@ fn real_main() -> Result<(), String> {
         speed: std::env::var("CWM_SPEED").ok().and_then(|s| s.parse().ok()).unwrap_or(1.0),
         speed_ramp: vec![],
         zoom: vec![],
+        follow_window: None,
         playback: Playback::Forward,
         deinterlace: info.video.interlaced,
         denoise: false,

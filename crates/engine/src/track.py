@@ -1,7 +1,7 @@
 # comfywebm's tracker for Follow > Track with the Python methods (engine pytrack.rs).
 # Written next to the app's Python environment and run by it; not run by hand.
 #
-#   python track.py --method vittrack|sam2 --model FILE --w W --h H --box X,Y,BW,BH --fps FPS
+#   python track.py --method vittrack|sam2|face --model FILE --w W --h H --box X,Y,BW,BH --fps FPS
 #
 # stdin: raw BGR frames, W x H each (ffmpeg -pix_fmt bgr24), the first one is
 # where the box (in these frames' pixels) was drawn.
@@ -11,6 +11,8 @@
 #       frame i (0-based, counting every frame read): the centre and size of
 #       what is followed, in the frames' pixels, and how sure the tracker is (0..1;
 #       below 0.45 for VitTrack, 0.3 for SAM 2, the position is the last good one)
+#   {"i": 12, "e": [[x, y], [x, y]], "w": .., "h": .., "s": ..}
+#       face: the eyes (left one in the picture first) and the face box's size
 #   {"p": 0.42}                       progress, 0..1 of the frames analysed so far
 # Errors go to stderr; the exit code is not 0 then.
 
@@ -58,6 +60,62 @@ def vittrack(a):
         if ok and s >= 0.45:
             last = (r[0] + r[2] / 2, r[1] + r[3] / 2, float(r[2]), float(r[3]))
         out({"i": i, "x": last[0], "y": last[1], "w": last[2], "h": last[3], "s": s})
+        if i % 15 == 0 and a.frames > 0:
+            out({"p": min(1.0, i / a.frames)})
+
+
+def face(a):
+    """OpenCV's YuNet face finder on every frame: the face nearest the last one
+    (at first, the middle of --box), and its eyes. Nothing drifts: each frame is
+    looked at afresh, so a blink or a fast move does not lose the face. YuNet
+    reads a tilted face's eyes as less tilted than they are (26 degrees for 41),
+    so each frame is first turned by the tilt found in the frame before, around
+    the face, and the eyes are turned back."""
+    import math
+    import cv2
+
+    det = cv2.FaceDetectorYN.create(a.model, "", (a.w, a.h), 0.6, 0.3, 50)
+    out({"device": "cpu", "step": 1})
+    x, y, bw, bh = a.box
+    near = (x + bw / 2, y + bh / 2)
+    last = None
+    tilt = 0.0  # the eye line's angle in the last frame, degrees (clockwise on screen)
+    for i, f in enumerate(frames(a.w, a.h)):
+        if abs(tilt) > 2:
+            # turned so the face is upright (OpenCV: positive is counter-clockwise on screen)
+            m = cv2.getRotationMatrix2D(near, tilt, 1.0)
+            g = cv2.warpAffine(f, m, (a.w, a.h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            back = cv2.invertAffineTransform(m)
+        else:
+            g, back = f, None
+
+        def unturn(px, py):
+            if back is None:
+                return [float(px), float(py)]
+            return [float(back[0][0] * px + back[0][1] * py + back[0][2]), float(back[1][0] * px + back[1][1] * py + back[1][2])]
+
+        _, faces = det.detect(g)
+        best = None
+        if faces is not None:
+            for fc in faces:
+                e = sorted([unturn(fc[4], fc[5]), unturn(fc[6], fc[7])])
+                ex, ey = (e[0][0] + e[1][0]) / 2, (e[0][1] + e[1][1]) / 2
+                d = (ex - near[0]) ** 2 + (ey - near[1]) ** 2
+                if best is None or d < best[0]:
+                    best = (d, fc, e)
+        # a face far from the last one (another person) is not taken over
+        if best is not None and last is not None:
+            eye = ((last[0][0] - last[1][0]) ** 2 + (last[0][1] - last[1][1]) ** 2) ** 0.5
+            if best[0] ** 0.5 > max(4 * eye, 0.15 * a.w):
+                best = None
+        if best is not None:
+            fc, e = best[1], best[2]
+            last = (e[0], e[1], float(fc[2]), float(fc[3]))
+            near = ((e[0][0] + e[1][0]) / 2, (e[0][1] + e[1][1]) / 2)
+            tilt = math.degrees(math.atan2(e[1][1] - e[0][1], e[1][0] - e[0][0]))
+            out({"i": i, "e": e, "w": last[2], "h": last[3], "s": float(fc[14])})
+        elif last is not None:
+            out({"i": i, "e": [last[0], last[1]], "w": last[2], "h": last[3], "s": 0.0})
         if i % 15 == 0 and a.frames > 0:
             out({"p": min(1.0, i / a.frames)})
 
@@ -136,7 +194,7 @@ def sam2(a):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--method", required=True, choices=["vittrack", "sam2"])
+    ap.add_argument("--method", required=True, choices=["vittrack", "sam2", "face"])
     ap.add_argument("--model", required=True)
     ap.add_argument("--w", type=int, required=True)
     ap.add_argument("--h", type=int, required=True)
@@ -144,7 +202,7 @@ def main():
     ap.add_argument("--fps", type=float, default=0)
     ap.add_argument("--frames", type=int, default=0, help="about how many frames will come, for progress")
     a = ap.parse_args()
-    (vittrack if a.method == "vittrack" else sam2)(a)
+    {"vittrack": vittrack, "sam2": sam2, "face": face}[a.method](a)
 
 
 if __name__ == "__main__":

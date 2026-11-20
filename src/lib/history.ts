@@ -86,7 +86,20 @@ export function describeEdit(a: EditState, b: EditState): string {
   const zb = b.zoom ?? [];
   if (JSON.stringify(za) !== JSON.stringify(zb)) {
     const n = zb.length - za.length;
-    parts.push(n > 0 ? "Followed a person" : !zb.length ? "Removed the follow path" : "Moved the follow path");
+    const zoomOnly = n === 0 && za.every((p, i) => p.t === zb[i].t && p.x === zb[i].x && p.y === zb[i].y);
+    parts.push(
+      zoomOnly
+        ? `Follow zoom ${Math.round((zb[0]?.zoom ?? 1) * 100) / 100}x`
+        : n === 1
+          ? "Added a follow keyframe"
+          : n > 1
+            ? "Tracked a person"
+            : n === -1 && zb.length
+              ? "Removed a follow keyframe"
+              : !zb.length
+                ? "Removed the follow keyframes"
+                : "Moved a follow keyframe",
+    );
   }
   if ((a.zoomLevel ?? 1) !== (b.zoomLevel ?? 1)) parts.push(`Zoom ${Math.round((b.zoomLevel ?? 1) * 100) / 100}x`);
   if (!parts.length) return "Edit";

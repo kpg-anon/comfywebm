@@ -34,7 +34,14 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   VitTrack and SAM 2 stayed on her. SAM 2 was only run on the CPU here (about
   7.5 s per analysed frame); the CUDA install was not tried because the test
   machine had 6.4 GB free.
-- `Ctrl+E` adds to the queue; the Add to queue button shows it.
+- Follow has its own zoom, separate from the sidebar's: a Zoom slider on the
+  Follow lane sets it for all keyframes (they carry it to the encode), and
+  Track no longer changes the sidebar zoom. The sidebar's Zoom is for the
+  picture without Follow and is greyed out while Follow has keyframes. Edits
+  saved by the earlier test builds (keyframes at 1x with a sidebar zoom) are
+  converted when the file opens.
+- `Ctrl+E` encodes and `Ctrl+Enter` adds to the queue (it encoded before); the
+  buttons show their keys.
 - Settings > Files > Queue: Add to queue can start encoding at once instead of
   leaving the job waiting.
 

@@ -182,7 +182,23 @@
       <span class="small">Draw a box on the picture</span>
       <button class="btn small" onclick={() => app.cancelFollow()}>Cancel</button>
     {:else}
-      {#if pts.length}<span class="mono small muted">{pts.length} key{pts.length === 1 ? "" : "s"}</span>{/if}
+      {#if pts.length}
+        <span class="mono small muted">{pts.length} key{pts.length === 1 ? "" : "s"}</span>
+        <label class="fz" title="Follow's own zoom, for all its keyframes (the sidebar's zoom is for the picture without Follow). Double-click for 2x.">
+          <span class="small">Zoom</span>
+          <input
+            type="range"
+            min="1"
+            max="4"
+            step="0.05"
+            aria-label="Follow zoom"
+            value={app.followZoom}
+            oninput={(e) => app.setFollowZoom(Number((e.currentTarget as HTMLInputElement).value))}
+            ondblclick={() => app.setFollowZoom(2)}
+          />
+          <span class="mono small">{app.followZoom.toFixed(2)}x</span>
+        </label>
+      {/if}
       <button class="btn small" disabled={!app.media || app.audioOnly} title="Draw a box around a person; the app follows them from the playhead to the end of the range and adds keyframes along the way" onclick={ontrack}>Track...</button>
     {/if}
   </div>
@@ -281,6 +297,14 @@
     border-radius: 4px;
     background: var(--bg-input);
     cursor: default;
+  }
+  .fz {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .fz input {
+    width: 90px;
   }
   .bar .btn {
     height: 18px;

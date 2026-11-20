@@ -59,7 +59,7 @@
     app.zoomLevel >= 1 ? Math.round((100 * Math.log(app.zoomLevel)) / Math.log(4)) : app.zoomMin < 1 ? -Math.round((100 * Math.log(app.zoomLevel)) / Math.log(app.zoomMin)) : 0,
   );
   const zoomOfPos = (v: number) => (v >= 0 ? Math.pow(4, v / 100) : app.zoomMin < 1 ? Math.pow(app.zoomMin, -v / 100) : 1);
-  const zoomNote = $derived([app.zoomLevel !== 1 ? `${app.zoomLevel}x` : "", app.zoomPoints.length ? "following" : ""].filter(Boolean).join(" · "));
+  const zoomNote = $derived(app.zoomPoints.length ? `following ${app.followZoom}x` : app.zoomLevel !== 1 ? `${app.zoomLevel}x` : "");
   function startFollow() {
     app.cropMode = false;
     app.followMode = true;
@@ -394,17 +394,17 @@
             max="100"
             step="1"
             aria-label="Zoom"
-            disabled={!app.media || app.audioOnly}
+            disabled={!app.media || app.audioOnly || app.zoomPoints.length > 0}
             value={zoomPos}
             oninput={(e) => app.setZoomLevel(zoomOfPos(Number((e.currentTarget as HTMLInputElement).value)))}
             ondblclick={() => app.setZoomLevel(1)}
           />
           <span class="mono small zval">{app.zoomLevel}x</span>
-          <button class="btn small" disabled={app.zoomLevel === 1} onclick={() => app.setZoomLevel(1)}>Reset</button>
+          <button class="btn small" disabled={app.zoomLevel === 1 || app.zoomPoints.length > 0} onclick={() => app.setZoomLevel(1)}>Reset</button>
         </div>
         <div class="muted small">
           {#if app.zoomPoints.length}
-            Following: the view ({app.zoomLevel}x of {app.crop ? "the crop" : "the picture"}) moves along the follow keyframes.
+            Follow is on, with its own zoom ({app.followZoom}x of {app.crop ? "the crop" : "the picture"}, set on the Follow lane); this zoom applies without Follow.
           {:else if app.crop}
             1x is the crop. Right zooms in on its middle; left shows more of the picture around it.
           {:else}
@@ -723,8 +723,8 @@
         </div>
       {/if}
       <div class="actions">
-        <button class="btn primary big" disabled={!app.canEncode} onclick={() => app.enqueue(true)}>Encode <kbd>Ctrl+Enter</kbd></button>
-        <button class="btn big" disabled={!app.canEncode} onclick={() => app.enqueue(false)}>Add to queue <kbd>Ctrl+E</kbd></button>
+        <button class="btn primary big" disabled={!app.canEncode} onclick={() => app.enqueue(true)}>Encode <kbd>Ctrl+E</kbd></button>
+        <button class="btn big" disabled={!app.canEncode} onclick={() => app.enqueue(false)}>Add to queue <kbd>Ctrl+Enter</kbd></button>
       </div>
     {/if}
   </div>

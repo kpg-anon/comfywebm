@@ -319,8 +319,9 @@ class AppState {
   rampLane = $state(false);
   /** Advanced > Zoom: 1 = the crop (or the whole picture); more is closer, less shows more of the picture around the crop */
   zoomLevel = $state(1);
-  /** the follow keyframes (the Follow lane, Advanced > Zoom > Follow): centres over file time (engine zoom.rs);
-   *  empty = none. Their `zoom` is not used: the job gets zoomLevel at every point. */
+  /** the follow keyframes (the Follow lane): centre and zoom over file time (engine zoom.rs); empty = none.
+   *  Follow has its own zoom, on its keyframes (the lane's slider sets all of them); the sidebar's
+   *  zoomLevel is the zoom without Follow. */
   zoomPoints = $state<ZoomPoint[]>([]);
   /** the Follow lane is shown under the timeline */
   followLane = $state(false);
@@ -602,7 +603,7 @@ class AppState {
       speed: this.speed,
       // the ramp is the open file's own (file time): Batch and Splits items do not get it
       speedRamp: own ? (ramp.clean($state.snapshot(this.speedRamp) as SpeedPoint[])) : [],
-      zoom: own && this.zoomPoints.length ? zoomMath.clean($state.snapshot(this.zoomPoints) as ZoomPoint[]).map((p) => ({ ...p, zoom: Math.max(1, this.zoomLevel) })) : [],
+      zoom: own && this.zoomPoints.length ? zoomMath.clean($state.snapshot(this.zoomPoints) as ZoomPoint[]) : [],
       playback: this.playback,
       deinterlace: own ? this.deinterlace : m.video.interlaced,
       denoise: this.denoise,
@@ -716,7 +717,6 @@ class AppState {
     this.speedRamp = [];
     this.zoomPoints = [];
     this.zoomLevel = 1;
-    this.zoomBeforeFollow = null;
     const now = this.snap();
     this.saveEditMemory(now);
     this.steps = [{ snap: now, label: "Started fresh", time: Date.now() }];
@@ -1008,7 +1008,6 @@ class AppState {
       this.speedRamp = [];
       this.zoomPoints = [];
       this.zoomLevel = 1;
-      this.zoomBeforeFollow = null;
       this.deinterlace = info.video.interlaced;
       this.tonemap = info.video.hdr && !!this.tools?.filters.zscale;
       this.audioTrack = info.audio[0]?.track ?? 0;
@@ -1052,6 +1051,11 @@ class AppState {
         if (this.speedRamp.length) this.rampLane = true;
         this.zoomPoints = info.audioOnly ? [] : (mem.zoom ?? []).filter((p) => p.t <= info.duration + 0.5);
         this.zoomLevel = info.audioOnly ? 1 : (mem.zoomLevel ?? 1);
+        // saved before Follow had its own zoom: keyframes at 1x used the sidebar zoom
+        if (this.zoomPoints.length && this.zoomPoints.every((p) => p.zoom <= 1.001) && this.zoomLevel > 1.001) {
+          this.zoomPoints = this.zoomPoints.map((p) => ({ ...p, zoom: this.zoomLevel }));
+          this.zoomLevel = 1;
+        }
         this.sel = this.segments.length ? 0 : -1;
         if (this.segments.length) this.loop = true;
         const parts = [
@@ -1508,7 +1512,7 @@ class AppState {
     if (!this.zoomPoints.length) return this.zoomView;
     const p = zoomMath.at(this.zoomPoints, t);
     const f = this.zoomFrame;
-    const w = zoomMath.windowOf({ zoom: Math.max(1, this.zoomLevel), x: p.x, y: p.y }, f.w, f.h);
+    const w = zoomMath.windowOf({ zoom: Math.max(1, p.zoom), x: p.x, y: p.y }, f.w, f.h);
     return { x: f.x + w.x, y: f.y + w.y, w: w.w, h: w.h };
   }
   /** The follow keyframe on the frame that holds source time t (within half a frame), or -1. */
@@ -1519,20 +1523,25 @@ class AppState {
     return i >= 0 && Math.abs(this.zoomPoints[i].t - t) <= half + 1e-6 ? i : -1;
   }
 
+  /** Follow's zoom: the keyframes' (the lane's slider sets them all); 2x before the first one. */
+  get followZoom(): number {
+    return this.zoomPoints.length ? Math.max(...this.zoomPoints.map((p) => p.zoom)) : 2;
+  }
+  setFollowZoom(z: number) {
+    if (!Number.isFinite(z)) return;
+    const v = Math.round(Math.min(zoomMath.MAX_ZOOM, Math.max(zoomMath.MIN_ZOOM, z)) * 100) / 100;
+    this.zoomPoints = this.zoomPoints.map((p) => ({ ...p, zoom: v }));
+  }
+
   /** A follow keyframe at source time t, where the path is there now (the middle of
-   *  the picture on the first one); returns its index. The first one sets a zoom of 2x
-   *  when there is none, since following needs the picture zoomed in. */
+   *  the picture on the first one, at Follow's zoom); returns its index. */
   addFollowKey(t: number): number {
     let at = Math.min(Math.max(0, t), this.duration || t);
     // in the middle of its frame, where the player shows that frame
     const f = this.fpsSrc;
     if (f > 0) at = Math.round(((Math.floor(at * f + 1e-4) + 0.5) / f) * 1e6) / 1e6;
     const p = this.zoomPoints.length ? zoomMath.at(this.zoomPoints, at) : { zoom: 1, x: 0.5, y: 0.5 };
-    if (!this.zoomPoints.length && this.zoomLevel <= 1.001) {
-      this.zoomBeforeFollow = this.zoomLevel;
-      this.zoomLevel = 2;
-    }
-    const next = zoomMath.clean([...this.zoomPoints.filter((q) => Math.abs(q.t - at) >= 0.01), { t: at, zoom: 1, x: p.x, y: p.y }]);
+    const next = zoomMath.clean([...this.zoomPoints.filter((q) => Math.abs(q.t - at) >= 0.01), { t: at, zoom: this.followZoom, x: p.x, y: p.y }]);
     this.zoomPoints = next;
     this.followLane = true;
     return next.findIndex((q) => q.t === at);
@@ -1583,8 +1592,6 @@ class AppState {
   followBox = $state<Crop | null>(null);
   /** while following: how far, 0..1 */
   following = $state<number | null>(null);
-  /** the zoom before Follow set one (Remove puts it back), or null */
-  private zoomBeforeFollow: number | null = null;
   /** while following: the tracker, as said in the progress and the toast */
   trackingWith = $state("");
   trackerLabel(method: string, device = ""): string {
@@ -1623,32 +1630,28 @@ class AppState {
       // the box fills about 60% of the view, which leaves the camera room to hold still while the person moves
       const zoom = Math.round(Math.min(zoomMath.MAX_ZOOM, Math.max(zoomMath.MIN_ZOOM, 0.6 * Math.min(frame.w / first.w, frame.h / first.h))) * 100) / 100;
       // the person's centre on every tracked frame (0..1 of the frame)
-      const z = this.zoomLevel > 1.001 ? this.zoomLevel : zoom;
+      // Follow's own zoom: the keyframes' when there are some, else one where the box fills 60% of the view
+      const z = this.zoomPoints.length ? this.followZoom : zoom;
       // the camera may leave the person off centre by 70% of the room between their box
       // (its size at that moment: VitTrack and SAM 2 follow it) and the view's edge
       const band = (w: number, h: number) => ({ mx: Math.max(0, ((1 / z - w / frame.w) / 2) * 0.7), my: Math.max(0, ((1 / z - h / frame.h) / 2) * 0.7) });
       const dense: zoomMath.CamPoint[] = pts.map((p) => {
         const c = toView({ x: p.x, y: p.y, w: 0, h: 0 }, this.srcW, this.srcH, this.turn);
         const b = toView({ x: p.x - p.w / 2, y: p.y - p.h / 2, w: p.w, h: p.h }, this.srcW, this.srcH, this.turn);
-        return { t: Math.round(p.t * 1000) / 1000, zoom: 1, x: (c.x - frame.x) / frame.w, y: (c.y - frame.y) / frame.h, ...band(b.w, b.h) };
+        return { t: Math.round(p.t * 1000) / 1000, zoom: z, x: (c.x - frame.x) / frame.w, y: (c.y - frame.y) / frame.h, ...band(b.w, b.h) };
       });
       const { mx, my } = band(first.w, first.h);
       // a steady camera path, then as few keyframes as keep within a tenth of that room of it
       const narrowest = Math.min(mx, my, ...dense.map((q) => Math.min(q.mx ?? mx, q.my ?? my)));
-      const made = zoomMath.simplify(zoomMath.camera(dense, mx, my), Math.max(0.001, 0.1 * narrowest));
+      const made = zoomMath.simplify(zoomMath.camera(dense, mx, my), Math.max(0.001, 0.1 * narrowest)).map((q) => ({ ...q, zoom: z }));
       const keep = this.zoomPoints.filter((q) => q.t < start - 0.01 || q.t > end + 0.01);
       this.zoomPoints = zoomMath.clean([...keep, ...made]);
       this.followLane = true;
-      // following needs a zoom past the frame; the box then fills about 60% of it
-      if (this.zoomLevel <= 1.001) {
-        this.zoomBeforeFollow = this.zoomLevel;
-        this.zoomLevel = zoom;
-      }
       const weak = pts.filter((p) => p.score < 0.35).length;
       this.toast({
         kind: "info",
         title: `Following for ${fmtSecs(end - start)}: ${made.length} keyframes (${this.trackingWith})`,
-        text: `At ${this.zoomLevel}x (Advanced > Zoom).${weak ? ` In ${weak} of ${pts.length} frames the box was hard to find (something in front of it); it stayed where it was there.` : ""} Drag the picture to correct the view at the playhead; the keyframes are on the Follow lane under the timeline.`,
+        text: `At ${z}x (the zoom on the Follow lane).${weak ? ` In ${weak} of ${pts.length} frames the box was hard to find (something in front of it); it stayed where it was there.` : ""} Drag the picture to correct the view at the playhead; the keyframes are on the Follow lane under the timeline.`,
         path: null,
       });
     } catch (e) {
@@ -1664,11 +1667,9 @@ class AppState {
     if (this.following !== null) void ipc.trackCancel().catch(() => {});
   }
 
-  /** Remove the follow path, and the zoom Follow set (a zoom chosen by hand stays). */
+  /** Remove the follow keyframes (Follow's zoom goes with them; the sidebar zoom stays). */
   clearFollow() {
     this.zoomPoints = [];
-    if (this.zoomBeforeFollow !== null) this.zoomLevel = this.zoomBeforeFollow;
-    this.zoomBeforeFollow = null;
   }
 
   /** Arrow keys in crop mode, as shown on screen: move, or with `grow` change the size from the top-left corner. */
@@ -2125,7 +2126,7 @@ class AppState {
     const s = this.spec;
     if (!s || !this.canEncode) return;
     const snap = $state.snapshot(s) as EncodeSpec;
-    // a double click or a repeated Ctrl+Enter within a second adds the same job once
+    // a double click or a repeated Ctrl+E / Ctrl+Enter within a second adds the same job once
     const key = JSON.stringify([snap, this.separate, start]);
     const now = Date.now();
     if (this.lastEnqueue && this.lastEnqueue.key === key && now - this.lastEnqueue.t < 1000) return;

@@ -168,20 +168,22 @@ building it yourself. For an overview and the downloads, see
   right-click it to remove it. Between keyframes the view moves on a smooth
   curve that does not stop at each keyframe, and nothing overshoots a turning
   point. The lane's solid line is the view's centre across, the dashed line its
-  centre down. The first keyframe sets a 2x zoom when there is none.
+  centre down. Follow has its own zoom (2x to start with), set with the Zoom
+  slider on the lane for all its keyframes; the sidebar's Zoom is for the
+  picture without Follow and is greyed out while Follow has keyframes.
   **Track...** (on the lane, or "Track a person..." in Advanced > Zoom): draw a
   box around the person on the picture; the app follows the box from the
   playhead to the end of the range (or of the file). The view then moves like
   a camera operator would, not with every bob and sway: the person may sit
   off centre by up to 70% of the room between their box and the view's edge,
   and within that the camera holds still or pans evenly (on a 4.6 s dance
-  clip: 3 keyframes, the face never left the view). Without a zoom yet, it
-  sets one where the box fills about 60% of the view, which leaves that room;
-  at a closer zoom the camera has to follow more closely. It reads the video
+  clip: 3 keyframes, the face never left the view). With no keyframes yet,
+  Follow's zoom is set so the box fills about 60% of the view, which leaves
+  that room; at a closer zoom the camera has to follow more closely. It reads the video
   small and grey once, looks for the box near where it was in each frame (to a
   fraction of a pixel; it learns slowly as the person turns), and keeps the
   last position where something covers it. While the preview plays, the view
-  is placed for the frame on screen. Remove takes the keyframes away (and the zoom they set); Esc
+  is placed for the frame on screen. Remove takes the keyframes away, with Follow's zoom; Esc
   cancels drawing. The output
   is the size of the window it moves, not the whole picture enlarged. It
   applies to ranges of the open file (not Splits or a still picture).
@@ -304,7 +306,7 @@ building it yourself. For an overview and the downloads, see
   and the running job's percentage; jobs that finish while the editor is shown
   are counted on the badge until the queue is opened. The badge is orange
   while a job encodes, grey while jobs wait in a paused queue, green when jobs
-  finished and red when one failed. Add to queue (`Ctrl+E`) leaves a job
+  finished and red when one failed. Add to queue (`Ctrl+Enter`) leaves a job
   waiting; Settings > Files > Queue can make it start the queue instead.
   The taskbar shows the progress of the running job. The list is saved and
   comes back after a restart: a job that was encoding when the app closed is
@@ -369,8 +371,8 @@ Keys do nothing while a text field has focus.
 | `B` | switch between the editor and the batch |
 | Ctrl + O | open a file |
 | Ctrl + U | open a web link |
-| Ctrl + Enter | encode |
-| Ctrl + E | add to the queue |
+| Ctrl + E | encode |
+| Ctrl + Enter | add to the queue |
 
 Pasting a link while no text field has focus opens it in the web link dialog.
 

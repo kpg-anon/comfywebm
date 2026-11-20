@@ -41,6 +41,8 @@ test("picture changes", () => {
   assert.equal(describeEdit(a, a), "Edit");
   // the zoom and the follow path
   assert.equal(describeEdit({ ...a, zoomLevel: 1 }, { ...a, zoomLevel: 2 }), "Zoom 2x");
-  assert.equal(describeEdit(a, { ...a, zoom: [{ t: 1, zoom: 1, x: 0.5, y: 0.5 }] }), "Followed a person");
-  assert.equal(describeEdit({ ...a, zoom: [{ t: 1, zoom: 1, x: 0.5, y: 0.5 }] }, { ...a, zoom: [] }), "Removed the follow path");
+  assert.equal(describeEdit(a, { ...a, zoom: [{ t: 1, zoom: 1, x: 0.5, y: 0.5 }] }), "Added a follow keyframe");
+  assert.equal(describeEdit(a, { ...a, zoom: [{ t: 1, zoom: 2, x: 0.5, y: 0.5 }, { t: 2, zoom: 2, x: 0.6, y: 0.5 }] }), "Tracked a person");
+  assert.equal(describeEdit({ ...a, zoom: [{ t: 1, zoom: 1, x: 0.5, y: 0.5 }] }, { ...a, zoom: [] }), "Removed the follow keyframes");
+  assert.equal(describeEdit({ ...a, zoom: [{ t: 1, zoom: 2, x: 0.5, y: 0.5 }] }, { ...a, zoom: [{ t: 1, zoom: 2.5, x: 0.5, y: 0.5 }] }), "Follow zoom 2.5x");
 });

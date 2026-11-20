@@ -694,7 +694,7 @@
     <div class="col">
       <span>Queue</span>
       <label><input type="checkbox" checked={app.queueAutoStart} onchange={(e) => app.setQueueAutoStart((e.currentTarget as HTMLInputElement).checked)} /> Add to queue starts encoding at once</label>
-      <span class="hint">Off: Add to queue (Ctrl+E) leaves the job waiting until you press Start in the queue. On: it starts the queue, like Encode. Applies at once.</span>
+      <span class="hint">Off: Add to queue (Ctrl+Enter) leaves the job waiting until you press Start in the queue. On: it starts the queue, like Encode. Applies at once.</span>
     </div>
 
     <label class="col">

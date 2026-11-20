@@ -91,6 +91,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- Size limit: one attempt by default, aimed at about 95% of the limit, so an
+  encode no longer seems to start over after it finished. Settings > Files >
+  Size limit > "Encode again when the file misses the limit" brings back up to
+  4 attempts aimed at 99%. An 18 s 1080x1920 clip for Discord's 20 MB: 18.9 MB
+  in one attempt (with retries its first attempt went over and it took two).
+
 - Follow in the preview: while playing, the view is placed for the frame on
   screen (requestVideoFrameCallback). It used the playhead read on each
   screen refresh, which ran a median of 20 ms (more than a 60 fps frame) and

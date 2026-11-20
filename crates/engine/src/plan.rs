@@ -1613,7 +1613,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         warnings.push("The zoom applies to one file, so it is not used when ranges come from other files.".into());
         None
     } else if let Some(f) = follow {
-        crate::zoom::window_filter(&spec.zoom, &segs, f.w, f.h, pic_w, pic_h)
+        crate::zoom::window_filter(&spec.zoom, &segs, f.w, f.h, pic_w, pic_h, (g.out_w, g.out_h))
     } else {
         crate::zoom::filter(&spec.zoom, &segs, g.out_w, g.out_h, if v.fps > 0.0 { v.fps } else { 30.0 })
     };
@@ -2938,6 +2938,13 @@ mod tests {
         // 360 * (cos 20 + sin 20) = 461.4: a 462 px box, turned, then 360x360 from its middle
         assert!(s.contains("crop=w=462:h=462:x='"), "{s}");
         assert!(s.contains(":ow=462:oh=462:c=black,crop=360:360"), "{s}");
+        // a smaller size limit: the view is scaled to the planned output (it came out at
+        // the view's size, 1080x1920 where 720x1280 was planned, and the check flagged it)
+        sp.max_width = Some(240);
+        let p = build(&sp, &media(), &opts()).unwrap();
+        assert_eq!((p.out_width, p.out_height), (240, 240));
+        let s = strs(&p.passes[0]).join(" ");
+        assert!(s.contains("crop=360:360,scale=240:240:flags=lanczos"), "{s}");
     }
 
     #[test]

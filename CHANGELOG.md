@@ -126,6 +126,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   is nested by halving instead of one level per keyframe, because ffmpeg's
   parser stops at about 100 levels ("Missing ')'"). That 18 s clip then encoded
   to 19.8 MB with the eye line 1.8 degrees off level on average.
+- With Follow's turning view, a smaller output (Auto resolution, a size limit)
+  came out at the view's own size: 1080x1920 where 720x1280 was planned, and
+  the queue said "check output". The view is now scaled to the planned size.
 
 
 ## [1.1.2] - 2026-11-19

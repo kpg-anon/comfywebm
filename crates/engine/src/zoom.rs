@@ -174,8 +174,10 @@ pub fn window_size(fw: f64, fh: f64, zoom: f64) -> (u32, u32) {
 /// around the path's centre (kept inside the picture), turned by the path's
 /// angle around its middle, and the view cut from that middle. ffmpeg's crop
 /// keeps one size for the whole clip, so the zoom is the first point's (the
-/// app gives all keyframes one zoom). None without points.
-pub fn window_filter(points: &[ZoomPoint], segs: &[(f64, f64)], fw: f64, fh: f64, pw: u32, ph: u32) -> Option<String> {
+/// app gives all keyframes one zoom). The view is then scaled to the output's
+/// `out` size when that differs (Auto resolution, a size limit): unlike zoompan,
+/// which draws at the output size, the view comes out at its own. None without points.
+pub fn window_filter(points: &[ZoomPoint], segs: &[(f64, f64)], fw: f64, fh: f64, pw: u32, ph: u32, out: (u32, u32)) -> Option<String> {
     let p = clean(points);
     let first = p.first()?;
     let (w, h) = window_size(fw, fh, first.zoom);
@@ -191,6 +193,9 @@ pub fn window_filter(points: &[ZoomPoint], segs: &[(f64, f64)], fw: f64, fh: f64
     if turn > 1e-6 {
         let a = value(&p, |q| q.rot);
         f.push_str(&format!(",rotate=a='st(0,{t});({a})*PI/180':ow={bw}:oh={bh}:c=black,crop={w}:{h}"));
+    }
+    if out != (w, h) {
+        f.push_str(&format!(",scale={}:{}:flags=lanczos", out.0, out.1));
     }
     Some(f)
 }
@@ -226,17 +231,20 @@ mod tests {
     #[test]
     fn window_filter_moves_a_fixed_view_and_turns_it() {
         assert_eq!(window_size(1080.0, 1080.0, 2.0), (540, 540));
-        assert_eq!(window_filter(&[], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920), None);
+        assert_eq!(window_filter(&[], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920, (540, 540)), None);
         // no turn: one crop of the view's size
-        let f = window_filter(&[pt(1.0, 2.0, 0.5, 0.3)], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920).unwrap();
+        let f = window_filter(&[pt(1.0, 2.0, 0.5, 0.3)], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920, (540, 540)).unwrap();
         assert_eq!(f, "crop=w=540:h=540:x='st(0,t-0+0);clip((0.5)*iw-540/2,0,iw-540)':y='st(0,t-0+0);clip((0.3)*ih-540/2,0,ih-540)':exact=1");
         // a 45 degree turn: a box sqrt(2) larger, turned, then the view from its middle
         let mut a = pt(1.0, 2.0, 0.5, 0.3);
         a.rot = 45.0;
-        let f = window_filter(&[pt(0.0, 2.0, 0.5, 0.3), a], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920).unwrap();
+        let f = window_filter(&[pt(0.0, 2.0, 0.5, 0.3), a], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920, (540, 540)).unwrap();
         assert!(f.starts_with("crop=w=764:h=764:"), "{f}");
         assert!(f.contains(",rotate=a='st(0,t-0+0);"), "{f}");
         assert!(f.ends_with(":ow=764:oh=764:c=black,crop=540:540"), "{f}");
+        // a smaller output: the view is scaled to it
+        let f = window_filter(&[pt(1.0, 2.0, 0.5, 0.3)], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920, (360, 360)).unwrap();
+        assert!(f.ends_with(":exact=1,scale=360:360:flags=lanczos"), "{f}");
     }
 
     #[test]

@@ -693,6 +693,12 @@
     </div>
 
     <div class="col">
+      <span>Size limit</span>
+      <label><input type="checkbox" checked={app.sizeRetries} onchange={(e) => app.setSizeRetries((e.currentTarget as HTMLInputElement).checked)} /> Encode again when the file misses the limit</label>
+      <span class="hint">Off: one attempt, aimed at about 95% of the limit; a file that still comes out over it is kept and marked in the queue. On: up to 4 attempts, aimed at 99% (the queue shows the attempt). Applies to the next encode.</span>
+    </div>
+
+    <div class="col">
       <span>Queue</span>
       <label><input type="checkbox" checked={app.queueAutoStart} onchange={(e) => app.setQueueAutoStart((e.currentTarget as HTMLInputElement).checked)} /> Add to queue starts encoding at once</label>
       <span class="hint">Off: Add to queue (Ctrl+Enter) leaves the job waiting until you press Start in the queue. On: it starts the queue, like Encode. Applies at once.</span>

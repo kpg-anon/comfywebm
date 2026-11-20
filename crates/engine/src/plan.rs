@@ -110,6 +110,11 @@ pub fn size_video_kbps(max_bytes: f64, duration_out: f64, audio_kbps: f64) -> f6
     (total_kbps - audio_kbps) * 0.985
 }
 
+/// Size mode with one attempt (no retries): the first attempt's budget is this
+/// share of the limit on top of size_video_kbps's 1.5% margin (about 95% in all),
+/// as nothing encodes it again when it lands over.
+pub const SINGLE_ATTEMPT: f64 = 0.965;
+
 /// Size mode retries aim the file at this share of the limit.
 pub const FILL_TARGET: f64 = 0.99;
 /// An output at or above this share of the limit (and not over it) ends the retries.
@@ -1232,7 +1237,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             if !max_bytes.is_finite() || max_bytes <= 0.0 {
                 return Err("The size limit must be greater than 0.".into());
             }
-            let computed = size_video_kbps(max_bytes, duration_out, audio_kbps);
+            let computed = size_video_kbps(max_bytes * if spec.size_retries { 1.0 } else { SINGLE_ATTEMPT }, duration_out, audio_kbps);
             // a still picture is one keyframe whatever the bitrate, so these do not apply
             if computed < MIN_VIDEO_KBPS && still.is_none() {
                 warnings.push(
@@ -2381,6 +2386,7 @@ mod tests {
             speed_ramp: vec![],
             zoom: vec![],
             follow_window: None,
+            size_retries: true,
             playback: Playback::Forward,
             deinterlace: false,
             denoise: false,
@@ -2918,6 +2924,16 @@ mod tests {
         let p = build(&sp, &media(), &opts()).unwrap();
         assert_eq!((p.out_width, p.out_height), (640, 360));
         assert!(strs(&p.passes[0]).join(" ").contains(":s=640x360:"));
+    }
+
+    #[test]
+    fn one_attempt_aims_lower() {
+        // retries off: the first (and only) attempt's video bitrate is 96.5% of the one with retries
+        let mut sp = spec(Rate::Size { max_bytes: 4_194_304.0 });
+        let with = build(&sp, &media(), &opts()).unwrap().video_kbps.unwrap();
+        sp.size_retries = false;
+        let without = build(&sp, &media(), &opts()).unwrap().video_kbps.unwrap();
+        assert!((without / with - SINGLE_ATTEMPT).abs() < 0.01, "{without} vs {with}");
     }
 
     #[test]

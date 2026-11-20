@@ -258,6 +258,13 @@ class AppState {
   showWave = $state(load<boolean>("timelineWave") ?? false);
   /** Thumbnails from every frame (made after the key frame ones, cached), not only from key frames. Remembered. */
   exactThumbs = $state(load<boolean>("timelineExact") ?? true);
+  /** Size limit: encode again when the file misses the limit (up to 4 attempts); off, one
+   *  attempt aimed at about 95% of the limit. Remembered; off to start with. */
+  sizeRetries = $state(load<boolean>("sizeRetries") ?? false);
+  setSizeRetries(on: boolean) {
+    this.sizeRetries = on;
+    save("sizeRetries", on);
+  }
   /** Add to queue starts the queue too, instead of leaving the job waiting; remembered */
   queueAutoStart = $state(load<boolean>("queueAutoStart") ?? false);
   setQueueAutoStart(on: boolean) {
@@ -619,6 +626,7 @@ class AppState {
       codec: this.codec,
       rate: this.rate,
       twoPass: this.rateMode === "size" ? true : this.twoPass,
+      sizeRetries: this.sizeRetries,
       effort: this.effort,
       audio: audioOk ? { track, bitrateK: this.audioBitrateK, volumeDb: this.volumeDb || 0, normalize: this.normalize } : null,
       subs,

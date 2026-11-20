@@ -64,6 +64,7 @@
       "start": 10.0
     }
   ],
+  "sizeRetries": true,
   "smoothSlowmo": false,
   "speed": 1.0,
   "speedRamp": [],

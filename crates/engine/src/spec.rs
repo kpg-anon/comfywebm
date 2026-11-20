@@ -577,6 +577,11 @@ pub struct EncodeSpec {
     pub rate: Rate,
     #[serde(default)]
     pub two_pass: bool,
+    /// size mode: encode again (up to 4 attempts, run.rs) when the file is over the
+    /// limit or well under it. Off (the default): one attempt, aimed a little lower
+    /// (plan.rs SINGLE_ATTEMPT), so the job does not seem to start over after finishing.
+    #[serde(default)]
+    pub size_retries: bool,
     pub effort: Effort,
     pub audio: Option<AudioSel>,
     pub subs: Option<SubsSel>,

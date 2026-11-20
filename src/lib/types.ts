@@ -145,6 +145,8 @@ export type EncodeSpec = {
   codec: Codec;
   rate: Rate;
   twoPass: boolean;
+  /** size mode: encode again when the file misses the limit (up to 4 attempts); off: one attempt */
+  sizeRetries?: boolean;
   effort: Effort;
   audio: AudioSpec | null;
   subs: SubsSpec;

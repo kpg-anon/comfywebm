@@ -149,6 +149,7 @@ fn real_main() -> Result<(), String> {
         speed_ramp: vec![],
         zoom: vec![],
         follow_window: None,
+        size_retries: true,
         playback: Playback::Forward,
         deinterlace: info.video.interlaced,
         denoise: false,

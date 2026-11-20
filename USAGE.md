@@ -137,9 +137,11 @@ building it yourself. For an overview and the downloads, see
   (Discord's 20 MB = 20,000,000 bytes) shows MB, anything else MiB (4chan's
   4 MiB). Hover the line for the bitrates, bits per pixel and file name.
 - **Size limit mode**: the video bitrate comes from the limit, the clip length
-  and the audio bitrate, with two passes. A file over the limit, or under 98% of
+  and the audio bitrate, with two passes, in one attempt aimed at about 95% of
+  the limit. With Settings > Files > Size limit > "Encode again when the file
+  misses the limit" (off to start with), a file over the limit, or under 98% of
   it, is encoded again at a bitrate aimed at 99% of the limit (interpolated
-  between earlier attempts when one was over and one under). At most 4
+  between earlier attempts when one was over and one under), at most 4
   attempts; the largest result that fits is kept.
 - **Resolution**: Auto (in size limit mode: the largest size, at least 540
   pixels on its short side, with about 0.10 bits per pixel for VP9 (0.07 AV1,
@@ -558,14 +560,17 @@ of it approximately; speed, filters, fades and the encoder's compression are
 not shown. Sample (`P`) encodes 3 seconds with the real settings, and
 "Compare with the source" shows both.
 
-**Why does an encode run more than once?** In size limit mode the first
-attempt rarely lands exactly on the limit. A file over the limit, or under 98%
-of it, is encoded again at a corrected bitrate, at most 4 times; the largest
-file under the limit is kept. The queue shows the attempt number.
+**Why does an encode run more than once?** Only with Settings > Files > Size
+limit > "Encode again when the file misses the limit" on. The first attempt
+rarely lands exactly on the limit; a file over it, or under 98% of it, is then
+encoded again at a corrected bitrate, at most 4 times, and the largest file
+under the limit is kept. The queue shows the attempt number. Off (the
+default), there is one attempt aimed at about 95% of the limit.
 
-**The file came out over the limit.** After 4 attempts the smallest file is
-kept and marked "over limit". Shorten the clip, lower the resolution or frame
-rate, turn off the sound, or choose AV1. Retry in the queue runs it again.
+**The file came out over the limit.** The file is kept and marked "over
+limit". Turn on "Encode again when the file misses the limit", or shorten the
+clip, lower the resolution or frame rate, turn off the sound, or choose AV1.
+Retry in the queue runs it again.
 
 **There is no sound.** Check the Audio group: presets for boards without sound
 turn it off. Boomerang, GIF and WebP have no sound.

@@ -238,7 +238,8 @@ fn better(new: u64, old: u64, max: Option<f64>) -> bool {
 
 /// Encodes `spec` to `final_path` (through `<final_path>.part`).
 ///
-/// Size mode fits the file to the limit in at most 4 attempts. An output over
+/// Size mode with `spec.size_retries` fits the file to the limit in at most 4
+/// attempts (without, one attempt, aimed lower by plan::SINGLE_ATTEMPT). An output over
 /// the limit, or under `plan::FILL_ACCEPT` of it, is encoded again at the
 /// bitrate from `plan::next_video_kbps`, which aims at `plan::FILL_TARGET`.
 /// The best attempt is kept (the largest under the limit, else the smallest).
@@ -345,6 +346,10 @@ pub fn run_job(
         history.push((kbps, size));
 
         let (Some(max), Some(k)) = (max_bytes, planned.video_kbps) else { break };
+        // one attempt unless retries are on (a file over the limit is kept and marked)
+        if !spec.size_retries {
+            break;
+        }
         // a GIF's size follows only the picture size, which only auto size changes
         if spec.codec.is_image() && !spec.auto_scale {
             break;

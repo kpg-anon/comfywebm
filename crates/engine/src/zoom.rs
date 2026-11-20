@@ -120,16 +120,25 @@ fn value(p: &[ZoomPoint], f: impl Fn(&ZoomPoint) -> f64) -> String {
         return num(f(&p[0]));
     }
     let m = slopes(p, &f);
-    let mut expr = num(f(&p[p.len() - 1]));
-    for (i, w) in p.windows(2).enumerate().rev() {
-        let (a, b) = (&w[0], &w[1]);
+    // the curve between point i and i + 1; u is kept in ld(1)
+    let seg = |i: usize| {
+        let (a, b) = (&p[i], &p[i + 1]);
         let span = (b.t - a.t).max(1e-6);
         let (c1, c2, c3) = cubic(f(a), f(b), m[i] * span, m[i + 1] * span);
-        // u is kept in ld(1)
-        let seg = format!("st(1,(ld(0)-{})/{});{}+ld(1)*(({})+ld(1)*(({})+ld(1)*({})))", num(a.t), num(span), num(f(a)), num(c1), num(c2), num(c3));
-        expr = format!("if(lte(ld(0),{}),{seg},{expr})", num(b.t));
+        format!("st(1,(ld(0)-{})/{});{}+ld(1)*(({})+ld(1)*(({})+ld(1)*({})))", num(a.t), num(span), num(f(a)), num(c1), num(c2), num(c3))
+    };
+    // The curves a..b, chosen by halving: ffmpeg's expression parser stops at about
+    // 100 levels of nesting ("Missing ')'"), and one if() per point inside the
+    // last failed at 162 points (Track face over 18 s). Halving needs log2(n) levels.
+    fn tree(a: usize, b: usize, p: &[ZoomPoint], seg: &dyn Fn(usize) -> String) -> String {
+        if b - a == 1 {
+            return seg(a);
+        }
+        let mid = (a + b) / 2;
+        format!("if(lte(ld(0),{}),{},{})", num(p[mid].t), tree(a, mid, p, seg), tree(mid, b, p, seg))
     }
-    format!("if(lte(ld(0),{}),{},{expr})", num(p[0].t), num(f(&p[0])))
+    let n = p.len();
+    format!("if(lte(ld(0),{}),{},if(lte(ld(0),{}),{},{}))", num(p[0].t), num(f(&p[0])), num(p[n - 1].t), tree(0, n - 1, p, &seg), num(f(&p[n - 1])))
 }
 
 /// The zoompan filter for `points` at an output of `w` x `h` and `fps`, or
@@ -192,6 +201,26 @@ mod tests {
 
     fn pt(t: f64, zoom: f64, x: f64, y: f64) -> ZoomPoint {
         ZoomPoint { t, zoom, x, y, rot: 0.0 }
+    }
+
+    #[test]
+    fn many_points_stay_shallow() {
+        // 400 points: the deepest nesting of brackets stays far below ffmpeg's ~100 levels
+        let p: Vec<ZoomPoint> = (0..400).map(|i| pt(i as f64 * 0.05, 2.0, 0.5 + 0.3 * (i as f64 * 0.1).sin(), 0.5)).collect();
+        let e = value(&p, |q| q.x);
+        let (mut d, mut most) = (0i32, 0i32);
+        for c in e.chars() {
+            match c {
+                '(' => {
+                    d += 1;
+                    most = most.max(d);
+                }
+                ')' => d -= 1,
+                _ => {}
+            }
+        }
+        assert_eq!(d, 0);
+        assert!(most < 40, "nesting {most}");
     }
 
     #[test]

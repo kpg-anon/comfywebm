@@ -116,6 +116,18 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   corner.
 - Settings > Tools > Stabilization: the Gyroflow description is shorter.
 
+### Fixed
+
+- An encode with a long Follow path (Track face over 18 s: 162 keyframes)
+  failed with "The filename or extension is too long. (os error 206)": the
+  command was 96,289 characters and Windows allows 32,767. A filter that makes
+  the command too long now goes to ffmpeg in a file (`-/filter_complex`, or
+  `-filter_complex_script` before ffmpeg 7). The keyframe curve's expression
+  is nested by halving instead of one level per keyframe, because ffmpeg's
+  parser stops at about 100 levels ("Missing ')'"). That 18 s clip then encoded
+  to 19.8 MB with the eye line 1.8 degrees off level on average.
+
+
 ## [1.1.2] - 2026-11-19
 
 ### Fixed

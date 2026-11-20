@@ -124,8 +124,10 @@ pub fn run_ffmpeg(
     if cancel.is_canceled() {
         return Err(RunError::Canceled);
     }
+    // a long filter (a follow path) goes into a file; it is deleted when `_file` is
+    let (args, _file) = crate::tools::fit_command_line(ffmpeg, args).map_err(|e| RunError::Failed(format!("Cannot write the filter file: {e}")))?;
     let mut child = command(ffmpeg)
-        .args(args)
+        .args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -601,6 +603,7 @@ pub fn export_frame(ffmpeg: &Path, info: &MediaInfo, time: f64, crop: Option<Cro
     args.extend(["-frames:v", "1", "-update", "1", "-c:v", "png", "-f", "image2"].iter().map(|s| s.to_string()));
     let part = naming::part_path(out);
     args.push(part.to_string_lossy().into_owned());
+    let (args, _file) = crate::tools::fit_command_line(ffmpeg, &args).map_err(|e| format!("Cannot write the filter file: {e}"))?;
     let mut cmd = command(ffmpeg);
     cmd.args(&args);
     let res = crate::tools::output_within(cmd, std::time::Duration::from_secs(120), "ffmpeg (frame export)")?;

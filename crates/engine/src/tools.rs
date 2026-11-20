@@ -172,6 +172,73 @@ fn stdout_of(program: &Path, args: &[&str]) -> Option<String> {
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+/// Windows refuses a command line over 32,767 characters (os error 206); a
+/// follow path with hundreds of keyframes writes its x, y and turn into the
+/// filter text. Past this many characters the longest filter goes into a file.
+const LONG_COMMAND: usize = 24_000;
+
+/// ffmpeg's major version (`ffmpeg -version`), cached per program: 7 and later
+/// read an option's value from a file as `-/option file`; older builds have
+/// `-filter_complex_script` and `-filter_script`. A build named by date (a
+/// nightly, "2026-11-16-git-...") counts as new.
+fn ffmpeg_major(ffmpeg: &Path) -> u32 {
+    static CACHE: std::sync::Mutex<Vec<(PathBuf, u32)>> = std::sync::Mutex::new(Vec::new());
+    if let Some(v) = CACHE.lock().unwrap().iter().find(|(p, _)| p == ffmpeg).map(|(_, v)| *v) {
+        return v;
+    }
+    let v = stdout_of(ffmpeg, &["-hide_banner", "-version"])
+        .and_then(|t| t.lines().next().and_then(|l| l.split_whitespace().nth(2)).map(str::to_string))
+        .map(|ver| {
+            let digits: String = ver.trim_start_matches('n').chars().take_while(|c| c.is_ascii_digit()).collect();
+            digits.parse::<u32>().map(|n| if n >= 1000 { 99 } else { n }).unwrap_or(99)
+        })
+        .unwrap_or(99);
+    CACHE.lock().unwrap().push((ffmpeg.to_path_buf(), v));
+    v
+}
+
+/// A filter moved into a file; the file is deleted when this is dropped.
+pub struct FilterFile(PathBuf);
+impl Drop for FilterFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// `args` as they can be run: when the command line would be too long for
+/// Windows, the longest `-filter_complex`, `-vf` or `-af` value is written to
+/// a file in the temp folder and given as a file (keep the FilterFile until
+/// ffmpeg has finished). Short commands are returned as they are.
+pub fn fit_command_line(ffmpeg: &Path, args: &[String]) -> std::io::Result<(Vec<String>, Option<FilterFile>)> {
+    let total: usize = args.iter().map(|a| a.len() + 3).sum::<usize>() + ffmpeg.as_os_str().len();
+    if total <= LONG_COMMAND {
+        return Ok((args.to_vec(), None));
+    }
+    let Some(i) = (1..args.len())
+        .filter(|&i| matches!(args[i - 1].as_str(), "-filter_complex" | "-vf" | "-af" | "-filter:v" | "-filter:a"))
+        .max_by_key(|&i| args[i].len())
+    else {
+        return Ok((args.to_vec(), None));
+    };
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let file = std::env::temp_dir().join(format!("comfywebm-filter-{}-{}.txt", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    std::fs::write(&file, &args[i])?;
+    let opt = args[i - 1].as_str();
+    let new_opt = if ffmpeg_major(ffmpeg) >= 7 {
+        format!("-/{}", opt.trim_start_matches('-'))
+    } else {
+        match opt {
+            "-filter_complex" => "-filter_complex_script".to_string(),
+            "-vf" | "-filter:v" => "-filter_script:v".to_string(),
+            _ => "-filter_script:a".to_string(),
+        }
+    };
+    let mut out = args.to_vec();
+    out[i - 1] = new_opt;
+    out[i] = file.to_string_lossy().into_owned();
+    Ok((out, Some(FilterFile(file))))
+}
+
 /// Runs `ffmpeg -version`, `-encoders`, `-filters` and `yt-dlp --version`.
 pub fn status(tools: &Tools) -> ToolsStatus {
     let s = |p: &Option<PathBuf>| p.as_ref().map(|p| p.to_string_lossy().into_owned());
@@ -299,5 +366,28 @@ mod extra_dirs_tests {
             // Windows: installers put the tools on PATH or beside the app
             assert!(d.is_empty());
         }
+    }
+}
+
+#[cfg(test)]
+mod long_command_tests {
+    use super::*;
+
+    #[test]
+    fn a_long_filter_goes_into_a_file() {
+        // no such program: its version is unknown, which counts as new (-/option file)
+        let ff = Path::new("no-such-ffmpeg-for-test");
+        let short: Vec<String> = ["-i", "a.mp4", "-vf", "scale=2:2", "out.mp4"].iter().map(|s| s.to_string()).collect();
+        let (a, f) = fit_command_line(ff, &short).unwrap();
+        assert_eq!(a, short);
+        assert!(f.is_none());
+        let long_graph = "x".repeat(40_000);
+        let long: Vec<String> = vec!["-i".into(), "a.mp4".into(), "-filter_complex".into(), long_graph.clone(), "-map".into(), "[vout]".into()];
+        let (a, f) = fit_command_line(ff, &long).unwrap();
+        assert_eq!(a[2], "-/filter_complex");
+        let path = PathBuf::from(&a[3]);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), long_graph);
+        drop(f);
+        assert!(!path.exists(), "the file is deleted with the FilterFile");
     }
 }

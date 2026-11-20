@@ -269,9 +269,11 @@ building it yourself. For an overview and the downloads, see
     centre as on the first frame. Turns, arms and people passing in front
     throw it off least. Install SAM 2 installs PyTorch (built for CUDA when
     there is an NVIDIA card: about 5 GB; otherwise about 1 GB) and the model
-    (the small one with a graphics card, the tiny one without). It looks at 30
-    frames a second with a graphics card and 10 without; on a laptop processor
-    each frame took about 7 s.
+    (the small one with a graphics card, the tiny one without). It looks at 15
+    frames a second with a graphics card and 10 without (the camera path is
+    worked out on 10 a second). On an RTX 4070 laptop GPU: installed in 7
+    minutes (3 GB), 4.6 s of a 4K 60 fps clip tracked in 17 s, 2.7 s of a 4K
+    group dance in 8 s. On a laptop processor each frame took about 7 s.
   - The installs use uv (Astral's Python installer), which fetches its own
     Python into the app's tools folder; no Python on the system is used or
     changed. Before installing, the app checks there is enough free space.

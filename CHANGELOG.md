@@ -31,9 +31,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   off on average in 0.5 s, VitTrack 2.8 px in 1.5 s, SAM 2 1.7 px). VitTrack:
   27 s to install, a 4.6 s 4K clip tracked in 5 s; on a 4K group dance where
   the built-in tracker slid off a member's face onto the wall within 1.3 s,
-  VitTrack and SAM 2 stayed on her. SAM 2 was only run on the CPU here (about
-  7.5 s per analysed frame); the CUDA install was not tried because the test
-  machine had 6.4 GB free.
+  VitTrack and SAM 2 stayed on her. SAM 2 on an RTX 4070 laptop GPU (PyTorch
+  2.15 for CUDA 13.2, installed in 7 minutes, 3 GB): 4.6 s of 4K 60 fps in 17 s,
+  2.7 s of a 4K group dance in 8 s; it gets the frames from memory instead of a
+  folder of JPEGs (2.7 s of every 6.1 s chunk) and looks at 15 frames a second
+  with a GPU. On the CPU about 7.5 s per analysed frame.
 - Track face (Follow lane): click on a face and the view stays on it and turns
   to keep the eyes level. OpenCV's YuNet face finder (230 KB, fetched on first
   use, run with VitTrack's OpenCV) looks at every frame afresh, after turning

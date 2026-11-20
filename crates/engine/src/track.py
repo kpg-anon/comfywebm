@@ -20,7 +20,6 @@ import argparse
 import json
 import os
 import sys
-import tempfile
 
 import numpy as np
 
@@ -122,7 +121,8 @@ def face(a):
 
 def sam2(a):
     import torch
-    from PIL import Image
+    import torch.nn.functional as F
+    import sam2.sam2_video_predictor as svp
     from sam2.build_sam import build_sam2_video_predictor
 
     if torch.cuda.is_available():
@@ -131,14 +131,35 @@ def sam2(a):
         device = "mps"
     else:
         device = "cpu"
-    # the camera path is smoothed over tenths of a second: 10 analysed frames a second
-    # are enough without a GPU, 30 with one
-    want = 30 if device != "cpu" else 10
+    # the camera path is worked out on 10 samples a second (zoom.ts camera): 10 analysed
+    # frames a second are enough without a GPU, 15 with one
+    want = 15 if device != "cpu" else 10
     step = max(1, round(a.fps / want)) if a.fps > 0 else 1
     out({"device": device, "step": step})
     cfg = "configs/sam2.1/sam2.1_hiera_s.yaml" if "small" in os.path.basename(a.model) else "configs/sam2.1/sam2.1_hiera_t.yaml"
     pred = build_sam2_video_predictor(cfg, a.model, device=device)
     auto = torch.autocast("cuda", dtype=torch.bfloat16) if device == "cuda" else torch.autocast("cpu", enabled=False)
+
+    # SAM 2 reads a folder of JPEG files (load_video_frames); the chunk's frames are
+    # handed over from memory instead, prepared as it prepares them (RGB, square of
+    # image_size, 0..1, ImageNet mean and deviation) on the model's device. On an RTX
+    # 4070 writing and reading 48 JPEGs took 2.7 s of a 6.1 s chunk.
+    mem = {"frames": []}
+
+    def from_memory(video_path, image_size, offload_video_to_cpu, img_mean=(0.485, 0.456, 0.406), img_std=(0.229, 0.224, 0.225), async_loading_frames=False, compute_device=torch.device(device)):
+        fs = mem["frames"]
+        h, w = fs[0].shape[:2]
+        t = torch.from_numpy(np.ascontiguousarray(np.stack(fs)[:, :, :, ::-1])).to(compute_device)
+        t = t.permute(0, 3, 1, 2).float() / 255.0
+        t = F.interpolate(t, size=(image_size, image_size), mode="bicubic", align_corners=False, antialias=True).clamp(0, 1)
+        mean = torch.tensor(img_mean, dtype=torch.float32, device=compute_device)[:, None, None]
+        std = torch.tensor(img_std, dtype=torch.float32, device=compute_device)[:, None, None]
+        t = (t - mean) / std
+        if offload_video_to_cpu:
+            t = t.cpu()
+        return t, h, w
+
+    svp.load_video_frames = from_memory
 
     x, y, bw, bh = a.box
     # the drawn box's centre against the outline's middle on the first frame: the
@@ -153,32 +174,30 @@ def sam2(a):
 
     def run(chunk):
         nonlocal offset, last, prompt_mask, done
-        with tempfile.TemporaryDirectory(prefix="cwm-sam2-") as d:
-            for k, (_, f) in enumerate(chunk):
-                Image.fromarray(f[:, :, ::-1]).save(os.path.join(d, f"{k:05d}.jpg"), quality=92)
-            with torch.inference_mode(), auto:
-                st = pred.init_state(video_path=d, offload_video_to_cpu=True)
-                if prompt_mask is None:
-                    pred.add_new_points_or_box(st, frame_idx=0, obj_id=1, box=np.array([x, y, x + bw, y + bh], dtype=np.float32))
-                else:
-                    pred.add_new_mask(st, frame_idx=0, obj_id=1, mask=prompt_mask)
-                for k, _, logits in pred.propagate_in_video(st):
-                    m = (logits[0, 0] > 0).cpu().numpy()
-                    i = chunk[k][0]
-                    if k == 0 and prompt_mask is not None:
-                        continue  # the last frame of the chunk before, already sent
-                    s = float(torch.sigmoid(logits[0, 0][logits[0, 0] > 0]).mean()) if m.any() else 0.0
-                    ys, xs = np.nonzero(m)
-                    if len(xs) > 20 and s >= 0.3:
-                        cx, cy = float(xs.mean()), float(ys.mean())
-                        if offset is None:
-                            offset = (x + bw / 2 - cx, y + bh / 2 - cy)
-                        last = (cx + offset[0], cy + offset[1], float(xs.max() - xs.min() + 1), float(ys.max() - ys.min() + 1))
-                        prompt_mask = m
-                    out({"i": i, "x": last[0], "y": last[1], "w": last[2], "h": last[3], "s": s})
-                    done += 1
-                    out({"p": min(1.0, done / total)})
-                pred.reset_state(st)
+        mem["frames"] = [f for _, f in chunk]
+        with torch.inference_mode(), auto:
+            st = pred.init_state(video_path="memory", offload_video_to_cpu=True)
+            if prompt_mask is None:
+                pred.add_new_points_or_box(st, frame_idx=0, obj_id=1, box=np.array([x, y, x + bw, y + bh], dtype=np.float32))
+            else:
+                pred.add_new_mask(st, frame_idx=0, obj_id=1, mask=prompt_mask)
+            for k, _, logits in pred.propagate_in_video(st):
+                m = (logits[0, 0] > 0).cpu().numpy()
+                i = chunk[k][0]
+                if k == 0 and prompt_mask is not None:
+                    continue  # the last frame of the chunk before, already sent
+                s = float(torch.sigmoid(logits[0, 0][logits[0, 0] > 0]).mean()) if m.any() else 0.0
+                ys, xs = np.nonzero(m)
+                if len(xs) > 20 and s >= 0.3:
+                    cx, cy = float(xs.mean()), float(ys.mean())
+                    if offset is None:
+                        offset = (x + bw / 2 - cx, y + bh / 2 - cy)
+                    last = (cx + offset[0], cy + offset[1], float(xs.max() - xs.min() + 1), float(ys.max() - ys.min() + 1))
+                    prompt_mask = m
+                out({"i": i, "x": last[0], "y": last[1], "w": last[2], "h": last[3], "s": s})
+                done += 1
+                out({"p": min(1.0, done / total)})
+            pred.reset_state(st)
 
     for i, f in enumerate(frames(a.w, a.h)):
         if i % step:

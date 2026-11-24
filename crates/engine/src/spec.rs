@@ -115,11 +115,17 @@ pub struct Adjust {
     pub hue: f64,
     /// master curve points (input, output), both 0..1; fewer than 2 = none
     pub curve: Vec<(f64, f64)>,
+    /// white balance, -1..1, 0 = unchanged: above 0 warmer (more red, less blue)
+    #[serde(default)]
+    pub temperature: f64,
+    /// -1..1, 0 = unchanged: above 0 more magenta, below more green
+    #[serde(default)]
+    pub tint: f64,
 }
 
 impl Default for Adjust {
     fn default() -> Self {
-        Adjust { brightness: 0.0, contrast: 1.0, saturation: 1.0, gamma: 1.0, hue: 0.0, curve: Vec::new() }
+        Adjust { brightness: 0.0, contrast: 1.0, saturation: 1.0, gamma: 1.0, hue: 0.0, curve: Vec::new(), temperature: 0.0, tint: 0.0 }
     }
 }
 
@@ -578,10 +584,14 @@ pub struct EncodeSpec {
     #[serde(default)]
     pub two_pass: bool,
     /// size mode: encode again (up to 4 attempts, run.rs) when the file is over the
-    /// limit or well under it. Off (the default): one attempt, aimed a little lower
-    /// (plan.rs SINGLE_ATTEMPT), so the job does not seem to start over after finishing.
+    /// limit or well under it. Off (the default): one attempt, so the job does not seem
+    /// to start over after finishing.
     #[serde(default)]
     pub size_retries: bool,
+    /// size mode: the share of the limit the (first) attempt aims at, sound and video
+    /// together; plan::DEFAULT_SIZE_TARGET (webm.py's 1000/1024) when not given
+    #[serde(default = "default_size_target")]
+    pub size_target: f64,
     pub effort: Effort,
     pub audio: Option<AudioSel>,
     pub subs: Option<SubsSel>,
@@ -589,6 +599,9 @@ pub struct EncodeSpec {
     #[serde(default)]
     pub extra_args: Vec<String>,
     pub output_name: Option<String>,
+    /// the preset the job was made with, for the `{preset}` file name token
+    #[serde(default)]
+    pub preset_name: Option<String>,
     /// cut only: copy the streams without encoding (one range, no filters)
     #[serde(default)]
     pub stream_copy: bool,
@@ -879,4 +892,8 @@ pub struct DownloadProgress {
     pub eta: Option<String>,
     /// "download" or "merge"
     pub stage: String,
+}
+
+fn default_size_target() -> f64 {
+    crate::plan::DEFAULT_SIZE_TARGET
 }

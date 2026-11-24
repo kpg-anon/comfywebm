@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import * as ipc from "$lib/ipc";
   import { app, isNeutral } from "$lib/state.svelte";
@@ -7,7 +8,8 @@
   import { ratioOf } from "$lib/crop";
   import * as ramp from "$lib/ramp";
   import * as zoomMath from "$lib/zoom";
-  import type { SpeedPoint } from "$lib/types";
+  import type { Crop, SpeedPoint, ZoomPoint } from "$lib/types";
+  import { wbGains } from "$lib/color";
   import Icon from "./Icon.svelte";
 
   let video = $state<HTMLVideoElement>();
@@ -184,8 +186,63 @@
     };
   });
   /** the part of the picture (as shown) the stage is fitted to */
-  /** what the output shows now, or null while the whole picture is shown (crop mode, drawing a box, clicking points) */
-  const view = $derived(app.cropMode || app.followMode || app.pointsMode || app.audioOnly || !app.viewW ? null : app.outViewAt(frameT ?? app.current));
+  /** px around the picture in crop mode, for the crop's handles */
+  const CROP_MARGIN = 16;
+
+  // Crop mode with a follow path: the stage shows the largest view the path can have at the
+  // playhead (the whole picture over Follow's zoom, no crop), held still while cropping, and
+  // the crop box is the view as it is now inside it. The box can shrink, grow back to the
+  // whole area and move; letting go applies it (applyFollowCrop). The area is taken again
+  // only when the playhead moves.
+  let fctx = $state<(Crop & { rot: number }) | null>(null);
+  /** the box while it is being dragged */
+  let fdraft = $state<Crop | null>(null);
+  // a derived flag, so a change to the path (applying the crop moves it) does not take the area again
+  const hasPath = $derived(app.zoomPoints.length > 0);
+  $effect(() => {
+    const on = app.cropMode && hasPath && !!app.viewW && !app.audioOnly;
+    const t = app.current;
+    if (!on) {
+      fctx = null;
+      fdraft = null;
+      return;
+    }
+    fctx = untrack(() => zoomMath.viewAt(app.zoomPoints, t, app.viewW, app.viewH, app.viewW, app.viewH));
+    fdraft = null;
+  });
+  /** the view as it is now, in the held area's own (upright) pixels */
+  function viewInCtx(c: Crop & { rot: number }): Crop {
+    const v = app.outViewAt(app.current);
+    const [dx, dy] = [v.x + v.w / 2 - (c.x + c.w / 2), v.y + v.h / 2 - (c.y + c.h / 2)];
+    // the area is shown turned by its rot, so the offset turns with it
+    const a = ((c.rot || 0) * Math.PI) / 180;
+    const [lx, ly] = [dx * Math.cos(a) - dy * Math.sin(a), dx * Math.sin(a) + dy * Math.cos(a)];
+    return { x: c.w / 2 + lx - v.w / 2, y: c.h / 2 + ly - v.h / 2, w: v.w, h: v.h };
+  }
+  const fbox = $derived(fctx ? (fdraft ?? viewInCtx(fctx)) : null);
+  // a view that no longer fits in the held area (moved toward its edge, or 1:1 around a moved
+  // middle): the area is taken again, around the path where it is now
+  $effect(() => {
+    void app.zoomPoints;
+    void app.crop;
+    const c = untrack(() => fctx);
+    if (!c || untrack(() => fdraft)) return;
+    const b = untrack(() => viewInCtx(c));
+    if (b.x < -0.5 || b.y < -0.5 || b.x + b.w > c.w + 0.5 || b.y + b.h > c.h + 0.5)
+      fctx = untrack(() => zoomMath.viewAt(app.zoomPoints, app.current, app.viewW, app.viewH, app.viewW, app.viewH));
+  });
+  function commitFollowCrop(c: Crop | null) {
+    const ctx = fctx;
+    fdraft = null;
+    if (!c || !ctx) return;
+    const v = viewInCtx(ctx);
+    // applyFollowCrop takes the box relative to the view as it is now
+    app.applyFollowCrop({ ...v, rot: ctx.rot }, { x: c.x - v.x, y: c.y - v.y, w: c.w, h: c.h });
+  }
+  /** what the output shows now, or null while the whole picture is shown (crop mode without a path, drawing a box, clicking points) */
+  const view = $derived(
+    fctx ?? (app.cropMode || app.followMode || app.pointsMode || app.audioOnly || !app.viewW ? null : app.outViewAt(frameT ?? app.current)),
+  );
   const focus = $derived.by(() => {
     const whole = { x: 0, y: 0, w: vsize.w, h: vsize.h };
     if (!view) return whole;
@@ -198,7 +255,10 @@
   /** the picture's box as shown on screen (may reach past the stage) */
   const shown = $derived.by(() => {
     if (sw <= 0 || sh <= 0) return { x: 0, y: 0, w: 0, h: 0 };
-    const k = Math.min(sw / focus.w, sh / focus.h);
+    // crop mode: a margin, so a crop the size of the picture keeps its corner and edge handles on
+    // the stage (on its edge they sat under the timeline's divider and the bar above, and missed)
+    const m = app.cropMode ? Math.min(CROP_MARGIN, sw / 6, sh / 6) : 0;
+    const k = Math.min((sw - 2 * m) / focus.w, (sh - 2 * m) / focus.h);
     return { x: sw / 2 - (focus.x + focus.w / 2) * k, y: sh / 2 - (focus.y + focus.h / 2) * k, w: vsize.w * k, h: vsize.h * k };
   });
   /** the element's box: it keeps the unrotated shape; the transform turns it */
@@ -222,17 +282,19 @@
   });
   const hasSound = $derived(!!app.media?.audio.length);
 
-  // With follow keyframes, dragging the picture moves the view at the playhead:
-  // the keyframe on this frame, or a new one made here once the drag starts
-  // (the picture moves with the pointer, the window the other way); a click
-  // without a drag plays and pauses as before.
-  let pan: { x0: number; y0: number; i: number; cx: number; cy: number; moved: boolean } | null = null;
+  // With follow keyframes, dragging the picture moves the view (the picture moves with the
+  // pointer, the view the other way): the keyframes selected on the Follow lane (a click on
+  // the lane adds one and selects it), or the whole path when none are selected, so a
+  // tracked face can be framed higher or lower without bending the path. Shift + drag
+  // always moves the whole path. A click without a drag plays and pauses as before.
+  let pan: { x0: number; y0: number; i: number; cx: number; cy: number; moved: boolean; all: ZoomPoint[] | null; only: number[] | null } | null = null;
   let panned = false;
   function panDown(e: PointerEvent) {
     if (e.button !== 0 || !app.zoomPoints.length || app.cropMode || app.followMode || app.pointsMode) return;
     const i = app.followKeyAt(app.current);
     const p = i >= 0 ? app.zoomPoints[i] : zoomMath.at(app.zoomPoints, app.current);
-    pan = { x0: e.clientX, y0: e.clientY, i, cx: p.x, cy: p.y, moved: false };
+    const sel = app.followSelected;
+    pan = { x0: e.clientX, y0: e.clientY, i, cx: p.x, cy: p.y, moved: false, all: app.zoomPoints.map((q) => ({ ...q })), only: e.shiftKey || !sel.length ? null : sel };
   }
   function panMove(e: PointerEvent) {
     if (!pan) return;
@@ -243,13 +305,18 @@
       pan.moved = true;
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       app.video?.pause();
-      if (pan.i < 0) pan.i = app.addFollowKey(app.current);
     }
     // the drag on the screen, turned back onto the picture (it is shown turned by spin)
     const a = (-spin * Math.PI) / 180;
     const [px, py] = [dx * Math.cos(a) - dy * Math.sin(a), dx * Math.sin(a) + dy * Math.cos(a)];
     // keyframes are 0..1 of the whole picture; shown.w is its width on the screen
-    app.setZoomPoint(pan.i, { x: pan.cx - px / shown.w, y: pan.cy - py / shown.h });
+    if (pan.all) {
+      const [mx, my] = [px / shown.w, py / shown.h];
+      const cl = (v: number) => Math.min(1, Math.max(0, v));
+      const only = pan.only;
+      const moves = (t: number) => !only || only.some((s) => Math.abs(s - t) < 1e-6);
+      app.zoomPoints = pan.all.map((q) => (moves(q.t) ? { ...q, x: cl(q.x - mx), y: cl(q.y - my) } : q));
+    } else app.setZoomPoint(pan.i, { x: pan.cx - px / shown.w, y: pan.cy - py / shown.h });
   }
   function panUp() {
     if (pan?.moved) panned = true;
@@ -311,7 +378,8 @@
     return Math.min(1, Math.max(0, d));
   });
   const adj = $derived(app.adjust);
-  const showAdj = $derived(app.adjustPreview && !isNeutral(adj));
+  const showAdj = $derived(!app.adjustHold && !isNeutral(adj));
+  const wb = $derived(adj.temperature || adj.tint ? wbGains(adj.temperature ?? 0, adj.tint ?? 0) : null);
   const table = $derived(adj.curve.length ? sample(adj.curve, 33).map((v) => v.toFixed(4)).join(" ") : "");
 
   // follow the playhead every frame while playing (timeupdate fires about 4x a second)
@@ -400,6 +468,11 @@
       <!-- outside the output's area: the stage's own colour, as the encode has nothing there -->
       <div class="outmask" style:left="{outRect.x}px" style:top="{outRect.y}px" style:width="{outRect.w}px" style:height="{outRect.h}px"></div>
     {/if}
+    {#if fctx}
+      <!-- crop mode with a follow path: outside the largest view the path can have here, darker
+           (the crop box cannot reach it) -->
+      <div class="outmask soft" style:left="{outRect.x}px" style:top="{outRect.y}px" style:width="{outRect.w}px" style:height="{outRect.h}px"></div>
+    {/if}
     {#if app.followMode}
       <!-- draw the box to follow; letting go starts following it -->
       <CropOverlay
@@ -453,16 +526,28 @@
     {/if}
     <!-- over the picture as shown (turned and flipped), so the crop is drawn on what you see;
          outside crop mode the stage shows the crop itself -->
-    {#if app.cropMode && !app.followMode}
+    {#if app.cropMode && !app.followMode && fctx && fbox}
+    <!-- with a follow path: the view as it is now, inside the largest it can be here -->
+    <CropOverlay
+      rect={outRect}
+      W={fctx.w}
+      H={fctx.h}
+      crop={fbox}
+      ratio={ratioOf(app.aspect)}
+      active
+      onchange={(c) => (fdraft = c)}
+      oncommit={commitFollowCrop}
+    />
+    {:else if app.cropMode && !app.followMode}
     <CropOverlay
       rect={shown}
       W={app.viewW}
       H={app.viewH}
-      crop={app.viewCrop}
+      crop={app.cropBox}
       ratio={ratioOf(app.aspect)}
       active
-      onchange={(c) => app.setViewCrop(c, false)}
-      oncommit={(c) => app.setViewCrop(c)}
+      onchange={(c) => app.setCropBox(c, false)}
+      oncommit={(c) => app.setCropBox(c)}
     />
     {/if}
     {#if fadeDark > 0}
@@ -555,6 +640,10 @@
 
   <svg class="fx" aria-hidden="true">
     <filter id="cwm-adjust" color-interpolation-filters="sRGB">
+      {#if wb}
+        <!-- white balance first, as in the encode (colorchannelmixer before eq) -->
+        <feColorMatrix type="matrix" values="{wb[0]} 0 0 0 0  0 {wb[1]} 0 0 0  0 0 {wb[2]} 0 0  0 0 0 1 0" />
+      {/if}
       <feComponentTransfer>
         <feFuncR type="linear" slope={adj.contrast} intercept={0.5 - 0.5 * adj.contrast + adj.brightness} />
         <feFuncG type="linear" slope={adj.contrast} intercept={0.5 - 0.5 * adj.contrast + adj.brightness} />
@@ -621,6 +710,9 @@
   {#if app.seekPending && app.paused && app.media && !app.audioOnly}
     <!-- shown after 150 ms, so quick seeks do not flash it -->
     <span class="loading" title="The player is still decoding the frame at the playhead; the picture is the previous one until this goes away">Loading frame...</span>
+  {/if}
+  {#if app.adjustHold && !isNeutral(adj) && app.media && !app.audioOnly}
+    <span class="before">Original (without the adjustments)</span>
   {/if}
   {#if app.usingProxy}
     <span class="badge" title={app.proxyRemuxed ? "The source's own video and audio, copied into an MP4 the player can read" : "A 480p H.264 copy for the player; encoding uses the original"}>{app.proxyRemuxed ? "Preview copy (full quality)" : "Preview copy (480p)"}</span>
@@ -831,6 +923,9 @@
     box-shadow: 0 0 0 9999px var(--bg-stage);
     pointer-events: none;
   }
+  .outmask.soft {
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.7);
+  }
   .stage.panning {
     cursor: grab;
   }
@@ -903,6 +998,18 @@
   }
   .spk:hover {
     background: rgb(255 255 255 / 0.15);
+  }
+  .before {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    background: rgba(0, 0, 0, 0.7);
+    color: #fff;
+    font-size: 11px;
+    pointer-events: none;
   }
   .badge {
     position: absolute;

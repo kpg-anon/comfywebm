@@ -31,6 +31,7 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       [", / .", "one frame back / forward (or the mouse wheel over the picture)"],
       ["L", "loop the selected range"],
       ["M", "mute / unmute the preview (the speaker at the bottom right of the picture)"],
+      ["\\ (hold)", "adjustments: the original picture while held (also the eye in Advanced > Adjustments)"],
     ],
   },
   {
@@ -39,11 +40,12 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["I / O", "set the start / end of the range at the playhead"],
       ["Shift + I / Shift + O", "jump to the start / end of the selected range"],
       ["N", "add a range at the playhead"],
-      ["Delete", "remove the selected range"],
+      ["Delete / Backspace", "remove the selected Follow keyframes, or the selected range"],
       ["Ctrl + Z", "undo a range, order or crop change"],
       ["Ctrl + Shift + Z / Ctrl + Y", "redo"],
       ["H", "the history: every edit, click one to go back to it"],
       ["Ctrl + wheel", "zoom the timeline (wheel pans while zoomed)"],
+      ["Z / Shift + Z", "zoom the timeline to the selected Follow keyframes or range / show the whole file (or drag across the ruler)"],
       ["Drag a range", "move it, keeping its length (a click seeks)"],
       ["Alt + drag", "move a range or its edge without snapping"],
       ["[ / ]", "previous / next scene cut (after Find cuts)"],
@@ -200,14 +202,23 @@ export function installKeys(actions: KeyActions): () => void {
           break;
         case "Delete":
         case "Backspace":
-          if (app.segments.length > 1 && app.sel >= 0) app.removeRange();
+          if (app.followSelected.length) app.removeSelectedFollow();
+          else if (app.segments.length > 1 && app.sel >= 0) app.removeRange();
           else handled = false;
           break;
         case "l":
           app.toggleLoop();
           break;
+        case "z":
+          if (app.zoomTimelineToSel) app.zoomTimelineToSel(e.shiftKey);
+          else handled = false;
+          break;
         case "m":
           app.toggleMute();
+          break;
+        case "\\":
+          // held: the original; key-up (below) shows the adjustments again
+          app.adjustHold = true;
           break;
         case "h":
           if (app.media) app.historyOpen = !app.historyOpen;
@@ -230,6 +241,7 @@ export function installKeys(actions: KeyActions): () => void {
           if (app.pointsMode) app.cancelPoints();
           else if (app.followMode) app.cancelFollow();
           else if (app.cropMode) app.cropMode = false;
+          else if (app.followSel.length) app.followSel = [];
           else handled = false;
           break;
         default:
@@ -256,7 +268,15 @@ export function installKeys(actions: KeyActions): () => void {
   window.addEventListener("pointerup", dropFocus, true);
   window.addEventListener("click", dropFocus);
   window.addEventListener("keydown", onKey);
+  const onKeyUp = (e: KeyboardEvent) => {
+    if (e.key === "\\") app.adjustHold = false;
+  };
+  const release = () => (app.adjustHold = false);
+  window.addEventListener("keyup", onKeyUp);
+  window.addEventListener("blur", release);
   return () => {
+    window.removeEventListener("keyup", onKeyUp);
+    window.removeEventListener("blur", release);
     window.removeEventListener("pointerdown", onPointer, true);
     window.removeEventListener("paste", onPaste);
     window.removeEventListener("pointerup", dropFocus, true);

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { app, splitArgs, REFRESH_RATES } from "$lib/state.svelte";
+  import { app, splitArgs, REFRESH_RATES, SIZE_TARGET_DEFAULT, fmtPct } from "$lib/state.svelte";
   import { pickAnyFile, pickFolder } from "$lib/dialogs";
   import * as ipc from "$lib/ipc";
   import {
@@ -582,6 +582,26 @@
     </div>
 
     <div class="col">
+      <span>Auto color</span>
+      <div class="line stabline">
+        <Select
+          label="White balance method for Auto"
+          value={app.wbMethod}
+          onchange={(v) => app.setWbMethod(v)}
+          options={[
+            { value: "combined", label: "Combined", hint: "default, best measured" },
+            { value: "greyEdge", label: "Grey-Edge", hint: "van de Weijer 2007" },
+            { value: "greyPixels", label: "Grey Pixels", hint: "Yang 2015" },
+            { value: "whitePatch", label: "White Patch", hint: "brightest parts are white" },
+            { value: "shadesOfGrey", label: "Shades of Grey", hint: "Finlayson 2004" },
+            { value: "greyWorld", label: "Grey World", hint: "the average is grey" },
+          ]}
+        />
+      </div>
+      <span class="hint">How Adjustments > Auto finds the colour of the light. All are built in. Measured on 11 clips with known casts added (angle from the true light; lower is better, mean / median): Combined 4.6 / 3.6 degrees, Grey-Edge 4.8 / 3.3, Grey Pixels 4.7 / 4.2, White Patch 5.2 / 4.4, Shades of Grey 5.9 / 4.5, Grey World 9.3 / 7.8. A cast within 3.5 degrees is left alone.</span>
+    </div>
+
+    <div class="col">
       <span>Tracking</span>
       <div class="line">
         <Select
@@ -693,9 +713,32 @@
     </div>
 
     <div class="col">
+      <span>On start</span>
+      <div class="line">
+        <Select
+          label="On start"
+          value={app.startWith}
+          onchange={(v) => app.setStartWith(v)}
+          options={[
+            { value: "preset", label: "Start from the preset" },
+            { value: "last", label: "Keep the last options" },
+          ]}
+        />
+      </div>
+      <span class="hint">Start from the preset: the app opens with the last used preset's values, and speed, playback, fades, sound volume, stabilize, denoise and the logo back at their defaults. Keep the last options: everything as it was when the app was closed. Applies at the next start.</span>
+    </div>
+
+    <div class="col">
       <span>Size limit</span>
+      <div class="line cacheline">
+        <span>Aim for</span>
+        <input class="field mono pct" type="number" min="50" max="100" step="0.1" value={fmtPct(app.sizeTarget)} onchange={(e) => app.setSizeTarget(parseFloat((e.currentTarget as HTMLInputElement).value))} />
+        <span>% of the limit</span>
+        <button class="btn small" disabled={app.sizeTarget === SIZE_TARGET_DEFAULT} onclick={() => app.setSizeTarget(SIZE_TARGET_DEFAULT)}>Default</button>
+      </div>
+      <span class="hint">Sound and video together. The default, {fmtPct(SIZE_TARGET_DEFAULT)}%, is what webm.py's <span class="mono">-l</span> aims for. The encoder can land a little over or under the aim; a file over the limit is kept and marked in the queue.</span>
       <label><input type="checkbox" checked={app.sizeRetries} onchange={(e) => app.setSizeRetries((e.currentTarget as HTMLInputElement).checked)} /> Encode again when the file misses the limit</label>
-      <span class="hint">Off: one attempt, aimed at about 95% of the limit; a file that still comes out over it is kept and marked in the queue. On: up to 4 attempts, aimed at 99% (the queue shows the attempt). Applies to the next encode.</span>
+      <span class="hint">On: up to 4 attempts; after the first, they aim for 99% of the limit (the queue shows the attempt). Applies to the next encode.</span>
     </div>
 
     <div class="col">
@@ -707,7 +750,7 @@
     <label class="col">
       <span>File name template</span>
       <input class="field mono" type="text" spellcheck="false" bind:value={nameTemplate} />
-      <span class="hint">Tokens: <code>{"{name}"}</code> <code>{"{start}"}</code> <code>{"{end}"}</code> <code>{"{codec}"}</code> <code>{"{height}"}</code> <code>{"{date}"}</code>. The extension (.webm, .mp4, .gif, .webp, .opus, .mp3 or .m4a) is added. Existing files are never overwritten.</span>
+      <span class="hint">Tokens: <code>{"{name}"}</code> <code>{"{start}"}</code> <code>{"{end}"}</code> <code>{"{codec}"}</code> <code>{"{height}"}</code> <code>{"{date}"}</code> <code>{"{preset}"}</code> (the platform and the size limit, as <code>4chan-4MiB</code>). The extension (.webm, .mp4, .gif, .webp, .opus, .mp3 or .m4a) is added. Existing files are never overwritten.</span>
     </label>
 
     <div class="col">
@@ -807,6 +850,11 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
+  }
+  /* a number, not a text field: its own width */
+  .line input.pct {
+    flex: none;
+    width: 80px;
   }
   .line :global(.sel) {
     width: 140px;

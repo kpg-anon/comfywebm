@@ -4,7 +4,7 @@
   // motion, audio, file) and Advanced (encoder, filters, audio level,
   // subtitles, metadata, the ffmpeg command). The Advanced tab shows how many
   // of its settings are changed, so nothing set there goes unnoticed.
-  import { app, isNeutral } from "$lib/state.svelte";
+  import { app, isNeutral, fmtPct } from "$lib/state.svelte";
   import { batch } from "$lib/batch.svelte";
   import { splits } from "$lib/splits.svelte";
   import { pickAudio, pickFolder, pickImage, pickSubtitle } from "$lib/dialogs";
@@ -232,7 +232,7 @@
       {#if app.codec === "gif" || app.codec === "webp"}
         <div class="muted small">{app.maxBytes.toLocaleString("en-US")} bytes · {app.codec === "gif" ? "GIF" : "WebP"} has no bitrate setting, so the picture size is chosen to fit (Auto resolution){app.codec === "webp" ? ", at quality 75" : ""}</div>
       {:else}
-        <div class="muted small">{app.maxBytes.toLocaleString("en-US")} bytes · two passes · {app.sizeRetries ? "aims for 99% of the limit, encoding again if it misses" : "one attempt, aims for about 95% of the limit"}</div>
+        <div class="muted small">{app.maxBytes.toLocaleString("en-US")} bytes · two passes · aims for {fmtPct(app.sizeTarget)}% of the limit{app.sizeRetries ? ", encoding again if it misses" : ""}</div>
       {/if}
     {:else if app.container === "audio"}
       <div class="muted small">Quality mode uses the bitrate set in the Audio group.</div>

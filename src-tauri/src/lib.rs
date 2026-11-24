@@ -763,6 +763,24 @@ async fn detect_crop(app: AppHandle, path: String) -> Result<Option<Crop>, Strin
     .await
 }
 
+/// Advanced > Adjustments > Auto: white balance (by `method`, Combined when not given),
+/// levels and exposure measured on frames of the ranges (source seconds; none = the whole file).
+#[tauri::command]
+async fn auto_color(
+    app: AppHandle,
+    path: String,
+    segments: Vec<(f64, f64)>,
+    method: Option<comfywebm_engine::wb::WbMethod>,
+) -> Result<comfywebm_engine::autocolor::AutoColor, String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let ffmpeg = state.ffmpeg()?;
+        let info = state.media(&path)?;
+        comfywebm_engine::autocolor::auto_color(&ffmpeg, &info, &segments, method.unwrap_or(comfywebm_engine::wb::WbMethod::Combined))
+    })
+    .await
+}
+
 /// The frame at `time` as the encode sees it (all filters and the output size), as a PNG.
 #[tauri::command]
 async fn export_frame_processed(app: AppHandle, spec: EncodeSpec, time: f64) -> Result<String, String> {
@@ -1221,6 +1239,7 @@ pub fn run() {
             sample_cancel,
             export_frame_processed,
             detect_crop,
+            auto_color,
             timeline_thumbs,
             timeline_wave,
             scene_cuts,

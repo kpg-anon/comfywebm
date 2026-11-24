@@ -2,6 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  Adjust,
   ConfigInfo,
   Crop,
   DownloadProgress,
@@ -60,6 +61,10 @@ export const queueRetry = (id: number) => invoke<Job>("queue_retry", { id });
 export const queueMove = (id: number, to: number) => invoke<Job[]>("queue_move", { id, to });
 export const queueRemoveWaiting = () => invoke<Job[]>("queue_remove_waiting");
 export const sampleCancel = () => invoke<void>("sample_cancel");
+/** Adjustments > Auto: white balance, levels and exposure measured on frames of the ranges. */
+export type WbMethod = "combined" | "greyEdge" | "greyPixels" | "whitePatch" | "shadesOfGrey" | "greyWorld";
+export const autoColor = (path: string, segments: [number, number][], method: WbMethod) =>
+  invoke<{ adjust: Adjust; notes: string[]; frames: number }>("auto_color", { path, segments, method });
 /** Black bars as a crop in display pixels; null = none found. */
 export const detectCrop = (path: string) => invoke<Crop | null>("detect_crop", { path });
 /** The frame at `time` with every filter and the output size applied, as a PNG. */

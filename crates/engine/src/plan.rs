@@ -102,18 +102,22 @@ const MIN_STILL_AUDIO_KBPS: f64 = 24.0;
 /// The same for Vorbis (VP8), which fails to open at 42 kbps stereo.
 const MIN_VORBIS_KBPS: f64 = 48.0;
 
-/// Size mode, first attempt: `(maxBytes * 8 / 1000 / durationOut - audioKbps) * 0.985`.
-/// The 1.5% margin covers container overhead and encoder overshoot; the
-/// retries in run.rs fill the rest of the limit.
-pub fn size_video_kbps(max_bytes: f64, duration_out: f64, audio_kbps: f64) -> f64 {
-    let total_kbps = max_bytes * 8.0 / 1000.0 / duration_out;
-    (total_kbps - audio_kbps) * 0.985
+/// Size mode: the share of the limit the encode aims at, sound and video together,
+/// unless Settings changes it. This is what webm.py's `-l` comes to: it counts the
+/// limit in kilobits of 1024 bits and passes the number to ffmpeg, which reads "k"
+/// as 1000, so the file aims at 1000/1024 of the limit with no other margin.
+pub const DEFAULT_SIZE_TARGET: f64 = 1000.0 / 1024.0;
+
+/// Size mode video bitrate: `maxBytes * target * 8 / 1000 / durationOut - audioKbps`.
+/// `target` is the share of the limit to aim at (spec.size_target).
+pub fn size_video_kbps(max_bytes: f64, duration_out: f64, audio_kbps: f64, target: f64) -> f64 {
+    max_bytes * size_target(target) * 8.0 / 1000.0 / duration_out - audio_kbps
 }
 
-/// Size mode with one attempt (no retries): the first attempt's budget is this
-/// share of the limit on top of size_video_kbps's 1.5% margin (about 95% in all),
-/// as nothing encodes it again when it lands over.
-pub const SINGLE_ATTEMPT: f64 = 0.965;
+/// spec.size_target kept between 50% and 100% of the limit (not a number: the default)
+pub fn size_target(t: f64) -> f64 {
+    if t.is_finite() { t.clamp(0.5, 1.0) } else { DEFAULT_SIZE_TARGET }
+}
 
 /// Size mode retries aim the file at this share of the limit.
 pub const FILL_TARGET: f64 = 0.99;
@@ -700,10 +704,16 @@ pub fn length_arg(start: f64, end: f64, fps: f64, vfr: bool) -> f64 {
     end - start - 0.25 / fps
 }
 
-/// `eq`, `hue` and `curves` for the color adjustments; empty when all are neutral.
+/// `colorchannelmixer` (white balance), `eq`, `hue` and `curves` for the color adjustments;
+/// empty when all are neutral.
 pub fn adjust_filters(a: &Adjust) -> Vec<String> {
     let mut f = Vec::new();
     let near = |v: f64, n: f64| (v - n).abs() < 1e-6;
+    if !(near(a.temperature, 0.0) && near(a.tint, 0.0)) && a.temperature.is_finite() && a.tint.is_finite() {
+        let [r, g, b] = crate::autocolor::wb_gains(a.temperature, a.tint);
+        let k = |v: f64| format!("{:.4}", v);
+        f.push(format!("colorchannelmixer=rr={}:gg={}:bb={}", k(r), k(g), k(b)));
+    }
     let (b, c, s, g) = (a.brightness.clamp(-1.0, 1.0), a.contrast.clamp(0.0, 3.0), a.saturation.clamp(0.0, 3.0), a.gamma.clamp(0.1, 10.0));
     if !(near(b, 0.0) && near(c, 1.0) && near(s, 1.0) && near(g, 1.0)) {
         f.push(format!("eq=brightness={}:contrast={}:saturation={}:gamma={}", fmt_num(b), fmt_num(c), fmt_num(s), fmt_num(g)));
@@ -1237,7 +1247,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
             if !max_bytes.is_finite() || max_bytes <= 0.0 {
                 return Err("The size limit must be greater than 0.".into());
             }
-            let computed = size_video_kbps(max_bytes * if spec.size_retries { 1.0 } else { SINGLE_ATTEMPT }, duration_out, audio_kbps);
+            let computed = size_video_kbps(max_bytes, duration_out, audio_kbps, spec.size_target);
             // a still picture is one keyframe whatever the bitrate, so these do not apply
             if computed < MIN_VIDEO_KBPS && still.is_none() {
                 warnings.push(
@@ -2387,6 +2397,7 @@ mod tests {
             zoom: vec![],
             follow_window: None,
             size_retries: true,
+            size_target: DEFAULT_SIZE_TARGET,
             playback: Playback::Forward,
             deinterlace: false,
             denoise: false,
@@ -2406,6 +2417,7 @@ mod tests {
             title: None,
             extra_args: vec![],
             output_name: None,
+            preset_name: None,
             stream_copy: false,
             caption: None,
             music: None,
@@ -2445,9 +2457,15 @@ mod tests {
 
     #[test]
     fn bitrate_math() {
-        // 4194304 bytes over 60 s: 559.24 kbps total, minus 64 audio, times 0.985
-        let k = size_video_kbps(4_194_304.0, 60.0, 64.0);
-        assert!((k - 487.81).abs() < 0.01);
+        // webm.py -l 4 over 60 s with 64 kbps sound: 4*8*1024/60 - 64 = 482.13
+        let k = size_video_kbps(4_194_304.0, 60.0, 64.0, DEFAULT_SIZE_TARGET);
+        assert!((k - 482.13).abs() < 0.01);
+        // 99%: 4194304*0.99*8/1000/60 - 64 = 489.65
+        let k = size_video_kbps(4_194_304.0, 60.0, 64.0, 0.99);
+        assert!((k - 489.65).abs() < 0.01);
+        // out of range: clamped, or the default when not a number
+        assert_eq!(size_video_kbps(1000.0, 1.0, 0.0, 1.5), 8.0);
+        assert_eq!(size_video_kbps(1000.0, 1.0, 0.0, f64::NAN), size_video_kbps(1000.0, 1.0, 0.0, DEFAULT_SIZE_TARGET));
         // one attempt: scale toward 99% of the limit
         let r = next_video_kbps(&[(500.0, 1100)], 1000.0);
         assert!((r - 500.0 * 990.0 / 1100.0).abs() < 1e-9);
@@ -2551,8 +2569,8 @@ mod tests {
     fn size_mode_args() {
         let p = build(&spec(Rate::Size { max_bytes: 300_000.0 }), &media(), &opts()).unwrap();
         assert_eq!(p.passes.len(), 2);
-        // 300000*8/1000/4 = 600; (600-64)*0.985 = 527.96
-        assert_eq!(p.video_kbps.unwrap().round(), 528.0);
+        // 300000*8/1024/4 - 64 = 521.94
+        assert_eq!(p.video_kbps.unwrap().round(), 522.0);
         let vp9 = "-c:v libvpx-vp9 -row-mt 1 -tile-columns 2 -frame-parallel 0 -deadline good";
         // the range starts at 10 s; -ss is a quarter frame early (seek_arg)
         let head = "-hide_banner -y -ss 9.992 -t 3.992 -i in.mp4";
@@ -2561,14 +2579,14 @@ mod tests {
             strs(&p.passes[0]).join(" "),
             format!(
                 "{head} -map 0:0 -vf setpts=PTS-STARTPTS,{TAGS} -pix_fmt yuv420p {vp9} -cpu-used 4 -auto-alt-ref 1 -lag-in-frames 25 \
-                 -b:v 528k -threads 8 -pass:v 1 -passlogfile:v log {tags} -an -f null -"
+                 -b:v 522k -threads 8 -pass:v 1 -passlogfile:v log {tags} -an -f null -"
             )
         );
         assert_eq!(
             strs(&p.passes[1]).join(" "),
             format!(
                 "{head} -map 0:0 -map 0:a:0 -vf setpts=PTS-STARTPTS,{TAGS} -af asetpts=PTS-STARTPTS -pix_fmt yuv420p {vp9} -cpu-used 2 -auto-alt-ref 1 \
-                 -lag-in-frames 25 -b:v 528k -threads 8 -pass:v 2 -passlogfile:v log {tags} -c:a libopus -b:a 64k -ac 2 \
+                 -lag-in-frames 25 -b:v 522k -threads 8 -pass:v 2 -passlogfile:v log {tags} -c:a libopus -b:a 64k -ac 2 \
                  -map_metadata -1 -map_chapters -1 -sn -f webm out.webm"
             )
         );
@@ -2927,13 +2945,14 @@ mod tests {
     }
 
     #[test]
-    fn one_attempt_aims_lower() {
-        // retries off: the first (and only) attempt's video bitrate is 96.5% of the one with retries
+    fn size_target_sets_the_bitrate() {
+        // the same aim with retries on or off; a higher target, a higher bitrate
         let mut sp = spec(Rate::Size { max_bytes: 4_194_304.0 });
         let with = build(&sp, &media(), &opts()).unwrap().video_kbps.unwrap();
         sp.size_retries = false;
-        let without = build(&sp, &media(), &opts()).unwrap().video_kbps.unwrap();
-        assert!((without / with - SINGLE_ATTEMPT).abs() < 0.01, "{without} vs {with}");
+        assert_eq!(build(&sp, &media(), &opts()).unwrap().video_kbps.unwrap(), with);
+        sp.size_target = 0.99;
+        assert!(build(&sp, &media(), &opts()).unwrap().video_kbps.unwrap() > with);
     }
 
     #[test]
@@ -3293,7 +3312,7 @@ mod tests {
         let at = s.find("-pix_fmt").unwrap();
         assert_eq!(
             &s[at..],
-            "-pix_fmt yuv420p -c:v libx264 -profile:v high -preset fast -b:v 3877k -threads 8 -pass:v 2 \
+            "-pix_fmt yuv420p -c:v libx264 -profile:v high -preset fast -b:v 3842k -threads 8 -pass:v 2 \
              -passlogfile:v log -colorspace bt709 -color_primaries bt709 -color_trc bt709 -c:a aac -b:a 64k -ac 2 \
              -map_metadata -1 -map_chapters -1 -sn -movflags +faststart -f mp4 out.mp4"
         );
@@ -3312,6 +3331,10 @@ mod tests {
             adjust_filters(&a),
             vec!["eq=brightness=0.05:contrast=1:saturation=1.2:gamma=1", "hue=h=10", "curves=master='0/0 0.5/0.6 1/1'"]
         );
+        // white balance first, as gains that keep the light level
+        let w = adjust_filters(&Adjust { temperature: -0.5, ..Default::default() });
+        assert_eq!(w.len(), 1);
+        assert_eq!(w[0], "colorchannelmixer=rr=0.8963:gg=1.0156:bb=1.1508");
         let mut sp = spec(Rate::Crf { crf: 30.0, max_bitrate_k: None });
         sp.vflip = true;
         sp.adjust = Some(Adjust { gamma: 1.5, ..Default::default() });

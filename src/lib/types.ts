@@ -99,7 +99,8 @@ export type Playback = "forward" | "reverse" | "boomerang";
 
 export type Crop = { x: number; y: number; w: number; h: number };
 
-/** Color adjustments; neutral: 0, 1, 1, 1, 0, []. curve = master curve points [in, out], 0..1. */
+/** Color adjustments; neutral: 0, 1, 1, 1, 0, [], 0, 0. curve = master curve points [in, out], 0..1.
+ *  temperature and tint (-1..1) are the white balance (autocolor.rs wb_gains). */
 export type Adjust = {
   brightness: number;
   contrast: number;
@@ -107,6 +108,8 @@ export type Adjust = {
   gamma: number;
   hue: number;
   curve: [number, number][];
+  temperature?: number;
+  tint?: number;
 };
 
 export type SubsSpec = { kind: "embedded"; track: number } | { kind: "file"; path: string } | null;
@@ -147,12 +150,16 @@ export type EncodeSpec = {
   twoPass: boolean;
   /** size mode: encode again when the file misses the limit (up to 4 attempts); off: one attempt */
   sizeRetries?: boolean;
+  /** size mode: the share of the limit the encode aims at, sound and video together (0.5 to 1) */
+  sizeTarget?: number;
   effort: Effort;
   audio: AudioSpec | null;
   subs: SubsSpec;
   title: string | null;
   extraArgs: string[];
   outputName: string | null;
+  /** the preset the job was made with, for the {preset} file name token */
+  presetName?: string | null;
   /** cut only: copy the streams, no encode (one range, filters ignored) */
   streamCopy?: boolean;
   /** text on the picture (white, black outline); size = % of the output height */

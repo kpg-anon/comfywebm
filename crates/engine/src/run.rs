@@ -239,7 +239,7 @@ fn better(new: u64, old: u64, max: Option<f64>) -> bool {
 /// Encodes `spec` to `final_path` (through `<final_path>.part`).
 ///
 /// Size mode with `spec.size_retries` fits the file to the limit in at most 4
-/// attempts (without, one attempt, aimed lower by plan::SINGLE_ATTEMPT). An output over
+/// attempts (without, one attempt). The first attempt aims at `spec.size_target`. An output over
 /// the limit, or under `plan::FILL_ACCEPT` of it, is encoded again at the
 /// bitrate from `plan::next_video_kbps`, which aims at `plan::FILL_TARGET`.
 /// The best attempt is kept (the largest under the limit, else the smallest).

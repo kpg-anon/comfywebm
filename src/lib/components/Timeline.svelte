@@ -107,6 +107,42 @@
     viewStart = clampStart(at - Math.min(Math.max(frac, 0), 1) * len, len);
   }
 
+  /** Zoom so lo..hi fills the track, with a little room on each side. */
+  function zoomSpan(lo: number, hi: number) {
+    if (!(hi > lo)) return;
+    const pad = (hi - lo) * 0.08;
+    setZoom(dur / (hi - lo + 2 * pad), lo - pad, 0);
+  }
+  /** Z: the selected Follow keyframes (two or more), else the selected range. Shift+Z: the whole file. */
+  function zoomToSelection(whole = false) {
+    if (!app.media) return;
+    if (whole) return setZoom(1);
+    const ks = app.followSelected;
+    if (ks.length > 1) return zoomSpan(Math.min(...ks), Math.max(...ks));
+    const g = app.selSeg;
+    if (g) zoomSpan(g.start, g.end);
+  }
+  $effect(() => {
+    app.zoomTimelineToSel = zoomToSelection;
+    return () => (app.zoomTimelineToSel = null);
+  });
+
+  // Drag across the ruler: the timeline zooms to that span; a click there seeks.
+  let rsel = $state<{ a: number; b: number; x0: number } | null>(null);
+  function rulerDown(e: PointerEvent) {
+    if (e.button !== 0 || !app.media) return;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    const t = timeAt(e);
+    rsel = { a: t, b: t, x0: e.clientX };
+  }
+  function rulerUp(e: PointerEvent) {
+    if (!rsel) return;
+    const { a, b, x0 } = rsel;
+    rsel = null;
+    if (Math.abs(e.clientX - x0) < 4) app.seek(a);
+    else zoomSpan(Math.min(a, b), Math.max(a, b));
+  }
+
   // a new file starts unzoomed
   $effect(() => {
     void app.media?.path;
@@ -143,6 +179,18 @@
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
   });
+
+  /** The wheel over the Follow lane zooms at the pointer (`frac` across the lane); Shift+wheel pans. */
+  function laneWheel(e: WheelEvent, frac: number) {
+    const d = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
+    if (e.shiftKey) {
+      // Windows turns Shift+wheel into a sideways scroll
+      const dx = Math.abs(e.deltaX) > Math.abs(d) ? e.deltaX : d;
+      if (zoomed) viewStart = clampStart(viewStart + (dx / 600) * viewLen);
+      return;
+    }
+    setZoom(zoom * Math.pow(1.0015, -d), viewStart + frac * viewLen, frac);
+  }
 
   // ruler: about one label per 90 px
   const STEPS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
@@ -184,6 +232,8 @@
     if (!app.media || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
+    // working on the ranges: Delete is for them again, not the Follow keyframes
+    app.followSel = [];
     track.setPointerCapture(e.pointerId);
     if (kind === "body") {
       app.sel = i;
@@ -279,17 +329,25 @@
   <div class="rzoom">
     <div class="group zoom">
       <button class="btn icon" disabled={!app.media || !zoomed} aria-label="Zoom out (Ctrl+wheel)" onclick={() => setZoom(zoom / 2)}><Icon name="zoomOut" size={13} /></button>
-      <button class="btn icon" disabled={!app.selSeg} aria-label="Zoom to the selected range" onclick={() => {
-        const g = app.selSeg;
-        if (!g || g.end <= g.start) return;
-        const pad = (g.end - g.start) * 0.08;
-        setZoom(dur / (g.end - g.start + 2 * pad), g.start - pad, 0);
-      }}><Icon name="fitSel" size={13} /></button>
-      <button class="btn zl mono" disabled={!app.media || !zoomed} aria-label="Show the whole file" onclick={() => setZoom(1)}>{zoomed ? `${zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}x` : "Fit"}</button>
+      <button class="btn icon" disabled={!app.selSeg && app.followSelected.length < 2} aria-label={app.followSelected.length > 1 ? "Zoom to the selected keyframes (Z)" : "Zoom to the selected range (Z). Or drag across the ruler."} onclick={() => zoomToSelection()}><Icon name="fitSel" size={13} /></button>
+      <button class="btn zl mono" disabled={!app.media || !zoomed} aria-label="Show the whole file (Shift+Z)" onclick={() => setZoom(1)}>{zoomed ? `${zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}x` : "Fit"}</button>
       <button class="btn icon" disabled={!app.media || zoom >= maxZoom} aria-label="Zoom in (Ctrl+wheel)" onclick={() => setZoom(zoom * 2)}><Icon name="zoomIn" size={13} /></button>
     </div>
   </div>
-  <div class="ruler" aria-hidden="true">
+  <div
+    class="ruler"
+    class:live={!!app.media}
+    aria-hidden="true"
+    onpointerdown={rulerDown}
+    onpointermove={(e) => {
+      if (rsel) rsel.b = timeAt(e);
+    }}
+    onpointerup={rulerUp}
+    onpointercancel={() => (rsel = null)}
+  >
+    {#if rsel}
+      <span class="rsel" style:left="{pct(Math.min(rsel.a, rsel.b))}%" style:width="{Math.abs(pct(rsel.b) - pct(rsel.a))}%"></span>
+    {/if}
     {#each minorTicks as t (t)}
       <span class="tick minor" style:left="{pct(t)}%"></span>
     {/each}
@@ -364,9 +422,9 @@
       {viewStart}
       {viewLen}
       ontrack={() => {
-        app.cropMode = false;
-        app.followMode = true;
+        app.startFollowBox();
       }}
+      onwheel={laneWheel}
     />
   {/if}
 
@@ -643,6 +701,21 @@
     height: 22px;
     margin-bottom: -2px;
     overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+  }
+  /* drag across it to zoom the timeline to that span */
+  .ruler.live {
+    pointer-events: auto;
+    cursor: zoom-in;
+  }
+  .rsel {
+    position: absolute;
+    top: 2px;
+    bottom: 0;
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    border-left: 1px solid var(--accent);
+    border-right: 1px solid var(--accent);
     pointer-events: none;
   }
   .tick {

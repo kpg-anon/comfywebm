@@ -269,7 +269,7 @@ class Batch {
       // a shorter clip: the longest length that reaches a clean picture at this output size
       const audioK = p.audioKbps;
       const needK = (floor * 1.5 * p.outWidth * p.outHeight * Math.min(outFps, srcFps * (app.speed || 1))) / 1000;
-      const maxLen = ((app.maxBytes * 8) / 1000 / (needK / 0.985 + audioK)) * (app.speed || 1);
+      const maxLen = ((app.maxBytes * (app.sizeTarget / 100) * 8) / 1000 / (needK + audioK)) * (app.speed || 1);
       if (maxLen >= 2 && maxLen < len - 1) {
         const start = it.segments[0]?.start ?? 0;
         const n = Math.floor(maxLen);

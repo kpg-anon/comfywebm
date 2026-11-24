@@ -89,7 +89,9 @@ building it yourself. For an overview and the downloads, see
   frame, one per second, after a first set from key frames only; Settings can
   keep them to key frames, which is faster but can repeat one picture for
   several seconds. Ctrl+wheel zooms (the wheel
-  pans while zoomed), a button zooms to the selected range, with a time ruler,
+  pans while zoomed), a button (or `Z`) zooms to the selected range, or to the
+  selected Follow keyframes when two or more are selected, dragging across the
+  ruler zooms to that span, and `Shift+Z` shows the whole file. There is a time ruler,
   an overview of the whole file while zoomed, and the time under the pointer.
   Range edges snap to the playhead, the other ranges and the file's ends (hold
   Alt to place freely). "Find cuts" marks where the picture cuts to a new shot;
@@ -109,7 +111,7 @@ building it yourself. For an overview and the downloads, see
   warning) removes every edit of the file (ranges, crop, rotation, flips,
   adjustments, speed ramp, zoom, follow path) and the history, and the file
   opens without them next time; the encode settings stay. Reopening a file brings back its
-  ranges and crop.
+  ranges and crop, with the playhead at the selected range.
 - **Edit strip**: with two or more ranges, a strip under the timeline shows the
   joined output in order. Drag a block to change the order, click it to jump to
   it, and "Play edit" plays the ranges one after another.
@@ -137,10 +139,13 @@ building it yourself. For an overview and the downloads, see
   (Discord's 20 MB = 20,000,000 bytes) shows MB, anything else MiB (4chan's
   4 MiB). Hover the line for the bitrates, bits per pixel and file name.
 - **Size limit mode**: the video bitrate comes from the limit, the clip length
-  and the audio bitrate, with two passes, in one attempt aimed at about 95% of
-  the limit. With Settings > Files > Size limit > "Encode again when the file
-  misses the limit" (off to start with), a file over the limit, or under 98% of
-  it, is encoded again at a bitrate aimed at 99% of the limit (interpolated
+  and the audio bitrate, with two passes, in one attempt. The file (sound and
+  video together) is aimed at 97.66% of the limit, which is what webm.py's `-l`
+  aims for (it counts the limit in kilobits of 1024 bits and ffmpeg reads them
+  as 1000); Settings > Files > Size limit > "Aim for" changes it, from 50 to
+  100%. The encoder can land a little over or under the aim. With "Encode
+  again when the file misses the limit" (off to start with), a file over the
+  limit, or under 98% of it, is encoded again at a bitrate aimed at 99% of the limit (interpolated
   between earlier attempts when one was over and one under), at most 4
   attempts; the largest result that fits is kept.
 - **Resolution**: Auto (in size limit mode: the largest size, at least 540
@@ -164,10 +169,25 @@ building it yourself. For an overview and the downloads, see
   watermark are not zoomed.
 - **Follow** (Video tools under the timeline): a lane
   under the timeline with keyframes that move the zoomed view over the clip.
-  Click the lane to add a keyframe (the playhead goes there), then drag the
-  picture to aim the view; dragging the picture anywhere else adds a keyframe
-  at the playhead. Drag a keyframe to move it in time; double-click or
-  right-click it to remove it. Between keyframes the view moves on a smooth
+  Click the lane to add a keyframe (the playhead goes there, and the keyframe
+  is selected), then drag the picture to aim the view. Dragging the picture
+  moves the selected keyframes' view, or the whole path when none are selected
+  (after a track nothing is selected, so a drag reframes the whole track
+  without bending it); Shift+drag always moves the whole path. Drag a keyframe to move it in time; double-click or
+  right-click it to remove it. To work on several: drag on the lane to draw a
+  box around them (Ctrl+drag adds to the selection), Ctrl+click adds a
+  keyframe or takes it out, Shift+click selects from the last one clicked;
+  then dragging one of them moves them all in time, dragging the picture moves
+  their view, Backspace or Delete removes them and Esc clears the selection.
+  The wheel over the lane zooms the timeline at the pointer (Shift+wheel pans).
+  Crop (`C`) with a follow path works on the output as you see it: the
+  dashed area is the largest view the path can have at the playhead (the
+  picture over Follow's zoom), held still while you crop, and the crop box is
+  the view as it is now. Shrink it, drag it back out to the whole area, or
+  pick an aspect such as 1:1 (the largest box of that shape, around the
+  view's middle); moving the box moves the whole path by the same amount, so
+  the tracking is kept. The area moves only with the playhead, or when the
+  view would leave it. Between keyframes the view moves on a smooth
   curve that does not stop at each keyframe, and nothing overshoots a turning
   point. The lane's solid line is the view's centre across, the dashed line its
   centre down. Follow's view has the crop's shape (or the picture's, without a
@@ -194,7 +214,10 @@ building it yourself. For an overview and the downloads, see
   for a face Track face holds better.
   **Track box...** (on the lane): draw a
   box around the person on the picture; the app follows the box from the
-  playhead to the end of the range (or of the file). The view then moves like
+  playhead to the end of the selected range. Track box, Track face and Track
+  points never go past the selected range: when the playhead is outside it (or
+  at its end), it moves to the range's start first, so you pick the person
+  there and the whole range is followed. The view then moves like
   a camera operator would, not with every bob and sway: the person may sit
   off centre by up to 70% of the room between their box and the view's edge,
   and within that the camera holds still or pans evenly (on a 4.6 s dance
@@ -297,10 +320,20 @@ building it yourself. For an overview and the downloads, see
   the whole picture with tight, normal, wide or sparse spacing. Rotation
   from -90 to 90 degrees; with Tile the whole grid turns, so the rows run
   diagonally. Remembered between runs and used for batch files too.
-- **Adjustments**: brightness, contrast, saturation, gamma, hue, and a master
-  curve with draggable points (ffmpeg `eq`, `hue` and `curves`). They show on
+- **Adjustments**: temperature and tint (white balance, ffmpeg
+  `colorchannelmixer`), brightness, contrast, saturation, gamma, hue, and a master
+  curve with draggable points (ffmpeg `eq`, `hue` and `curves`). **Auto**
+  measures 12 frames of the ranges and sets temperature, tint, and for a flat
+  or clearly too-bright picture contrast, brightness and gamma; saturation, hue
+  and the curve stay. The light's colour comes from the method in Settings >
+  Tools > Auto color (Combined by default; Grey-Edge, Grey Pixels, White Patch,
+  Shades of Grey, Grey World); a cast within 3.5 degrees of neutral is left
+  alone. They show on
   the picture while editing; the preview is close to but not exactly the
-  encode, so Sample shows the real result.
+  encode, so Sample shows the real result. Hold the eye (Original) at the top,
+  or hold `\`, to see the picture without them; letting go shows them again.
+  Each row has a reset
+  button (or double-click the slider); Reset all clears every one.
 - **File info**: a sidebar tab with what is in the open file: container,
   bitrates, codec and profile, frame rate and count, pixel format, color tags,
   audio and subtitle tracks. Copyable as text.
@@ -376,9 +409,10 @@ Keys do nothing while a text field has focus.
 | `I` / `O` | set the start / end of the range under or nearest the playhead |
 | Shift + `I` / `O` | jump to the start / end of the selected range |
 | `N` | add a range at the playhead |
-| Delete | remove the selected range (when there is more than one) |
+| Delete / Backspace | remove the selected Follow keyframes, or the selected range (when there is more than one) |
 | `L` | loop the selected range |
 | `M` | mute / unmute the preview (also the speaker at the bottom right of the picture; the wheel over it sets the volume) |
+| `\` (hold) | adjustments: the original picture while held (also the eye in Advanced > Adjustments) |
 | `C` | crop mode on / off |
 | Enter or Esc | leave crop mode (the crop is kept) |
 | Arrows (crop mode) | move the crop 1 px; with Shift 10 px |
@@ -389,6 +423,7 @@ Keys do nothing while a text field has focus.
 | `H` | the History panel: every edit, click one to go back to it |
 | Ctrl + Shift + Z, Ctrl + Y | redo |
 | Ctrl + wheel over the timeline | zoom the timeline; the wheel alone pans while zoomed |
+| `Z` / Shift + `Z` | zoom the timeline to the selected Follow keyframes or range / show the whole file |
 | `?`, F1 | list of keys |
 | `Q` | switch between the editor and the queue |
 | `B` | switch between the editor and the batch |
@@ -513,11 +548,19 @@ files).
 - Window size and position: `window.json` in the app config folder.
 - The theme, the display refresh rate, the sidebar tab, recent files and the
   last option values are kept in the webview's local storage, per machine.
+- On start the app takes the last used preset's values, and speed, playback,
+  fades, sound volume and normalize, stabilize, denoise, slow motion, separate
+  files and the watermark go back to their defaults (the watermark's place,
+  size and the caption style are kept). Settings > Files > On start > "Keep the
+  last options" brings back everything as it was instead.
 - Output goes to the Desktop by default; the Output group in the sidebar (or
   Settings) switches to beside the source file or another folder. A folder set
   in 1.1.0 or earlier keeps being used. Output names follow the name template in
-  Settings; the tokens are `{name}`, `{start}`, `{end}`, `{codec}`, `{height}`
-  and `{date}`.
+  Settings; the tokens are `{name}`, `{start}`, `{end}`, `{codec}`, `{height}`,
+  `{date}` and `{preset}`. `{preset}` is the platform (the preset name's first
+  word) and the size limit, as `4chan-4MiB` or `Discord-20MB`; a limit that is
+  not a whole number of MiB or MB is written in MiB to 2 decimals, and a
+  preset without a size limit gives the platform alone.
 
 ## Privacy
 
@@ -565,7 +608,8 @@ limit > "Encode again when the file misses the limit" on. The first attempt
 rarely lands exactly on the limit; a file over it, or under 98% of it, is then
 encoded again at a corrected bitrate, at most 4 times, and the largest file
 under the limit is kept. The queue shows the attempt number. Off (the
-default), there is one attempt aimed at about 95% of the limit.
+default), there is one attempt aimed at 97.66% of the limit (Settings > Files >
+Size limit > "Aim for").
 
 **The file came out over the limit.** The file is kept and marked "over
 limit". Turn on "Encode again when the file misses the limit", or shorten the

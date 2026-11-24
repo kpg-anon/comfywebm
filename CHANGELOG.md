@@ -7,6 +7,94 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- Settings > Files > Size limit > "Aim for": the share of the limit an encode
+  aims at, sound and video together, from 50 to 100%. The default is 97.66%,
+  what webm.py's `-l` aims for (it counts the limit in kilobits of 1024 bits and
+  ffmpeg reads them as 1000), in place of the old one-attempt aim of about 95%
+  (a 1.5% margin on the video, then 96.5% of that).
+- Settings > Files > On start: "Start from the preset" (the default) opens the
+  app with the last used preset's values, and speed, playback, fades, sound
+  volume and normalize, stabilize, denoise, slow motion, separate files and the
+  watermark at their defaults, so options left from the last run do not end up
+  in an encode unnoticed. The watermark's place and size, the caption style,
+  the step list and the aspect lock are still kept. "Keep the last options"
+  brings back everything, as before.
+- File name template token `{preset}`: the platform (the preset name's first
+  word) and the size limit, as `4chan-4MiB` or `Discord-20MB`.
+- Adjustments > Auto: measures 12 frames of the ranges and sets the white
+  balance (new Temperature and Tint sliders, ffmpeg `colorchannelmixer`, scaled
+  to keep the light level), a contrast stretch for a flat picture and a gamma
+  for a clearly too-bright (or very dark) one. The light's colour comes from an
+  established colour constancy method, chosen in Settings > Tools > Auto color:
+  Combined (the default: the mean of Grey-Edge, White Patch and Grey Pixels),
+  Grey-Edge, Grey Pixels, White Patch, Shades of Grey or Grey World, all built
+  in. Measured on 11 clips with known casts added, mean / median angle from
+  the true light: Combined 4.6 / 3.6 degrees, Grey-Edge 4.8 / 3.3, Grey Pixels
+  4.7 / 4.2, White Patch 5.2 / 4.4, Shades of Grey 5.9 / 4.5, Grey World 9.3 /
+  7.8. A cast within 3.5 degrees is left alone and only the part beyond it is
+  taken out, so a clip that is already balanced is not shifted.
+- Adjustments: hold the eye (Original) at the top of the group, or hold `\`,
+  to see the picture without them; letting go shows them again. The "Show on
+  the picture" checkbox is gone, so adjustments can no longer stay hidden by
+  mistake. Each slider and the curve have a reset button (double-click on a
+  slider still resets it too).
+- Follow lane: several keyframes can be selected. Drag on the lane to draw a
+  box around them (Ctrl+drag adds), Ctrl+click adds or removes one,
+  Shift+click selects from the last one clicked. Dragging a selected keyframe
+  moves them all in time, Backspace or Delete removes them, dragging the
+  picture moves their view, Esc clears the selection. The lane's right-click
+  menu has Select all and Remove selected. The wheel over the lane zooms the
+  timeline at the pointer (Shift+wheel pans).
+- Timeline zoom: `Z` zooms to the selected Follow keyframes (two or more) or
+  the selected range, `Shift+Z` shows the whole file, and dragging across the
+  ruler zooms to that span (a click on the ruler seeks).
+- Dragging the picture with a follow path moves the selected keyframes' view,
+  or the whole path when no keyframe is selected (after a track nothing is),
+  so a tracked face can be framed higher or lower without bending the path.
+  Before, a drag moved (or made) one keyframe at the playhead. Shift+drag
+  always moves the whole path.
+
+### Fixed
+
+- A file opened again with its last edit brought back started with the
+  playhead on the first frame; it now starts at the selected range.
+- Start screen, Recent: removing a file made the centred box shorter, so the
+  Open button, every row and the next file's remove button moved. The drop box
+  now stays in the middle of the window whatever the list holds, and the list
+  hangs below it in the same dashed frame: it grows downward, and removing a
+  file moves the older ones up and shortens the frame from the bottom.
+- Track face, Track points and Track box followed from the playhead to the end
+  of the file when the playhead was not inside the selected range, including
+  exactly at its end (as after setting Out): a 2.9 s range got 200 keyframes
+  from its end to the end of the file and none inside it. Track now never
+  leaves the selected range; with the playhead outside it, the playhead goes to
+  the range's start first, where you pick the face, box or points.
+- After Track face (or any follow path), crop mode showed the whole source
+  picture, and moving the crop did nothing, because the path sets where the
+  view is and the crop only its shape. Crop mode now stays on the output as
+  you see it: the largest view the path can have at the playhead is held
+  still as a dashed area, and the crop box is the view as it is now inside it.
+  It can shrink, grow back to the whole area and move; an aspect such as 1:1
+  gives the largest box of that shape around the view's middle; moving the box
+  moves the whole path by the same amount (to take in the mouth below a
+  tracked face, for example).
+- Crop mode: a crop as large as the picture had its corner handles on the
+  stage's edges, under the timeline's divider and the bar above, so grabbing
+  a corner missed the crop (and could resize the timeline instead). The
+  picture now has a 16 px margin in crop mode.
+- The preview lost colour while Follow turned the picture (Track face turns it
+  to keep the eyes level). An unturned video is drawn by the graphics card as
+  an overlay, which skips the conversion to the display's colour profile; a
+  turned one is drawn with the page, which converts it. On a wide-gamut display
+  the same frame measured R 180 G 88 B 251 unturned and R 159 G 98 B 245 turned.
+  The window now uses an sRGB colour profile (WebView2
+  `--force-color-profile=srgb`), so both are drawn the same (180/88/251 and
+  181/90/251). The encoded file was not affected: ffmpeg's rotate keeps the
+  colour (mean saturation 14.2 without the turn, 14.1 with it). The rest of the
+  interface is also no longer converted to the display's profile.
+
 ## [1.2.0] - 2026-11-20
 
 ### Added

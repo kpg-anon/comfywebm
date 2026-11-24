@@ -63,6 +63,10 @@ export function splitArgs(text: string): string[] {
 }
 
 /** The timeline track's height: standard and tallest, px. */
+/** Size limit aim in percent: webm.py's `-l` (1000/1024 of the limit), plan.rs DEFAULT_SIZE_TARGET */
+export const SIZE_TARGET_DEFAULT = 100000 / 1024;
+/** a percentage to at most 2 decimals: 97.65625 -> "97.66" */
+export const fmtPct = (p: number) => String(Math.round(p * 100) / 100);
 export const TRACK_MIN = 26;
 /** the track's standard height: thumbnails large enough to see */
 export const TRACK_STD = 72;
@@ -85,15 +89,24 @@ const REMEMBERED = [
   "presetName", "container", "codec", "rateMode", "maxBytes", "crf", "maxBitrateK", "autoScale",
   "maxWidth", "maxHeight", "fps", "speed", "playback", "denoise", "stabilize", "smoothSlowmo", "fadeIn", "fadeOut", "effort",
   "twoPass", "audioOn", "audioBitrateK", "volumeDb", "normalize", "separate", "aspect",
-  "resMode", "resStep", "resPct", "exactEdge", "exactVal", "stepBy", "adjustPreview",
+  "resMode", "resStep", "resPct", "exactEdge", "exactVal", "stepBy",
   "logoPath", "logoCorner", "logoSize", "logoOpacity", "logoX", "logoY", "logoSpacing", "logoAngle",
   "captionFont", "captionColor", "captionOutlineColor", "captionOutline",
 ] as const;
 
-export const NEUTRAL_ADJUST: Adjust = { brightness: 0, contrast: 1, saturation: 1, gamma: 1, hue: 0, curve: [] };
+/** The remembered options still restored when the app starts from the preset (Settings >
+ *  Files > On start): how things are laid out and chosen, not what an encode does. The logo
+ *  file is not among them, so a watermark is never added without being picked again. */
+const KEPT_ON_FRESH_START: ReadonlySet<string> = new Set([
+  "aspect", "resStep", "resPct", "exactEdge", "exactVal", "stepBy",
+  "logoCorner", "logoSize", "logoOpacity", "logoX", "logoY", "logoSpacing", "logoAngle",
+  "captionFont", "captionColor", "captionOutlineColor", "captionOutline",
+]);
+
+export const NEUTRAL_ADJUST: Adjust = { brightness: 0, contrast: 1, saturation: 1, gamma: 1, hue: 0, curve: [], temperature: 0, tint: 0 };
 
 export const isNeutral = (a: Adjust) =>
-  a.brightness === 0 && a.contrast === 1 && a.saturation === 1 && a.gamma === 1 && a.hue === 0 && a.curve.every(([x, y]) => Math.abs(x - y) < 1e-4);
+  a.brightness === 0 && a.contrast === 1 && a.saturation === 1 && a.gamma === 1 && a.hue === 0 && !a.temperature && !a.tint && a.curve.every(([x, y]) => Math.abs(x - y) < 1e-4);
 
 export type View = "editor" | "batch" | "splits" | "queue";
 
@@ -259,11 +272,18 @@ class AppState {
   /** Thumbnails from every frame (made after the key frame ones, cached), not only from key frames. Remembered. */
   exactThumbs = $state(load<boolean>("timelineExact") ?? true);
   /** Size limit: encode again when the file misses the limit (up to 4 attempts); off, one
-   *  attempt aimed at about 95% of the limit. Remembered; off to start with. */
+   *  attempt. Remembered; off to start with. */
   sizeRetries = $state(load<boolean>("sizeRetries") ?? false);
   setSizeRetries(on: boolean) {
     this.sizeRetries = on;
     save("sizeRetries", on);
+  }
+  /** Size limit: the share of the limit an encode aims at, in percent. Remembered; webm.py's
+   *  1000/1024 to start with (plan.rs DEFAULT_SIZE_TARGET). */
+  sizeTarget = $state(load<number>("sizeTarget") ?? SIZE_TARGET_DEFAULT);
+  setSizeTarget(pct: number) {
+    this.sizeTarget = Number.isFinite(pct) ? Math.min(100, Math.max(50, pct)) : SIZE_TARGET_DEFAULT;
+    save("sizeTarget", this.sizeTarget);
   }
   /** Add to queue starts the queue too, instead of leaving the job waiting; remembered */
   queueAutoStart = $state(load<boolean>("queueAutoStart") ?? false);
@@ -343,8 +363,8 @@ class AppState {
   mirror = $state(false);
   vflip = $state(false);
   adjust = $state<Adjust>({ ...NEUTRAL_ADJUST, curve: [] });
-  /** show the color adjustments on the picture (an approximation, see Player.svelte) */
-  adjustPreview = $state(true);
+  /** while the eye in Adjustments (or \) is held: the picture without the adjustments */
+  adjustHold = $state(false);
   fadeIn = $state(0);
   fadeOut = $state(0);
   effort = $state<Effort>("best");
@@ -627,6 +647,7 @@ class AppState {
       rate: this.rate,
       twoPass: this.rateMode === "size" ? true : this.twoPass,
       sizeRetries: this.sizeRetries,
+      sizeTarget: this.sizeTarget / 100,
       effort: this.effort,
       audio: audioOk ? { track, bitrateK: this.audioBitrateK, volumeDb: this.volumeDb || 0, normalize: this.normalize } : null,
       subs,
@@ -658,6 +679,7 @@ class AppState {
             } : null,
       extraArgs: splitArgs(this.extraArgs),
       outputName: own ? this.outputName.trim() || null : null,
+      presetName: this.presetName || null,
       cover: own && m.audioOnly && this.coverPath ? this.coverPath : null,
       coverSize: own && m.audioOnly && this.coverPath ? this.coverSize : null,
       streamCopy: this.streamCopy,
@@ -920,11 +942,21 @@ class AppState {
   /** the Audio switch before a sound file turned it on; null when it did not */
   private audioBeforeSound: boolean | null = null;
 
+  /** On start: "preset" takes the last used preset's values and leaves every other option at
+   *  its default; "last" brings back the options from the last run. Remembered. */
+  startWith = $state<"preset" | "last">(load<string>("startWith") === "last" ? "last" : "preset");
+  setStartWith(v: "preset" | "last") {
+    this.startWith = v;
+    save("startWith", v);
+  }
+
   private restoreOptions() {
     const o = load<Record<string, unknown>>("options");
     if (!o || typeof o !== "object") return;
     const self = this as unknown as Record<string, unknown>;
+    const fresh = this.startWith === "preset";
     for (const k of REMEMBERED) {
+      if (fresh && !KEPT_ON_FRESH_START.has(k)) continue;
       const v = o[k];
       if (v === undefined) continue;
       // only take values of the same type as the default (null allowed for nullable fields)
@@ -1074,6 +1106,9 @@ class AppState {
         }
         this.sel = this.segments.length ? 0 : -1;
         if (this.segments.length) this.loop = true;
+        // the playhead at the selected range, not the first frame (the player seeks there
+        // once the new video has loaded, Player.svelte onMeta)
+        if (this.segments.length) this.seek(this.segments[this.sel].start);
         const parts = [
           this.segments.length ? `${this.segments.length} range${this.segments.length > 1 ? "s" : ""}` : "",
           mem.crop ? "the crop" : "",
@@ -1439,6 +1474,62 @@ class AppState {
   get viewCrop(): Crop | null {
     return this.crop ? toView(this.crop, this.srcW, this.srcH, this.turn) : null;
   }
+  /** The box crop mode shows and edits, as shown. With a follow path it is Follow's view at
+   *  the playhead (the crop's shape over Follow's zoom, where the path puts it): the crop's
+   *  own position is not used then, so the box would not move the output. */
+  get cropBox(): Crop | null {
+    if (!this.zoomPoints.length || !this.viewW) return this.viewCrop;
+    const v = this.outViewAt(this.current);
+    return { x: v.x, y: v.y, w: v.w, h: v.h };
+  }
+  /** Crop mode's box changed. Without a follow path it is the crop. With one, moving the box
+   *  moves every keyframe by the same amount (the whole path, so a tracked face can be framed
+   *  lower or higher), and resizing it sets the crop's size at Follow's zoom. */
+  setCropBox(c: Crop | null, commit = true) {
+    const cur = this.cropBox;
+    if (!this.zoomPoints.length || !c || !cur) {
+      this.setViewCrop(c, commit);
+      return;
+    }
+    const [W, H] = [this.viewW, this.viewH];
+    const z = zoomMath.at(this.zoomPoints, this.current).zoom;
+    if (Math.abs(c.w - cur.w) > 0.5 || Math.abs(c.h - cur.h) > 0.5) {
+      // the crop is the view times the zoom, kept in the picture; its place does not matter
+      const w = Math.min(W, c.w * z);
+      const h = Math.min(H, c.h * z);
+      this.setViewCrop({ x: (W - w) / 2, y: (H - h) / 2, w, h }, commit);
+    }
+    const dx = (c.x + c.w / 2 - (cur.x + cur.w / 2)) / W;
+    const dy = (c.y + c.h / 2 - (cur.y + cur.h / 2)) / H;
+    if (Math.abs(dx) > 1e-6 || Math.abs(dy) > 1e-6) {
+      const cl = (v: number) => Math.min(1, Math.max(0, v));
+      this.zoomPoints = this.zoomPoints.map((p) => ({ ...p, x: cl(p.x + dx), y: cl(p.y + dy) }));
+    }
+  }
+
+  /** Crop mode with a follow path: the crop drawn on Follow's view `v` (the output at the
+   *  playhead, `box` in its own pixels, as shown: upright). The view takes the box's shape
+   *  and size, and the whole path moves by how far the box's middle is from the view's
+   *  (turned onto the picture when the view is turned), so the tracking is kept. */
+  applyFollowCrop(v: Crop & { rot: number }, box: Crop) {
+    if (!this.zoomPoints.length || !this.viewW) return;
+    const [W, H] = [this.viewW, this.viewH];
+    const z = Math.max(1, zoomMath.at(this.zoomPoints, this.current).zoom);
+    if (Math.abs(box.w - v.w) > 0.5 || Math.abs(box.h - v.h) > 0.5) {
+      // the crop is the view times the zoom (viewAt); its own place is not used with a path
+      const w = Math.min(W, box.w * z);
+      const h = Math.min(H, box.h * z);
+      this.setViewCrop({ x: (W - w) / 2, y: (H - h) / 2, w, h });
+    }
+    const [dx, dy] = [box.x + box.w / 2 - v.w / 2, box.y + box.h / 2 - v.h / 2];
+    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+      const a = (-(v.rot || 0) * Math.PI) / 180;
+      const [px, py] = [dx * Math.cos(a) - dy * Math.sin(a), dx * Math.sin(a) + dy * Math.cos(a)];
+      const cl = (q: number) => Math.min(1, Math.max(0, q));
+      this.zoomPoints = this.zoomPoints.map((p) => ({ ...p, x: cl(p.x + px / W), y: cl(p.y + py / H) }));
+    }
+  }
+
   /** Set the crop from one drawn on the shown picture; `commit` false while dragging (no rounding). */
   setViewCrop(c: Crop | null, commit = true) {
     const s = c ? fromView(c, this.srcW, this.srcH, this.turn) : null;
@@ -1450,7 +1541,15 @@ class AppState {
   setAspect(a: AspectLock) {
     this.aspect = a;
     const r = ratioOf(a);
-    if (r && this.media) {
+    if (r && this.media && this.zoomPoints.length && this.viewW) {
+      // with a follow path: the largest view of that shape (the picture over Follow's zoom),
+      // around the middle of the view as it is now
+      const v = this.outViewAt(this.current);
+      const z = Math.max(1, zoomMath.at(this.zoomPoints, this.current).zoom);
+      const [mw, mh] = [this.viewW / z, this.viewH / z];
+      const f = fitRatio({ x: 0, y: 0, w: mw, h: mh }, r, mw, mh);
+      this.applyFollowCrop(v, { x: v.w / 2 - f.w / 2, y: v.h / 2 - f.h / 2, w: f.w, h: f.h });
+    } else if (r && this.media) {
       const base = this.viewCrop ?? { x: 0, y: 0, w: this.viewW, h: this.viewH };
       this.setViewCrop(fitRatio(base, r, this.viewW, this.viewH));
     }
@@ -1620,18 +1719,45 @@ class AppState {
 
   /** Follow the box drawn on the picture (as shown) from the playhead to the end of the
    *  selected range (or of the file), and make the follow path that keeps it in the picture. */
+  /** Track follows the selected range only: from the playhead to the range's end. With the
+   *  playhead outside the range, or within 0.2 s of its end, it goes to the range's start
+   *  first, so the person or face is picked on that frame and the whole range is followed. */
+  private toTrackStart() {
+    const s = this.selSeg;
+    if (s && (this.current < s.start || this.current > s.end - 0.2)) this.seek(s.start);
+  }
+  /** From the playhead to the selected range's end (the file's end without a range), or null
+   *  with a note when the playhead is not in the range (it was moved after Track started). */
+  private trackSpan(): [number, number] | null {
+    const start = this.current;
+    const s = this.selSeg;
+    if (s && (start < s.start - 1e-3 || start > s.end - 0.2)) {
+      this.toast({ kind: "info", title: "Nothing to follow", text: "Track follows the selected range from the playhead; put the playhead inside the range first.", path: null });
+      return null;
+    }
+    const end = s ? s.end : this.duration;
+    if (end - start < 0.2) {
+      this.toast({ kind: "info", title: "Nothing to follow", text: "Put the playhead before the end of the range first.", path: null });
+      return null;
+    }
+    return [start, end];
+  }
+  /** Track box...: draw the box around the person on the frame at the playhead (the range's start when it is outside the range). */
+  startFollowBox() {
+    this.cropMode = false;
+    this.pointsMode = false;
+    this.toTrackStart();
+    this.followMode = true;
+  }
+
   async follow(viewBox: Crop) {
     const m = this.media;
     if (!m || m.audioOnly || this.following !== null) return;
     this.followMode = false;
     this.followBox = null;
-    const start = this.current;
-    const s = this.selSeg;
-    const end = s && start >= s.start && start < s.end ? s.end : this.duration;
-    if (end - start < 0.2) {
-      this.toast({ kind: "info", title: "Nothing to follow", text: "Put the playhead before the end of the range first.", path: null });
-      return;
-    }
+    const span = this.trackSpan();
+    if (!span) return;
+    const [start, end] = span;
     const src = fromView(viewBox, this.srcW, this.srcH, this.turn);
     const rect = { x: Math.round(src.x), y: Math.round(src.y), w: Math.max(8, Math.round(src.w)), h: Math.max(8, Math.round(src.h)) };
     this.following = 0;
@@ -1669,6 +1795,7 @@ class AppState {
       const made = zoomMath.simplify(zoomMath.camera(dense, mx, my), Math.max(0.001, 0.1 * narrowest)).map((q) => ({ ...q, zoom: z }));
       const keep = this.zoomPoints.filter((q) => q.t < start - 0.01 || q.t > end + 0.01);
       this.zoomPoints = zoomMath.clean([...keep, ...made]);
+      this.followSel = [];
       this.followLane = true;
       const weak = pts.filter((p) => p.score < 0.35).length;
       this.toast({
@@ -1695,6 +1822,7 @@ class AppState {
   startPoints(kind: "points" | "face" = "points") {
     this.cropMode = false;
     this.followMode = false;
+    this.toTrackStart();
     this.trackPts = [];
     this.pointsKind = kind;
     this.pointsMode = true;
@@ -1723,13 +1851,9 @@ class AppState {
     if (!m || m.audioOnly || !pts.length || this.following !== null) return;
     this.pointsMode = false;
     this.trackPts = [];
-    const start = this.current;
-    const s = this.selSeg;
-    const end = s && start >= s.start && start < s.end ? s.end : this.duration;
-    if (end - start < 0.2) {
-      this.toast({ kind: "info", title: "Nothing to follow", text: "Put the playhead before the end of the range first.", path: null });
-      return;
-    }
+    const span = this.trackSpan();
+    if (!span) return;
+    const [start, end] = span;
     const src = pts.map((p) => {
       const c = fromView({ x: p.x, y: p.y, w: 0, h: 0 }, this.srcW, this.srcH, this.turn);
       return [c.x, c.y] as [number, number];
@@ -1778,6 +1902,7 @@ class AppState {
       const made = zoomMath.simplify(dense, 0.002).map((q) => ({ ...q, zoom: z }));
       const keep = this.zoomPoints.filter((q) => q.t < start - 0.01 || q.t > end + 0.01);
       this.zoomPoints = zoomMath.clean([...keep, ...made]);
+      this.followSel = [];
       this.followLane = true;
       const weak = fr.filter((f) => f.p.some((p) => p[2] < 0.5)).length;
       const turned = face || pts.length > 1 ? ` The view turns ${Math.round(Math.min(...sr))} to ${Math.round(Math.max(...sr))} degrees to keep ${face ? "the eyes" : "the line between the points"} level.` : "";
@@ -1810,18 +1935,91 @@ class AppState {
   /** Remove the follow keyframes (Follow's zoom goes with them; the sidebar zoom stays). */
   clearFollow() {
     this.zoomPoints = [];
+    this.followSel = [];
+  }
+
+  /** Adjustments > Auto is measuring frames. */
+  autoColorBusy = $state(false);
+  /** Settings > Tools > Auto color: how Auto finds the light's colour (wb.rs). Remembered. */
+  wbMethod = $state<ipc.WbMethod>((load<string>("wbMethod") as ipc.WbMethod | null) ?? "combined");
+  setWbMethod(m: ipc.WbMethod) {
+    this.wbMethod = m;
+    save("wbMethod", m);
+  }
+  /** Adjustments > Auto: white balance, levels and exposure measured on frames of the ranges
+   *  (autocolor.rs). Sets temperature, tint, brightness, contrast and gamma; saturation, hue
+   *  and the curve stay as they are. */
+  async autoColor() {
+    const m = this.media;
+    if (!m || m.audioOnly || this.autoColorBusy) return;
+    this.autoColorBusy = true;
+    try {
+      const segs = this.segments.filter((s) => s.end > s.start).map((s) => [s.start, s.end] as [number, number]);
+      const r = await ipc.autoColor(m.path, segs, this.wbMethod);
+      if (this.media?.path !== m.path) return;
+      const a = r.adjust;
+      this.adjust = { ...this.adjust, temperature: a.temperature ?? 0, tint: a.tint ?? 0, brightness: a.brightness, contrast: a.contrast, gamma: a.gamma };
+      this.toast({
+        kind: "info",
+        title: `Auto color, from ${r.frames} frames`,
+        text: `${r.notes.join(" ")} Hold the eye (or \\) to compare with the original; the sliders can change it; Reset all removes it.`,
+        path: null,
+      });
+    } catch (e) {
+      this.error = `Auto color: ${ipc.errText(e)}`;
+    } finally {
+      this.autoColorBusy = false;
+    }
+  }
+
+  /** Set by the timeline: Z zooms it to the selection (Shift: the whole file). */
+  zoomTimelineToSel: ((whole: boolean) => void) | null = null;
+
+  /** The selected follow keyframes, by time (indices change as keyframes move past each other). */
+  followSel = $state<number[]>([]);
+  isFollowSel(t: number): boolean {
+    return this.followSel.some((s) => Math.abs(s - t) < 1e-6);
+  }
+  /** The selection with keyframes that no longer exist left out. */
+  get followSelected(): number[] {
+    return this.followSel.filter((s) => this.zoomPoints.some((p) => Math.abs(p.t - s) < 1e-6));
+  }
+  selectAllFollow() {
+    this.followSel = this.zoomPoints.map((p) => p.t);
+  }
+  /** Removes the selected keyframes. */
+  removeSelectedFollow() {
+    const next = this.zoomPoints.filter((p) => !this.isFollowSel(p.t));
+    this.followSel = [];
+    if (next.length) this.zoomPoints = next;
+    else this.clearFollow();
+  }
+  /** Moves keyframes (from `from`, a copy taken when the drag began) whose time is in `ts` by
+   *  dt seconds, all together, kept inside the file; the selection follows them. */
+  moveFollowKeys(from: ZoomPoint[], ts: number[], dt: number) {
+    const has = (t: number) => ts.some((s) => Math.abs(s - t) < 1e-6);
+    const moving = from.filter((p) => has(p.t));
+    if (!moving.length) return;
+    const lo = Math.min(...moving.map((p) => p.t));
+    const hi = Math.max(...moving.map((p) => p.t));
+    const d = Math.min(Math.max(dt, -lo), Math.max(0, (this.duration || hi) - hi));
+    const moved = moving.map((p) => ({ ...p, t: Math.round((p.t + d) * 1e6) / 1e6 }));
+    // a keyframe left in place where a moved one lands gives way to it
+    const kept = from.filter((p) => !has(p.t) && !moved.some((q) => Math.abs(q.t - p.t) < 0.01));
+    this.zoomPoints = zoomMath.clean([...kept, ...moved]);
+    this.followSel = moved.map((p) => p.t);
   }
 
   /** Arrow keys in crop mode, as shown on screen: move, or with `grow` change the size from the top-left corner. */
   nudgeCrop(dx: number, dy: number, grow: boolean) {
-    const c = this.viewCrop;
+    const c = this.cropBox;
     if (!c || !this.media) return;
     const [W, H] = [this.viewW, this.viewH];
     if (grow) {
       const w = Math.min(Math.max(1, c.w + dx), W - c.x);
       const h = Math.min(Math.max(1, c.h + dy), H - c.y);
-      this.setViewCrop({ x: c.x, y: c.y, w, h }, false);
-    } else this.setViewCrop(move(c, dx, dy, W, H), false);
+      this.setCropBox({ x: c.x, y: c.y, w, h }, false);
+    } else this.setCropBox(move(c, dx, dy, W, H), false);
   }
 
   // ---------- container and codec ----------

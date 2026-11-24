@@ -9,8 +9,10 @@
   let url = $state("");
 </script>
 
+<!-- The drop box stays in the middle of the window; the recent files hang below it in the
+     same dashed frame, so the list grows (and shrinks) downward and never moves Open. -->
 <div class="empty">
-  <div class="box">
+  <div class="box" class:joined={app.showRecent && app.recent.length > 0}>
     <Icon name="film" size={40} />
     <div class="big">Drop a video here</div>
     <div class="muted small">Several files at once each become a whole-file job in the queue.</div>
@@ -31,6 +33,11 @@
       <button class="btn" disabled={!url.trim()} onclick={() => onurl(url.trim())}><Icon name="link" size={14} />Open URL</button>
     </div>
 
+    {#if app.ffmpegMissing}<ToolsMissing which="ffmpeg" />{/if}
+    {#if app.ytdlpMissing}<ToolsMissing which="ytdlp" />{/if}
+  </div>
+
+  <div class="below">
     {#if app.showRecent && app.recent.length}
       <div class="recent">
         <div class="rhead head-text">Recent</div>
@@ -46,24 +53,23 @@
         {/each}
       </div>
     {/if}
-
-    {#if app.ffmpegMissing}<ToolsMissing which="ffmpeg" />{/if}
-    {#if app.ytdlpMissing}<ToolsMissing which="ytdlp" />{/if}
-
   </div>
 </div>
 
 <style>
+  /* three rows: the box in the middle one, centred in the window whatever the list holds;
+     the list starts right under it and, when long, runs past the bottom (the page scrolls) */
   .empty {
     flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
+    justify-items: center;
     padding: 20px;
     min-height: 0;
     overflow-y: auto;
   }
   .box {
+    grid-row: 2;
     width: min(540px, 100%);
     display: flex;
     flex-direction: column;
@@ -74,6 +80,26 @@
     border-radius: 12px;
     color: var(--text-muted);
     text-align: center;
+  }
+  /* with recent files: the frame goes on around the list below */
+  .box.joined {
+    /* transparent, not none: the same height either way */
+    border-bottom-color: transparent;
+    border-radius: 12px 12px 0 0;
+  }
+  .below {
+    grid-row: 3;
+    align-self: start;
+    width: min(540px, 100%);
+  }
+  /* pulled up into the box's bottom padding: the box keeps the same height, list or not, so
+     Open does not move when the last file is removed */
+  .below .recent {
+    margin-top: -16px;
+    padding: 0 24px 22px;
+    border: 2px dashed var(--border);
+    border-top: none;
+    border-radius: 0 0 12px 12px;
   }
   .big {
     font-size: 16px;

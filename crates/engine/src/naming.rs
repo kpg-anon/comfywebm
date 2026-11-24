@@ -58,7 +58,30 @@ pub fn sanitize(name: &str) -> String {
     if reserved { format!("_{s}") } else { s }
 }
 
-/// Fills `{name} {start} {end} {codec} {height} {date}`.
+/// The `{preset}` token: the platform (the preset name's first word) and the size limit,
+/// `4chan-4MiB`, `Discord-20MB`. A limit that is a whole number of MiB is shown in MiB,
+/// one that is a whole number of MB in MB, any other in MiB to 2 decimals. Without a size
+/// limit, the platform alone; without a preset, the limit alone.
+pub fn preset_token(spec: &EncodeSpec) -> String {
+    let platform = spec.preset_name.as_deref().and_then(|n| n.split_whitespace().next()).unwrap_or("");
+    let limit = match spec.rate {
+        crate::spec::Rate::Size { max_bytes } if max_bytes.is_finite() && max_bytes > 0.0 => {
+            let mib = max_bytes / 1_048_576.0;
+            let mb = max_bytes / 1_000_000.0;
+            if mib.fract() == 0.0 {
+                format!("{mib}MiB")
+            } else if mb.fract() == 0.0 {
+                format!("{mb}MB")
+            } else {
+                format!("{}MiB", (mib * 100.0).round() / 100.0)
+            }
+        }
+        _ => String::new(),
+    };
+    [platform, &limit].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join("-")
+}
+
+/// Fills `{name} {start} {end} {codec} {height} {date} {preset}`.
 pub fn render(template: &str, spec: &EncodeSpec, info: &MediaInfo, out_height: u32) -> String {
     let stem = Path::new(&spec.input)
         .file_stem()
@@ -76,7 +99,8 @@ pub fn render(template: &str, spec: &EncodeSpec, info: &MediaInfo, out_height: u
             .replace("{end}", &fmt_time(end))
             .replace("{codec}", spec.codec.name())
             .replace("{height}", &out_height.to_string())
-            .replace("{date}", &today()),
+            .replace("{date}", &today())
+            .replace("{preset}", &preset_token(spec)),
     )
 }
 
@@ -165,4 +189,24 @@ pub fn frame_path(input: &str, time: f64, out_dir: Option<&str>) -> PathBuf {
     let stem = Path::new(input).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "frame".into());
     let name = sanitize(&format!("{stem}_{}", fmt_time(time)));
     unique(&output_dir(input, out_dir).join(format!("{name}.png")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::spec::Rate;
+
+    #[test]
+    fn preset_token_is_platform_and_limit() {
+        let spec: EncodeSpec = serde_json::from_str(include_str!("../contract/encode_spec.json")).unwrap();
+        let with = |name: Option<&str>, rate: Rate| preset_token(&EncodeSpec { preset_name: name.map(Into::into), rate, ..spec.clone() });
+        let size = |b: f64| Rate::Size { max_bytes: b };
+        assert_eq!(with(Some("4chan /wsg/ (6 MiB, sound)"), size(6_291_456.0)), "4chan-6MiB");
+        assert_eq!(with(Some("Discord Nitro Basic (50 MB)"), size(50_000_000.0)), "Discord-50MB");
+        assert_eq!(with(Some("4chan (4 MiB, no sound)"), size(3_670_016.0)), "4chan-3.5MiB");
+        assert_eq!(with(Some("4chan (4 MiB, no sound)"), size(3_000_001.0)), "4chan-2.86MiB");
+        assert_eq!(with(Some("X / Twitter"), Rate::Crf { crf: 20.0, max_bitrate_k: None }), "X");
+        assert_eq!(with(None, size(4_194_304.0)), "4MiB");
+        assert_eq!(with(None, Rate::Crf { crf: 20.0, max_bitrate_k: None }), "");
+    }
 }

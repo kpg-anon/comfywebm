@@ -21,7 +21,8 @@
         "center": true,
         "visible": false,
         "backgroundColor": "#111418",
-        "dragDropEnabled": true
+        "dragDropEnabled": true,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --force-color-profile=srgb"
       }
     ],
     "security": {

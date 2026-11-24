@@ -2,6 +2,7 @@
 //! No Tauri dependencies; the app shell lives in `src-tauri`.
 
 pub mod autocolor;
+pub mod canvas;
 pub mod wb;
 pub mod config;
 pub mod gyro;
@@ -13,6 +14,7 @@ pub mod proxy;
 pub mod pytrack;
 pub mod quality;
 pub mod ramp;
+pub mod rotation;
 pub mod run;
 pub mod scenes;
 pub mod stab;

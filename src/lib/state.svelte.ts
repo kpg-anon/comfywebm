@@ -6,6 +6,7 @@ import { describeEdit } from "./history";
 import * as zoomMath from "./zoom";
 import { siteOf, refusal } from "./sites";
 import * as ramp from "./ramp";
+import * as rot from "./rotation";
 import { AUDIO_LABEL, BUILTIN_PRESETS, CODECS_BY_CONTAINER, CRF_RANGE, audioCodecFor } from "./presets";
 import { fitRatio, fromView, isFull, move, ratioOf, round, toView, viewSize, type AspectLock, type View as Turn } from "./crop";
 import * as seg from "./segments";
@@ -27,7 +28,10 @@ import type {
   Preset,
   PresetEntry,
   Rate,
+  Background,
+  Canvas,
   Rotate,
+  RotatePoint,
   Segment,
   Settings,
   SpeedPoint,
@@ -84,6 +88,26 @@ const intOrNull = (v: number | null | undefined): number | null => {
   return n === null ? null : Math.max(1, Math.round(n));
 };
 
+export type CanvasMode = "auto" | "9:16" | "16:9" | "1:1" | "4:5" | "ratio" | "size";
+
+/** The frame for a w x h picture, as the engine's canvas.rs frame_size: the canvas's own size
+ *  (exact), or the smallest frame of its shape that holds the picture; even numbers. */
+export function frameSize(c: Canvas, w: number, h: number): [number, number] {
+  const even = (v: number) => Math.max(2, Math.round(v / 2) * 2);
+  if (c.exact) return [Math.max(2, Math.floor(c.w / 2) * 2), Math.max(2, Math.floor(c.h / 2) * 2)];
+  const r = c.w / c.h;
+  return w / h > r ? [even(w), even(w / r)] : [even(h * r), even(h)];
+}
+
+/** Settings that belong to the file being edited, kept with its edit (EditMemory.opts) so a
+ *  file opened again looks and plays as it was left (Settings > Files > Opening a file again). */
+const FILE_OPTIONS = [
+  "speed", "playback", "fadeIn", "fadeOut", "denoise", "stabilize", "smoothSlowmo", "deinterlace", "tonemap",
+  "volumeDb", "normalize", "audioTrack", "subsKind", "subsTrack", "subsFile", "subsDelay",
+  "captionText", "title", "outputName",
+  "canvas", "canvasRW", "canvasRH", "canvasW", "canvasH", "frameFill", "frameBg",
+] as const;
+
 /** Option fields remembered in localStorage between runs (not tied to one source). */
 const REMEMBERED = [
   "presetName", "container", "codec", "rateMode", "maxBytes", "crf", "maxBitrateK", "autoScale",
@@ -92,13 +116,14 @@ const REMEMBERED = [
   "resMode", "resStep", "resPct", "exactEdge", "exactVal", "stepBy",
   "logoPath", "logoCorner", "logoSize", "logoOpacity", "logoX", "logoY", "logoSpacing", "logoAngle",
   "captionFont", "captionColor", "captionOutlineColor", "captionOutline",
+  "canvas", "canvasRW", "canvasRH", "canvasW", "canvasH", "frameFill", "frameBg",
 ] as const;
 
 /** The remembered options still restored when the app starts from the preset (Settings >
  *  Files > On start): how things are laid out and chosen, not what an encode does. The logo
  *  file is not among them, so a watermark is never added without being picked again. */
 const KEPT_ON_FRESH_START: ReadonlySet<string> = new Set([
-  "aspect", "resStep", "resPct", "exactEdge", "exactVal", "stepBy",
+  "aspect", "resStep", "resPct", "exactEdge", "exactVal", "stepBy", "canvasRW", "canvasRH", "canvasW", "canvasH",
   "logoCorner", "logoSize", "logoOpacity", "logoX", "logoY", "logoSpacing", "logoAngle",
   "captionFont", "captionColor", "captionOutlineColor", "captionOutline",
 ]);
@@ -143,11 +168,29 @@ type EditSnap = {
   vflip: boolean;
   adjust: Adjust;
   speedRamp: SpeedPoint[];
+  rotatePoints: RotatePoint[];
   zoom: ZoomPoint[];
   zoomLevel: number;
 };
 /** followV 2: follow keyframes are 0..1 of the whole picture; before, of the crop */
-type EditMemory = { segments: Segment[]; order: number[] | null; crop: Crop | null; speedRamp?: SpeedPoint[]; zoom?: ZoomPoint[]; followV?: number; zoomLevel?: number; t: number };
+type EditMemory = {
+  segments: Segment[];
+  order: number[] | null;
+  crop: Crop | null;
+  speedRamp?: SpeedPoint[];
+  /** rotation keyframes, and the Rotate setting (with or without them) */
+  rotatePoints?: RotatePoint[];
+  rotate?: Rotate;
+  mirror?: boolean;
+  vflip?: boolean;
+  adjust?: Adjust;
+  /** the file's own settings (FILE_OPTIONS) as they were left */
+  opts?: Record<string, unknown>;
+  zoom?: ZoomPoint[];
+  followV?: number;
+  zoomLevel?: number;
+  t: number;
+};
 
 function loadRecent(): string[] {
   const r = load<unknown>("recent");
@@ -309,7 +352,29 @@ class AppState {
   private editIdx = 0;
 
   // crop, in source display pixels before rotate
-  cropMode = $state(false);
+  #cropMode = $state(false);
+  /** what crop mode can change (the crop, the aspect lock, a follow path), as it was when
+   *  crop mode was turned on: Esc puts it back (cancelCrop), Enter and Done keep the changes */
+  private cropStart: { crop: Crop | null; aspect: AspectLock; zoom: ZoomPoint[] } | null = null;
+  get cropMode() {
+    return this.#cropMode;
+  }
+  set cropMode(on: boolean) {
+    if (on && !this.#cropMode)
+      this.cropStart = $state.snapshot({ crop: this.crop, aspect: this.aspect, zoom: this.zoomPoints }) as { crop: Crop | null; aspect: AspectLock; zoom: ZoomPoint[] };
+    if (!on) this.cropStart = null;
+    this.#cropMode = on;
+  }
+  /** Leaves crop mode without its changes. */
+  cancelCrop() {
+    const s = this.cropStart;
+    if (s) {
+      this.crop = s.crop;
+      this.aspect = s.aspect;
+      this.zoomPoints = s.zoom;
+    }
+    this.cropMode = false;
+  }
   crop = $state<Crop | null>(null);
   aspect = $state<AspectLock>("free");
 
@@ -360,6 +425,25 @@ class AppState {
   smoothSlowmo = $state(false);
   tonemap = $state(false);
   rotate = $state<Rotate>(0);
+  /** rotation keyframes of the open file (file time, engine rotation.rs); before the first, `rotate` */
+  rotatePoints = $state<RotatePoint[]>([]);
+  /** the Rotate lane is shown under the timeline */
+  rotateLane = $state(false);
+  /** the rotation keyframe open in the keyframe panel (its index), or null */
+  rotateSel = $state<number | null>(null);
+  /** The output's frame (engine canvas.rs): the picture's own shape (auto), a shape, a ratio of
+   *  one's own (canvasRW : canvasRH), or an exact size (canvasW x canvasH). Remembered, like the
+   *  resolution. */
+  canvas = $state<CanvasMode>("auto");
+  canvasRW = $state(21);
+  canvasRH = $state(9);
+  canvasW = $state(1080);
+  canvasH = $state(1920);
+  /** a picture of another shape than the frame (the canvas, a turned part) covers it, cut at the
+   *  edges, instead of showing whole */
+  frameFill = $state(false);
+  /** around a picture that does not fill the frame: black, or a blurred copy of it */
+  frameBg = $state<Background>("black");
   mirror = $state(false);
   vflip = $state(false);
   adjust = $state<Adjust>({ ...NEUTRAL_ADJUST, curve: [] });
@@ -621,6 +705,11 @@ class AppState {
       segments: segments.map((s) => ({ start: s.start, end: s.end })),
       crop: own ? this.jobCrop : null,
       rotate: this.rotate,
+      // the keyframes are the open file's own (file time): Batch and Splits items do not get them
+      rotatePoints: own && this.rotatePoints.length ? rot.clean($state.snapshot(this.rotatePoints) as RotatePoint[]) : [],
+      canvas: this.canvasSpec,
+      fill: this.frameFill,
+      background: this.frameBg,
       mirror: this.mirror,
       vflip: this.vflip,
       adjust: isNeutral(this.adjust) ? null : ($state.snapshot(this.adjust) as Adjust),
@@ -690,18 +779,18 @@ class AppState {
 
   /** The edit state as text; a change in it is an edit. The selection alone is not. */
   editKey(): string {
-    return JSON.stringify([this.segments, this.order, this.crop, this.rotate, this.mirror, this.vflip, this.adjust, this.speedRamp, this.zoomPoints, this.zoomLevel]);
+    return JSON.stringify([this.segments, this.order, this.crop, this.rotate, this.mirror, this.vflip, this.adjust, this.speedRamp, this.zoomPoints, this.zoomLevel, this.rotatePoints]);
   }
 
   private snap(): EditSnap {
-    const { segments, order, sel, crop, rotate, mirror, vflip, adjust, speedRamp } = this;
+    const { segments, order, sel, crop, rotate, mirror, vflip, adjust, speedRamp, rotatePoints } = this;
     const zoom = this.zoomPoints;
     const zoomLevel = this.zoomLevel;
-    return $state.snapshot({ segments, order, sel, crop, rotate, mirror, vflip, adjust, speedRamp, zoom, zoomLevel }) as EditSnap;
+    return $state.snapshot({ segments, order, sel, crop, rotate, mirror, vflip, adjust, speedRamp, rotatePoints, zoom, zoomLevel }) as EditSnap;
   }
 
   private static key(s: EditSnap): string {
-    return JSON.stringify([s.segments, s.order, s.crop, s.rotate, s.mirror, s.vflip, s.adjust, s.speedRamp, s.zoom, s.zoomLevel]);
+    return JSON.stringify([s.segments, s.order, s.crop, s.rotate, s.mirror, s.vflip, s.adjust, s.speedRamp, s.zoom, s.zoomLevel, s.rotatePoints]);
   }
 
   /**
@@ -743,6 +832,7 @@ class AppState {
     this.sel = -1;
     this.crop = null;
     this.rotate = 0;
+    this.rotatePoints = [];
     this.mirror = false;
     this.vflip = false;
     this.adjust = { ...NEUTRAL_ADJUST, curve: [] };
@@ -784,6 +874,7 @@ class AppState {
     this.vflip = s.vflip;
     this.adjust = s.adjust;
     this.speedRamp = s.speedRamp ?? [];
+    this.rotatePoints = s.rotatePoints ?? [];
     this.zoomPoints = s.zoom ?? [];
     this.zoomLevel = s.zoomLevel ?? 1;
   }
@@ -820,7 +911,12 @@ class AppState {
       return s ? [s[0], s[1]] : [w, h];
     }
     if (crop) [w, h] = [crop.w, crop.h];
-    return this.rotate === 90 || this.rotate === 270 ? [h, w] : [w, h];
+    const r = m === this.media ? this.viewRotate : this.rotate;
+    if (r === 90 || r === 270) [w, h] = [h, w];
+    // the canvas, as the engine sizes it (not used with Follow)
+    const c = this.canvasSpec;
+    if (c && !(m === this.media && this.zoomPoints.length)) return frameSize(c, w, h);
+    return [w, h];
   }
 
   /** The box the output is fitted in: the size mode's box within the preset's limit. */
@@ -964,6 +1060,8 @@ class AppState {
       if (v === null || cur === null || typeof v === typeof cur) self[k] = v;
     }
     if (!this.presets.some((p) => p.name === this.presetName)) this.presetName = this.defaultPreset;
+    if ((this.canvas as string) === "custom") this.canvas = "size";
+    if (!["auto", "9:16", "16:9", "1:1", "4:5", "ratio", "size"].includes(this.canvas)) this.canvas = "auto";
     if (!CODECS_BY_CONTAINER[this.container]?.includes(this.codec)) this.setContainer(this.container in CODECS_BY_CONTAINER ? this.container : "webm");
     const [lo, hi] = this.crfRange;
     this.crf = Math.min(hi, Math.max(lo, Number(this.crf) || this.crfRange[2]));
@@ -996,19 +1094,55 @@ class AppState {
     return `${m.path.replace(/\\/g, "/").toLowerCase()}|${m.sizeBytes}|${m.duration.toFixed(3)}`;
   }
 
-  /** Ranges, output order and crop of the last 40 files, so reopening a file brings its edit back. */
+  /** The open file's own settings (FILE_OPTIONS). */
+  fileOptions(): Record<string, unknown> {
+    const self = this as unknown as Record<string, unknown>;
+    return Object.fromEntries(FILE_OPTIONS.map((k) => [k, $state.snapshot(self[k])]));
+  }
+  /** The file's own settings differ from how a file opens without a remembered edit. */
+  private fileOptionsChanged(m: MediaInfo): boolean {
+    return (
+      this.speed !== 1 || this.playback !== "forward" || this.fadeIn > 0 || this.fadeOut > 0 || this.denoise || this.stabilize ||
+      this.smoothSlowmo || this.deinterlace !== m.video.interlaced || this.tonemap !== (m.video.hdr && !!this.tools?.filters.zscale) ||
+      this.volumeDb !== 0 || this.normalize || this.audioTrack !== (m.audio[0]?.track ?? 0) || this.subsKind !== "off" ||
+      this.subsDelay !== 0 || !!this.captionText.trim() || !!this.title.trim() || !!this.outputName.trim() || this.canvas !== "auto"
+    );
+  }
+  /** Saves the open file's edit and settings now (the settings change without an undo step). */
+  saveFileMemory() {
+    if (this.media) this.saveEditMemory(this.snap());
+  }
+
+  /** Opening a file that was edited before (Settings > Files): its edit and its own settings as
+   *  they were left (all), the edit only, or neither. Remembered. */
+  reopenWith = $state<"all" | "edit" | "none">(((v) => (v === "edit" || v === "none" ? v : "all"))(load<string>("reopenWith")));
+  setReopenWith(v: "all" | "edit" | "none") {
+    this.reopenWith = v;
+    save("reopenWith", v);
+  }
+
+  /** The edit and own settings of the last 40 files, so reopening a file brings them back. */
   private saveEditMemory(s: EditSnap) {
     const m = this.media;
     if (!m) return;
     const key = AppState.editMemoryKey(m);
     const all = (load<Record<string, EditMemory>>("edits") ?? {}) as Record<string, EditMemory>;
-    if (!s.segments.length && !s.crop && !s.speedRamp.length && !s.zoom.length && s.zoomLevel === 1) delete all[key];
+    const opts = this.fileOptionsChanged(m) ? this.fileOptions() : undefined;
+    const turned = s.rotate !== 0 || s.mirror || s.vflip || !isNeutral(s.adjust);
+    if (!s.segments.length && !s.crop && !s.speedRamp.length && !s.rotatePoints.length && !s.zoom.length && s.zoomLevel === 1 && !turned && !opts)
+      delete all[key];
     else
       all[key] = {
         segments: s.segments,
         order: s.order,
         crop: s.crop,
         speedRamp: s.speedRamp.length ? s.speedRamp : undefined,
+        rotatePoints: s.rotatePoints.length ? s.rotatePoints : undefined,
+        rotate: s.rotate || undefined,
+        mirror: s.mirror || undefined,
+        vflip: s.vflip || undefined,
+        adjust: isNeutral(s.adjust) ? undefined : s.adjust,
+        opts,
         zoom: s.zoom.length ? s.zoom : undefined,
         followV: s.zoom.length ? 2 : undefined,
         zoomLevel: s.zoomLevel !== 1 ? s.zoomLevel : undefined,
@@ -1016,6 +1150,51 @@ class AppState {
       };
     const keep = Object.entries(all).sort((a, b) => b[1].t - a[1].t).slice(0, 40);
     save("edits", Object.fromEntries(keep));
+  }
+
+  /** Closes the open file and goes back to the start page (the drop box and recent files).
+   *  Its edit and own settings are saved first, so opening it again brings them back. */
+  closeFile() {
+    if (!this.media) return;
+    // an edit still waiting for its pause is recorded and saved
+    this.noteEdit();
+    this.saveFileMemory();
+    if (this.sample) this.closeSample();
+    this.cancelFollow();
+    if (this.proxyFraction !== null) ipc.proxyCancel().catch(() => {});
+    this.video?.pause();
+    this.openSeq++; // a probe still running for this file is ignored
+    this.media = null;
+    this.videoSrc = null;
+    this.usingProxy = false;
+    this.proxyFraction = null;
+    this.current = 0;
+    this.paused = true;
+    this.segments = [];
+    this.sel = -1;
+    this.order = null;
+    this.playEdit = false;
+    this.loop = false;
+    this.crop = null;
+    this.cropMode = false;
+    this.rotate = 0;
+    this.rotatePoints = [];
+    this.rotateSel = null;
+    this.mirror = false;
+    this.vflip = false;
+    this.adjust = { ...NEUTRAL_ADJUST, curve: [] };
+    this.speedRamp = [];
+    this.zoomPoints = [];
+    this.followSel = [];
+    this.zoomLevel = 1;
+    this.cuts = null;
+    this.findingCuts = false;
+    this.plan = null;
+    this.planError = null;
+    this.embeddedCoverUrl = null;
+    this.resetHistory();
+    this.historyOpen = false;
+    this.setView("editor");
   }
 
   async open(path: string, restoreEdit = true): Promise<boolean> {
@@ -1045,6 +1224,8 @@ class AppState {
       this.plan = null;
       this.planError = null;
       this.rotate = 0;
+      this.rotatePoints = [];
+      this.rotateSel = null;
       this.mirror = false;
       this.vflip = false;
       this.adjust = { ...NEUTRAL_ADJUST, curve: [] };
@@ -1082,7 +1263,14 @@ class AppState {
       }
       this.remember(path);
       const mem = load<Record<string, EditMemory>>("edits")?.[AppState.editMemoryKey(info)];
-      if (restoreEdit && mem && (mem.segments.length || mem.crop || mem.speedRamp?.length || mem.zoom?.length || (mem.zoomLevel ?? 1) !== 1)) {
+      const withOpts = this.reopenWith === "all" && !!mem?.opts;
+      const turned = !!mem && (!!mem.rotate || !!mem.mirror || !!mem.vflip || !!mem.adjust);
+      if (
+        restoreEdit &&
+        this.reopenWith !== "none" &&
+        mem &&
+        (mem.segments.length || mem.crop || mem.speedRamp?.length || mem.rotatePoints?.length || mem.zoom?.length || (mem.zoomLevel ?? 1) !== 1 || turned || withOpts)
+      ) {
         // the empty state is the first undo step, so Ctrl+Z drops the restored edit
         this.steps = [{ snap: this.snap(), label: "Opened the file", time: Date.now() }];
         this.at = 0;
@@ -1092,6 +1280,28 @@ class AppState {
         this.crop = info.audioOnly ? null : mem.crop;
         this.speedRamp = (mem.speedRamp ?? []).filter((p) => p.t <= info.duration + 0.5);
         if (this.speedRamp.length) this.rampLane = true;
+        if (!info.audioOnly) {
+          this.rotatePoints = (mem.rotatePoints ?? []).filter((p) => p.t <= info.duration + 0.5);
+          if (this.rotatePoints.length) this.rotateLane = true;
+          this.rotate = ([0, 90, 180, 270] as const).find((r) => r === mem.rotate) ?? 0;
+          this.mirror = !!mem.mirror;
+          this.vflip = !!mem.vflip;
+          if (mem.adjust) this.adjust = { ...NEUTRAL_ADJUST, ...mem.adjust, curve: mem.adjust.curve ?? [] };
+        }
+        if (withOpts && mem.opts) {
+          // only values of the same type as now; a track or subtitle file that is no longer there is left out
+          const self = this as unknown as Record<string, unknown>;
+          for (const k of FILE_OPTIONS) {
+            const v = mem.opts[k];
+            if (v === undefined || (v !== null && self[k] !== null && typeof v !== typeof self[k])) continue;
+            self[k] = v;
+          }
+          if (!info.audio.some((a) => a.track === this.audioTrack)) this.audioTrack = info.audio[0]?.track ?? 0;
+          // (read back as SubsKind: it was set to "off" above, before the loop)
+          const kind = this.subsKind as SubsKind;
+          if (kind === "embedded" && !info.subs.some((s) => s.track === this.subsTrack)) this.subsKind = "off";
+          if (kind === "file" && !this.subsFile) this.subsKind = "off";
+        }
         this.zoomPoints = info.audioOnly ? [] : (mem.zoom ?? []).filter((p) => p.t <= info.duration + 0.5);
         this.zoomLevel = info.audioOnly ? 1 : (mem.zoomLevel ?? 1);
         // saved before Follow had its own zoom: keyframes at 1x used the sidebar zoom
@@ -1113,10 +1323,19 @@ class AppState {
           this.segments.length ? `${this.segments.length} range${this.segments.length > 1 ? "s" : ""}` : "",
           mem.crop ? "the crop" : "",
           this.speedRamp.length ? "the speed ramp" : "",
+          this.rotatePoints.length ? "the rotation keyframes" : this.rotate ? `the ${this.rotate}° rotation` : "",
+          this.mirror || this.vflip ? "the flip" : "",
+          mem.adjust ? "the adjustments" : "",
           this.zoomPoints.length ? "the follow path" : this.zoomLevel !== 1 ? "the zoom" : "",
         ].filter(Boolean);
+        if (withOpts) parts.push("its settings (speed, filters, fades, sound, caption, canvas...)");
         const what = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
-        this.toast({ kind: "info", title: "Restored your last edit", text: `${what} from the last time this file was open. Ctrl+Z removes them.`, path: null });
+        this.toast({
+          kind: "info",
+          title: "Restored your last edit",
+          text: `${what[0].toUpperCase()}${what.slice(1)} from the last time this file was open. Ctrl+Z removes the edit; Settings > Files sets what opening a file again brings back.`,
+          path: null,
+        });
       }
       return true;
     } catch (e) {
@@ -1463,7 +1682,7 @@ class AppState {
   // The crop as shown: the picture turned and flipped as the encode will (crop
   // mode shows it that way). The crop itself stays in source pixels.
   get turn(): Turn {
-    return { rotate: this.rotate, mirror: this.mirror, vflip: this.vflip };
+    return { rotate: this.viewRotate, mirror: this.mirror, vflip: this.vflip };
   }
   get viewW() {
     return viewSize(this.srcW, this.srcH, this.turn)[0];
@@ -1555,6 +1774,141 @@ class AppState {
     }
   }
 
+  // ---------- keyframes on the lanes ----------
+
+  /** The rule-of-thirds lines over the output while the Follow lane is shown; remembered. */
+  thirds = $state(load<boolean>("thirds") ?? false);
+  toggleThirds() {
+    this.thirds = !this.thirds;
+    save("thirds", this.thirds);
+  }
+
+  /** PgUp / PgDn: the playhead to the previous (-1) or next (1) keyframe on the lanes shown
+   *  (all lanes' keyframes when none is shown). An open keyframe editor follows when the
+   *  playhead lands on a keyframe of its lane. */
+  jumpKey(dir: -1 | 1) {
+    const lanes: [boolean, number[]][] = [
+      [this.followLane, this.zoomPoints.map((p) => p.t)],
+      [this.rotateLane, this.rotatePoints.map((p) => p.t)],
+      [this.rampLane, this.speedRamp.map((p) => p.t)],
+    ];
+    const shown = lanes.filter(([on, ts]) => on && ts.length);
+    const ts = [...new Set((shown.length ? shown : lanes).flatMap(([, t]) => t))].sort((a, b) => a - b);
+    // past the frame the playhead is on: keyframes sit in a frame's middle
+    const half = this.fpsSrc > 0 ? 0.5 / this.fpsSrc : 0.02;
+    const t = dir > 0 ? ts.find((x) => x > this.current + half) : [...ts].reverse().find((x) => x < this.current - half);
+    if (t === undefined) return;
+    this.seek(t);
+    if (this.followSelected.length === 1) {
+      const f = this.zoomPoints.find((p) => Math.abs(p.t - t) < 1e-6);
+      if (f) this.followSel = [f.t];
+    }
+    if (this.rotateSel !== null) {
+      const r = this.rotatePoints.findIndex((p) => Math.abs(p.t - t) < 1e-6);
+      if (r >= 0) this.rotateSel = r;
+    }
+  }
+
+  // ---------- canvas (engine canvas.rs) ----------
+
+  /** The canvas as the job gets it; null = the picture's own shape. */
+  get canvasSpec(): Canvas | null {
+    const c = this.canvas;
+    if (c === "auto") return null;
+    if (c === "size") {
+      const w = Math.round(Number(this.canvasW));
+      const h = Math.round(Number(this.canvasH));
+      return w >= 16 && h >= 16 && w <= 8192 && h <= 8192 ? { w, h, exact: true } : null;
+    }
+    if (c === "ratio") {
+      // whole numbers for the engine: 2.39 : 1 is sent as 239 : 100
+      const [a, b] = [Number(this.canvasRW), Number(this.canvasRH)];
+      if (!(a > 0 && b > 0 && a / b >= 0.05 && a / b <= 20)) return null;
+      const w = Math.round(a * 1000);
+      const h = Math.round(b * 1000);
+      const g = (x: number, y: number): number => (y ? g(y, x % y) : x);
+      const d = g(w, h) || 1;
+      return { w: w / d, h: h / d, exact: false };
+    }
+    const [w, h] = c.split(":").map(Number);
+    return { w, h, exact: false };
+  }
+  /** The canvas is used for the open file: set, and no Follow keyframes (Follow has its own view). */
+  get canvasOn(): boolean {
+    return !!this.canvasSpec && !!this.media && !this.audioOnly && !this.zoomPoints.length;
+  }
+  /** The output frame's shape (width over height) when the picture does not set it alone:
+   *  a canvas, or rotation keyframes (the picture's shape at the first output frame). */
+  get frameRatio(): number | null {
+    const c = this.canvasOn ? this.canvasSpec : null;
+    if (c) return c.w / c.h;
+    return null;
+  }
+
+  // ---------- rotation keyframes (file time, kept sorted; engine rotation.rs) ----------
+
+  /** The rotation keyframes turn the picture in the encode: they leave the Rotate setting
+   *  somewhere, and Follow (which turns its own view) has no keyframes. */
+  get rotating(): boolean {
+    return !!this.media && !this.audioOnly && !this.zoomPoints.length && rot.active(this.rotate, this.rotatePoints);
+  }
+  /** The quarter turn the picture is shown at for cropping and sizing: with rotation keyframes,
+   *  the frame's shape (the angle at the first output frame), else the Rotate setting. */
+  get viewRotate(): Rotate {
+    if (!this.rotating) return this.rotate;
+    return rot.quarter(rot.frameAngle(this.rotate, this.rotatePoints, this.outSegments[0]?.start ?? 0, this.fpsSrc));
+  }
+  /** The angle of the frame at source time t (the Rotate setting without keyframes). */
+  rotateAt(t: number): number {
+    return this.rotatePoints.length ? rot.frameAngle(this.rotate, this.rotatePoints, t, this.fpsSrc) : this.rotate;
+  }
+
+  /** Adds a rotation keyframe on the frame at file time t (the angle there unless given); returns its index. */
+  addRotateKey(t: number, angle?: number): number {
+    const at = rot.onFrame(Math.min(Math.max(0, t), this.duration || t), this.fpsSrc);
+    const a = rot.norm(angle ?? this.rotateAt(at));
+    const next = rot.clean([...this.rotatePoints.filter((q) => Math.abs(q.t - at) >= 0.01), { t: at, angle: a, smooth: false }]);
+    this.rotatePoints = next;
+    this.rotateLane = true;
+    return next.findIndex((q) => q.t === at);
+  }
+
+  /** Moves keyframe i in time (onto a frame, between its neighbours) and/or sets its angle or smooth. */
+  setRotateKey(i: number, patch: Partial<RotatePoint>) {
+    const p = [...this.rotatePoints];
+    const q = p[i];
+    if (!q) return;
+    let t = q.t;
+    if (patch.t !== undefined) {
+      const lo = i > 0 ? p[i - 1].t + 0.01 : 0;
+      const hi = i < p.length - 1 ? p[i + 1].t - 0.01 : this.duration || patch.t;
+      t = rot.onFrame(Math.min(Math.max(lo, patch.t), Math.max(lo, hi)), this.fpsSrc);
+      // the frame's middle can fall past a neighbour: then it stays
+      if ((i > 0 && t <= p[i - 1].t) || (i < p.length - 1 && t >= p[i + 1].t)) t = q.t;
+    }
+    p[i] = { t, angle: patch.angle !== undefined ? rot.norm(patch.angle) : q.angle, smooth: patch.smooth ?? q.smooth };
+    this.rotatePoints = p;
+  }
+
+  removeRotateKey(i: number) {
+    this.rotatePoints = this.rotatePoints.filter((_, k) => k !== i);
+    const s = this.rotateSel;
+    if (s !== null) this.rotateSel = s === i ? null : s > i ? s - 1 : s;
+  }
+
+  clearRotateKeys() {
+    this.rotatePoints = [];
+    this.rotateSel = null;
+  }
+
+  /** Moves keyframe i by whole frames (keeping it between its neighbours) and shows that frame. */
+  stepRotateKey(i: number, frames: number) {
+    const q = this.rotatePoints[i];
+    if (!q) return;
+    this.setRotateKey(i, { t: q.t + frames / this.fpsSrc });
+    this.seek(this.rotatePoints[i].t);
+  }
+
   // ---------- speed ramp (points in file time, kept sorted) ----------
 
   /** Adds a point at file time t (at the ramp's speed there, or 1x); returns its index. */
@@ -1639,7 +1993,8 @@ class AppState {
     return i >= 0 && Math.abs(this.zoomPoints[i].t - t) <= half + 1e-6 ? i : -1;
   }
 
-  /** Follow's zoom: the keyframes' (the lane's slider sets them all); 2x before the first one. */
+  /** Follow's zoom: the largest of the keyframes' (the lane's slider sets them all; the keyframe
+   *  panel sets one); 2x before the first one. */
   get followZoom(): number {
     return this.zoomPoints.length ? Math.max(...this.zoomPoints.map((p) => p.zoom)) : 2;
   }
@@ -1656,8 +2011,9 @@ class AppState {
     // in the middle of its frame, where the player shows that frame
     const f = this.fpsSrc;
     if (f > 0) at = Math.round(((Math.floor(at * f + 1e-4) + 0.5) / f) * 1e6) / 1e6;
-    const p = this.zoomPoints.length ? zoomMath.at(this.zoomPoints, at) : { zoom: 1, x: 0.5, y: 0.5 };
-    const next = zoomMath.clean([...this.zoomPoints.filter((q) => Math.abs(q.t - at) >= 0.01), { t: at, zoom: this.followZoom, x: p.x, y: p.y }]);
+    // the path's zoom, centre and turn there (keyframes may each have their own zoom); the first at Follow's zoom
+    const p = this.zoomPoints.length ? zoomMath.at(this.zoomPoints, at) : { zoom: this.followZoom, x: 0.5, y: 0.5, rot: 0 };
+    const next = zoomMath.clean([...this.zoomPoints.filter((q) => Math.abs(q.t - at) >= 0.01), { t: at, zoom: p.zoom, x: p.x, y: p.y, rot: p.rot }]);
     this.zoomPoints = next;
     this.followLane = true;
     return next.findIndex((q) => q.t === at);
@@ -2325,11 +2681,18 @@ class AppState {
     }
   }
 
-  /** `P`: encode 3 seconds at the playhead with the current settings. */
   /** Sample length in seconds (3, 6 or 10), remembered for the session. */
   sampleSecs = $state(3);
 
-  async runSample(at = this.current) {
+  /** Where a sample starts: the selected range's In point, wherever the playhead is; without
+   *  ranges, the playhead. */
+  get sampleFrom(): number {
+    const g = this.segments[this.sel];
+    return g ? g.start : this.current;
+  }
+
+  /** `P`: encode a few seconds (sampleSecs) from `at` with the current settings. */
+  async runSample(at = this.sampleFrom) {
     const s = this.spec;
     if (!s || this.ffmpegMissing) return;
     const seq = ++this.sampleSeq;
@@ -2572,6 +2935,8 @@ class AppState {
     this.sel = this.segments.length ? 0 : -1;
     this.crop = s.crop ? { ...s.crop } : null;
     this.rotate = s.rotate;
+    this.rotatePoints = (s.rotatePoints ?? []).map((p) => ({ ...p }));
+    if (this.rotatePoints.length) this.rotateLane = true;
     this.mirror = s.mirror;
     this.vflip = !!s.vflip;
     this.loop = this.segments.length > 0;

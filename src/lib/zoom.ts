@@ -171,15 +171,29 @@ export function camera(dense: CamPoint[], mx: number, my: number): ZoomPoint[] {
  *  path's largest turn is kept inside the picture, and the view is that box's middle, turned
  *  by `rot` degrees (the picture clockwise). */
 export function viewAt(points: ZoomPoint[], t: number, fw: number, fh: number, W: number, H: number): Crop & { rot: number } {
-  const p = at(points, t);
+  const c = clean(points);
+  const p = at(c, t);
   const z = Math.max(1, p.zoom);
   const w = Math.min(W, fw / z);
   const h = Math.min(H, fh / z);
-  const turn = (Math.min(90, Math.max(0, ...clean(points).map((q) => Math.abs(q.rot ?? 0)))) * Math.PI) / 180;
-  const bw = turn > 1e-6 ? Math.min(W, w * Math.cos(turn) + h * Math.sin(turn)) : w;
-  const bh = turn > 1e-6 ? Math.min(H, w * Math.sin(turn) + h * Math.cos(turn)) : h;
-  const cx = Math.min(Math.max(0, p.x * W - bw / 2), W - bw) + bw / 2;
-  const cy = Math.min(Math.max(0, p.y * H - bh / 2), H - bh) + bh / 2;
+  // As the engine's window_filter: the box cut around the path's centre (kept inside the
+  // picture) holds the widest view (the smallest zoom) at the largest turn; a closer view is
+  // centred on the path's centre and kept inside the widest view.
+  const zmin = Math.max(1, Math.min(...c.map((q) => q.zoom), z));
+  const [ww, wh] = [Math.min(W, fw / zmin), Math.min(H, fh / zmin)];
+  const turn = (Math.min(90, Math.max(0, ...c.map((q) => Math.abs(q.rot ?? 0)))) * Math.PI) / 180;
+  const bw = turn > 1e-6 ? Math.min(W, ww * Math.cos(turn) + wh * Math.sin(turn)) : ww;
+  const bh = turn > 1e-6 ? Math.min(H, ww * Math.sin(turn) + wh * Math.cos(turn)) : wh;
+  const bx = Math.min(Math.max(0, p.x * W - bw / 2), W - bw) + bw / 2;
+  const by = Math.min(Math.max(0, p.y * H - bh / 2), H - bh) + bh / 2;
+  let [cx, cy] = [bx, by];
+  if (zmin < z - 1e-6) {
+    // the path's centre, within the widest view around the box's middle (unturned: the turn
+    // is around the view's centre, so it does not move the centre)
+    const [dx, dy] = [p.x * W - bx, p.y * H - by];
+    cx = bx + Math.min(Math.max(dx, -(ww - w) / 2), (ww - w) / 2);
+    cy = by + Math.min(Math.max(dy, -(wh - h) / 2), (wh - h) / 2);
+  }
   return { x: cx - w / 2, y: cy - h / 2, w, h, rot: p.rot };
 }
 

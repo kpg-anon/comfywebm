@@ -148,6 +148,19 @@ building it yourself. For an overview and the downloads, see
   limit, or under 98% of it, is encoded again at a bitrate aimed at 99% of the limit (interpolated
   between earlier attempts when one was over and one under), at most 4
   attempts; the largest result that fits is kept.
+- **Canvas** (Advanced > Canvas): the output's frame. Auto is the picture's
+  own shape (the crop's, turned; with rotation keyframes, its shape at the
+  first output frame). 9:16, 16:9, 1:1, 4:5 and Custom ratio (any W : H, such
+  as 2.39 : 1) make the smallest frame of that shape that holds the picture,
+  and Custom size sets it in pixels; Resolution and the
+  size limit then scale the frame, keeping its shape. A picture of another
+  shape than the frame fits in it whole (Picture: Fit) with black or a blurred
+  copy of itself around it (Background), or covers it with the edges cut
+  (Fill). The preview shows the frame with a thin edge. It applies to every
+  clip, Batch too, but not to Splits (they have their own canvas) or while
+  Follow has keyframes (the output is Follow's view). With ranges from other
+  files every range is fitted with black around it. Remembered between runs;
+  "Start from the preset" sets it back to Auto.
 - **Resolution**: Auto (in size limit mode: the largest size, at least 540
   pixels on its short side, with about 0.10 bits per pixel for VP9 (0.07 AV1,
   0.15 H.264); if none has that, the 540 size; only for very small limits
@@ -193,10 +206,21 @@ building it yourself. For an overview and the downloads, see
   centre down. Follow's view has the crop's shape (or the picture's, without a
   crop) and moves over the whole picture, not only inside the crop: with a
   1:1 crop the output is a square that goes wherever the keyframes say. Its
-  size is that shape over Follow's own zoom (2x to start with), set with the
-  Zoom slider on the lane for all its keyframes; the sidebar's Global zoom is
-  for the picture without Follow and is greyed out while Follow has keyframes.
-  Keyframes can also turn the view (made by Track face and Track points).
+  size is that shape over Follow's own zoom (2x to start with). Each keyframe
+  has its own zoom, and the view zooms smoothly between them (the lane's dotted
+  yellow line, higher is closer, once the zooms differ); the Zoom (all) slider
+  on the lane sets every keyframe at once. Clicking one keyframe selects it
+  and fills the row under the lane with it: the keyframes beside it, its time
+  (typed or a frame at a time), its zoom (a slider and the exact value, 1x to
+  4x) and its turn; drag the picture to aim it. The row is there while the
+  lane is shown, greyed out with no keyframe selected, so the lane does not
+  move, and it never covers the picture. Esc or the close button clears it. The output's size is the widest
+  view (the smallest zoom); closer moments are zoomed in from it. While the
+  Follow lane is shown, the grid button at the bottom left of the picture
+  draws rule-of-thirds lines over the output, for placing the subject. The
+  sidebar's Global zoom is for the picture without Follow and is greyed out
+  while Follow has keyframes. Keyframes can also turn the view (made by Track
+  face and Track points, or set in the row).
   **Track face...** (on the lane): click on a face. OpenCV's face finder looks
   for it in every frame (the face nearest the one before), so a blink, a hand
   or a fast move does not lose it; the view stays on the face and turns to
@@ -242,6 +266,33 @@ building it yourself. For an overview and the downloads, see
   follows it (pitch kept), and the output length, size and fades use it. The
   ramp is part of the file's edit (undo, and it comes back when the file is
   opened again). It is used for the editor's file, not in Batch or Splits.
+- **Rotation keyframes**: Rotate under the timeline shows a lane where the
+  picture's angle changes partway through the clip, for a phone video that
+  goes sideways. The lane is a graph of the angle, higher is clockwise; its
+  scale fits the keyframes, and a turn past 180° carries on to 270° instead of
+  jumping to -90°. Before the first keyframe the Rotate setting applies. Click
+  the lane to add a keyframe at that time and height; the row under the lane
+  (there while the lane is shown, greyed out with no keyframe open) then
+  shows the keyframes beside it, the time (typed or a frame at a time), the angle (quarter-turn buttons, or any angle
+  typed), and Turn: At once (the angle changes on the keyframe's frame) or
+  Smoothly (it turns from the previous keyframe's angle over the time between
+  them, easing in and out, the shorter way round; drawn as a diamond). For a
+  phone being turned, put a keyframe where the turn starts and one where it
+  ends, and set the second to Smoothly. Click a keyframe to open it in the
+  row, drag it to move it (a drag along the lane keeps its angle), Delete
+  removes the open one, Esc or the close button clears the row.
+  Right-clicking the lane gives a 90° turn either way at the playhead. Angles
+  snap to quarter turns and 15° steps, times to range edges and the playhead
+  (hold Alt for neither). The output keeps one frame size, the picture's shape
+  at the first output frame, and crop mode shows the picture that way. A part
+  at another angle either fits in the frame whole, with black around it
+  (Fit, the default; black or a blurred copy around it), or fills it with the
+  edges cut (Fill), set under Advanced > Canvas > Picture and Background, the
+  same settings as for the canvas. The keyframes are part of the file's edit (undo, and they come back when the
+  file is opened again). They are used for the editor's file, not in Batch
+  or Splits, and not while Follow has keyframes (Follow turns its own view).
+  Burned-in subtitles turn with the picture; the caption and the watermark
+  stay upright.
 - **Quality mode**: CRF on the codec's own scale, with an optional bitrate cap.
 - **Codecs**: WebM with VP9, VP8 or AV1 (Opus audio, Vorbis with VP8); MP4 with
   H.264, HEVC or AV1 (AAC audio); GIF (one palette per clip, no sound). GIF has
@@ -349,10 +400,13 @@ building it yourself. For an overview and the downloads, see
   MKV and TS files) they are copied into an MP4 at full resolution in seconds;
   otherwise, or when that copy does not play, a 480p H.264 copy is made.
   Encoding always reads the original.
-- **Sample**: encodes 3, 6 or 10 seconds at the playhead with the current settings and
+- **Sample**: encodes 3, 6 or 10 seconds with the current settings, from the
+  selected range's In point (from the playhead when there are no ranges), and
   plays it in a loop, with its size and bitrate; "Compare with the source"
-  shows the source next to it.
-- **Frame**: saves the frame at the playhead as a full-resolution PNG, with the
+  shows the source next to it. The dialog fills the window's height and the
+  pictures are scaled to fit it, without scrolling.
+- **Frame** (the picture button at the bottom right of the picture, or `S`):
+  saves the frame at the playhead as a full-resolution PNG, with the
   crop applied. Shift+S (or Shift+click) saves it as the encode sees it, with
   the filters, adjustments, rotation and output size.
 - **Queue**: its own tab next to the editor (`Q` switches). Jobs run one at a
@@ -406,15 +460,17 @@ Keys do nothing while a text field has focus.
 | Left / Right | seek 1 s back / forward |
 | Shift + Left / Right | seek 5 s |
 | `,` / `.` | one frame back / forward (also `<` / `>`; the mouse wheel over the player does the same). The frame shown is the one a range starting there begins with; "Loading frame..." on the picture means it is not shown yet |
+| `PgUp` / `PgDn` | the previous / next keyframe on the lanes shown (Follow, Rotate, Speed); an open keyframe row follows |
 | `I` / `O` | set the start / end of the range under or nearest the playhead |
 | Shift + `I` / `O` | jump to the start / end of the selected range |
 | `N` | add a range at the playhead |
 | Delete / Backspace | remove the selected Follow keyframes, or the selected range (when there is more than one) |
 | `L` | loop the selected range |
-| `M` | mute / unmute the preview (also the speaker at the bottom right of the picture; the wheel over it sets the volume) |
+| `M` | mute / unmute the preview (also the speaker at the bottom right of the picture; its slider above it, or the wheel over it, sets the volume) |
 | `\` (hold) | adjustments: the original picture while held (also the eye in Advanced > Adjustments) |
 | `C` | crop mode on / off |
-| Enter or Esc | leave crop mode (the crop is kept) |
+| Enter | leave crop mode, keeping the crop |
+| Esc | leave crop mode, putting the crop (and the aspect lock and a follow path it moved) back as it was |
 | Arrows (crop mode) | move the crop 1 px; with Shift 10 px |
 | Alt + arrows (crop mode) | resize the crop |
 | `P` | sample: encode 3 s at the playhead |
@@ -431,6 +487,7 @@ Keys do nothing while a text field has focus.
 | Ctrl + U | open a web link |
 | Ctrl + E | encode |
 | Ctrl + Enter | add to the queue |
+| Ctrl + W | close the file and go back to the start page with the recent files (also the × beside the file name); its edit is kept for when it is opened again |
 
 Pasting a link while no text field has focus opens it in the web link dialog.
 
@@ -553,6 +610,14 @@ files).
   files and the watermark go back to their defaults (the watermark's place,
   size and the caption style are kept). Settings > Files > On start > "Keep the
   last options" brings back everything as it was instead.
+- Opening a file you edited before (the last 40 are kept, in local storage)
+  brings it back as it was left: its edit (ranges, order, crop, Rotate and the
+  rotation keyframes, flips, adjustments, speed ramp, follow path, zoom) and
+  its own settings (speed, direction, fades, filters, sound track and volume,
+  subtitles, caption, title, file name, canvas), whatever On start did. A
+  message says what came back; Ctrl+Z removes the edit. Settings > Files >
+  Opening a file again: "The edit only" leaves out the settings, "Start clean"
+  brings back neither.
 - Output goes to the Desktop by default; the Output group in the sidebar (or
   Settings) switches to beside the source file or another folder. A folder set
   in 1.1.0 or earlier keeps being used. Output names follow the name template in

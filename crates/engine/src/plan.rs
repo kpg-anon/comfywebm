@@ -1,6 +1,7 @@
 //! Pure planning: bitrate math, output size, filter graph, ffmpeg arguments
 //! and warnings. Nothing here touches the file system or spawns processes.
 
+use crate::rotation;
 use crate::spec::{
     Adjust, Caption,
     Codec, Container, Crop, Effort, EncodeSpec, MediaInfo, PlanInfo, Playback, Quality, Rate, Segment, StabMethod, SubsSel,
@@ -1026,7 +1027,7 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         if spec.stream_copy {
             warnings.push("Cut only (no re-encode) does not apply to splits; they are encoded.".into());
         }
-        if spec.crop.is_some() || spec.rotate != 0 || spec.mirror || spec.vflip {
+        if spec.crop.is_some() || spec.rotate != 0 || !spec.rotate_points.is_empty() || spec.mirror || spec.vflip {
             warnings.push("Crop, rotate and flip apply to one file and are not used with splits.".into());
         }
         if spec.subs.is_some() {
@@ -1133,6 +1134,18 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     };
     // with a ramp the constant speed is not used
     let speed = if ramp.is_some() { 1.0 } else { spec.speed };
+    // rotation keyframes: source time of `input`, so only for ranges of it; Follow turns its own view
+    let turning = rotation::active(spec.rotate as f64, &spec.rotate_points) && still.is_none() && layout.is_none() && {
+        if mixed {
+            warnings.push("The rotation keyframes apply to one file, so they are not used when ranges come from other files.".into());
+            false
+        } else if !spec.zoom.is_empty() {
+            warnings.push("The rotation keyframes are not used with Follow, which turns its own view.".into());
+            false
+        } else {
+            true
+        }
+    };
     // a still picture has nothing to play backwards; the sound plays forward
     let boomerang = spec.playback == Playback::Boomerang && still.is_none();
     if still.is_some() && spec.playback == Playback::Boomerang {
@@ -1266,12 +1279,21 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
     // Follow's own view (zoom.rs window_filter): it moves over the whole picture, so no crop
     let follow = spec.follow_window.filter(|f| !spec.zoom.is_empty() && still.is_none() && layout.is_none() && !mixed && f.w >= 2.0 && f.h >= 2.0);
     let crop = if still.is_some() || layout.is_some() || follow.is_some() { None } else { spec.crop };
-    let rotate = if layout.is_some() { 0 } else { spec.rotate };
+    // rotation keyframes: the frame has the picture's shape at the first output frame
+    let rotate = if layout.is_some() {
+        0
+    } else if turning {
+        let t0 = spec.rotate_from.or(segs.first().map(|s| s.0)).unwrap_or(0.0);
+        rotation::start_quarter(spec.rotate as f64, &spec.rotate_points, t0, v.fps)
+    } else {
+        spec.rotate
+    };
     let mut g = geometry(v.width, v.height, crop, rotate, spec.max_width, spec.max_height);
     // the whole picture (after rotation) that Follow's view moves over
     let (pic_w, pic_h) = (g.rot_w, g.rot_h);
     if let Some(f) = follow {
-        let z = crate::zoom::clean(&spec.zoom).first().map(|p| p.zoom).unwrap_or(1.0);
+        // the widest view (the smallest zoom): closer moments are zoomed in from it
+        let z = crate::zoom::widest(&spec.zoom).unwrap_or(1.0);
         let (w, h) = crate::zoom::window_size(f.w, f.h, z);
         g.rot_w = w.min(pic_w);
         g.rot_h = h.min(pic_h);
@@ -1292,6 +1314,29 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         let f = fit_factor(g.rot_w, g.rot_h, spec.max_width, spec.max_height);
         g.out_w = even_down(g.rot_w as f64 * f);
         g.out_h = even_down(g.rot_h as f64 * f);
+    }
+    // the canvas: the frame takes its shape or size, and the picture is put into it (canvas.rs)
+    let pic_frame = (g.rot_w, g.rot_h);
+    let canvas = spec.canvas.filter(|c| c.w >= 1 && c.h >= 1 && layout.is_none() && still.is_none()).filter(|_| {
+        if spec.zoom.is_empty() {
+            return true;
+        }
+        warnings.push("The canvas is not used with Follow: the output is Follow's view.".into());
+        false
+    });
+    if let Some(c) = canvas {
+        let (fw, fh) = crate::canvas::frame_size(&c, pic_frame.0, pic_frame.1);
+        g.rot_w = fw;
+        g.rot_h = fh;
+        let f = fit_factor(fw, fh, spec.max_width, spec.max_height);
+        g.out_w = even_down(fw as f64 * f);
+        g.out_h = even_down(fh as f64 * f);
+        if mixed && (spec.fill || spec.background != crate::spec::Background::Black) {
+            warnings.push(format!(
+                "With ranges from other files every range is fitted into the {} canvas with black around it; Fill and the blurred background are not used.",
+                crate::canvas::label(&c)
+            ));
+        }
     }
     let mut auto_scaled = false;
     if let (true, true, Some(k)) = (size_mode, spec.auto_scale, video_kbps) {
@@ -1454,9 +1499,10 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         tonemap,
         anamorphic: v.anamorphic,
         crop: g.crop,
-        rotate: spec.rotate,
-        mirror: spec.mirror,
-        vflip: spec.vflip,
+        // rotation keyframes turn and flip the joined picture (video_post)
+        rotate: if turning { 0 } else { spec.rotate },
+        mirror: spec.mirror && !turning,
+        vflip: spec.vflip && !turning,
         adjust: spec.adjust.as_ref(),
         subtitles: subtitles.as_ref(),
         subs_delay: if spec.subs_delay.is_finite() { spec.subs_delay } else { 0.0 },
@@ -1622,13 +1668,32 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         }
     }
     // zoom points: ranges of `input` only, not a still picture or splits
-    let zoom = if spec.zoom.is_empty() || still.is_some() || layout.is_some() {
+    let zoom = if turning {
+        let pic = g.crop.map_or((v.width, v.height), |c| (c.2, c.3));
+        let frame = rotation::Frame {
+            segs: &segs,
+            pic,
+            quarter: rotate,
+            ratio: canvas.map(|_| g.rot_w as f64 / g.rot_h.max(1) as f64),
+            out: (g.out_w, g.out_h),
+            fps: v.fps,
+            vfr: v.vfr,
+            mirror: spec.mirror,
+            vflip: spec.vflip,
+            fill: spec.fill,
+            background: spec.background,
+        };
+        rotation::filter(spec.rotate as f64, &spec.rotate_points, &frame)
+    } else if canvas.is_some() && !mixed {
+        // joined files are fitted into the canvas per range (`fit`)
+        crate::canvas::filter(pic_frame.0, pic_frame.1, g.out_w, g.out_h, spec.fill, spec.background)
+    } else if spec.zoom.is_empty() || still.is_some() || layout.is_some() {
         None
     } else if mixed {
         warnings.push("The zoom applies to one file, so it is not used when ranges come from other files.".into());
         None
     } else if let Some(f) = follow {
-        crate::zoom::window_filter(&spec.zoom, &segs, f.w, f.h, pic_w, pic_h, (g.out_w, g.out_h))
+        crate::zoom::window_filter(&spec.zoom, &segs, f.w, f.h, pic_w, pic_h, (g.out_w, g.out_h), v.fps)
     } else {
         crate::zoom::filter(&spec.zoom, &segs, g.out_w, g.out_h, if v.fps > 0.0 { v.fps } else { 30.0 })
     };
@@ -2151,7 +2216,7 @@ fn build_copy(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planne
     if spec.crop.is_some() {
         ignored.push("crop");
     }
-    if spec.rotate != 0 || spec.mirror || spec.vflip {
+    if spec.rotate != 0 || !spec.rotate_points.is_empty() || spec.mirror || spec.vflip {
         ignored.push("rotate and flip");
     }
     if spec.max_width.is_some_and(|w| w < v.width) || spec.max_height.is_some_and(|h| h < v.height) {
@@ -2385,6 +2450,11 @@ mod tests {
             segments: vec![Segment { start: 10.0, end: 14.0 }],
             crop: None,
             rotate: 0,
+            rotate_points: Vec::new(),
+            canvas: None,
+            fill: false,
+            background: Default::default(),
+            rotate_from: None,
             mirror: false,
             vflip: false,
             adjust: None,
@@ -3172,6 +3242,7 @@ mod tests {
         let mut sp = spec(Rate::Size { max_bytes: 4194304.0 });
         sp.adjust = Some(crate::spec::Adjust::default());
         sp.layout = Some(test_layout(crate::spec::LayoutMode::Columns));
+        sp.canvas = Some(crate::spec::Canvas { w: 9, h: 16, exact: false });
         check("encode_spec.json", serde_json::to_value(&sp).unwrap());
         check("media_info.json", serde_json::to_value(media()).unwrap());
         check("settings.json", serde_json::to_value(crate::spec::Settings::default()).unwrap());

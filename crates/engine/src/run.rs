@@ -430,6 +430,8 @@ pub fn sample(
         start = start.min((info.duration - secs).max(0.0));
     }
     let end = if info.duration > 0.0 { (start + secs).min(info.duration) } else { start + secs };
+    // rotation keyframes: the sample keeps the clip's frame shape
+    s.rotate_from = Some(own.rotate_from.unwrap_or(own.segments.first().map_or(0.0, |g| g.start)));
     s.segments = vec![Segment { start, end }];
     s.fade_in = 0.0;
     s.fade_out = 0.0;
@@ -463,6 +465,8 @@ pub fn sample(
 pub fn export_frame_processed(ffmpeg: &Path, spec: &EncodeSpec, info: &MediaInfo, time: f64, out: &Path, zscale: bool) -> Result<PathBuf, String> {
     let mut s = spec.clone();
     let t = time.clamp(0.0, (info.duration - 0.05).max(0.0));
+    // rotation keyframes: the frame keeps the clip's shape
+    s.rotate_from = Some(spec.rotate_from.unwrap_or(spec.segments.first().map_or(0.0, |g| g.start)));
     s.segments = vec![Segment { start: t, end: (t + 1.0).min(info.duration.max(t + 0.05)) }];
     s.audio = None;
     s.fade_in = 0.0;

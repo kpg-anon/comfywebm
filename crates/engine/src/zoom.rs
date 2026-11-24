@@ -93,7 +93,7 @@ fn source_time(segs: &[(f64, f64)]) -> String {
 }
 
 /// The same from another filter's time variable (crop and rotate call it `t`).
-fn source_time_of(segs: &[(f64, f64)], it: &str) -> String {
+pub(crate) fn source_time_of(segs: &[(f64, f64)], it: &str) -> String {
     let mut off = 0.0;
     let mut parts = Vec::new();
     for (i, (s, e)) in segs.iter().enumerate() {
@@ -169,18 +169,25 @@ pub fn window_size(fw: f64, fh: f64, zoom: f64) -> (u32, u32) {
     (even(fw), even(fh))
 }
 
+/// The zoom Follow's widest view has: the smallest of the points'.
+pub fn widest(points: &[ZoomPoint]) -> Option<f64> {
+    clean(points).iter().map(|p| p.zoom).reduce(f64::min)
+}
+
 /// Follow's view (`window_size`) moved over a `pw` x `ph` picture and turned:
-/// a box large enough to hold the view at the path's largest turn is cut out
-/// around the path's centre (kept inside the picture), turned by the path's
-/// angle around its middle, and the view cut from that middle. ffmpeg's crop
-/// keeps one size for the whole clip, so the zoom is the first point's (the
-/// app gives all keyframes one zoom). The view is then scaled to the output's
-/// `out` size when that differs (Auto resolution, a size limit): unlike zoompan,
-/// which draws at the output size, the view comes out at its own. None without points.
-pub fn window_filter(points: &[ZoomPoint], segs: &[(f64, f64)], fw: f64, fh: f64, pw: u32, ph: u32, out: (u32, u32)) -> Option<String> {
+/// a box large enough to hold the widest view (the smallest zoom) at the
+/// path's largest turn is cut out around the path's centre (kept inside the
+/// picture), turned by the path's angle around its middle, and the widest view
+/// cut from that middle. ffmpeg's crop keeps one size for the whole clip, so
+/// when the points' zooms differ, zoompan then zooms in from the middle of the
+/// widest view as far as each moment's zoom asks, at the output's `out` size.
+/// With one zoom the view is scaled to `out` when that differs (Auto
+/// resolution, a size limit). None without points.
+pub fn window_filter(points: &[ZoomPoint], segs: &[(f64, f64)], fw: f64, fh: f64, pw: u32, ph: u32, out: (u32, u32), fps: f64) -> Option<String> {
     let p = clean(points);
-    let first = p.first()?;
-    let (w, h) = window_size(fw, fh, first.zoom);
+    let zmin = widest(&p)?;
+    let zmax = p.iter().map(|q| q.zoom).fold(zmin, f64::max);
+    let (w, h) = window_size(fw, fh, zmin);
     let (w, h) = (w.min(pw.max(2)), h.min(ph.max(2)));
     let turn = p.iter().map(|q| q.rot.abs()).fold(0.0, f64::max).min(90.0).to_radians();
     let (c, s) = (turn.cos(), turn.sin());
@@ -194,7 +201,26 @@ pub fn window_filter(points: &[ZoomPoint], segs: &[(f64, f64)], fw: f64, fh: f64
         let a = value(&p, |q| q.rot);
         f.push_str(&format!(",rotate=a='st(0,{t});({a})*PI/180':ow={bw}:oh={bh}:c=black,crop={w}:{h}"));
     }
-    if out != (w, h) {
+    if zmax > zmin + 1e-6 {
+        // The zoom over the widest view's. The window is centred on the path's centre: its
+        // offset from the cut box's middle (the box was kept inside the picture), turned as
+        // the picture was, from the widest view's middle; kept inside the widest view, its
+        // corner on even pixels for the colour planes. The frames get their times again
+        // (zoompan counts its own, see `filter`). ld(1) is used inside the curves.
+        let it = source_time(segs);
+        let z = value(&p, |q| q.zoom);
+        let a = if turn > 1e-6 { value(&p, |q| q.rot) } else { "0".into() };
+        let fps = num(if fps > 0.0 { fps } else { 30.0 });
+        let off = format!(
+            "st(0,{it});st(6,({cx})*{pw});st(7,({cy})*{ph});st(8,({a})*PI/180);st(3,ld(6)-clip(ld(6)-{bw}/2,0,{pw}-{bw})-{bw}/2);st(4,ld(7)-clip(ld(7)-{bh}/2,0,{ph}-{bh})-{bh}/2)"
+        );
+        f.push_str(&format!(
+            ",zoompan=z='st(0,{it});({z})/{}':x='{off};2*floor(clip(iw/2+ld(3)*cos(ld(8))-ld(4)*sin(ld(8))-iw/zoom/2,0,iw-iw/zoom)/2+0.5)':y='{off};2*floor(clip(ih/2+ld(3)*sin(ld(8))+ld(4)*cos(ld(8))-ih/zoom/2,0,ih-ih/zoom)/2+0.5)':d=1:s={}x{}:fps={fps},settb=AVTB,setpts=N/{fps}/TB",
+            num(zmin),
+            out.0,
+            out.1
+        ));
+    } else if out != (w, h) {
         f.push_str(&format!(",scale={}:{}:flags=lanczos", out.0, out.1));
     }
     Some(f)
@@ -231,20 +257,26 @@ mod tests {
     #[test]
     fn window_filter_moves_a_fixed_view_and_turns_it() {
         assert_eq!(window_size(1080.0, 1080.0, 2.0), (540, 540));
-        assert_eq!(window_filter(&[], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920, (540, 540)), None);
+        assert_eq!(window_filter(&[], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920, (540, 540), 30.0), None);
         // no turn: one crop of the view's size
-        let f = window_filter(&[pt(1.0, 2.0, 0.5, 0.3)], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920, (540, 540)).unwrap();
+        let f = window_filter(&[pt(1.0, 2.0, 0.5, 0.3)], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920, (540, 540), 30.0).unwrap();
         assert_eq!(f, "crop=w=540:h=540:x='st(0,t-0+0);clip((0.5)*iw-540/2,0,iw-540)':y='st(0,t-0+0);clip((0.3)*ih-540/2,0,ih-540)':exact=1");
         // a 45 degree turn: a box sqrt(2) larger, turned, then the view from its middle
         let mut a = pt(1.0, 2.0, 0.5, 0.3);
         a.rot = 45.0;
-        let f = window_filter(&[pt(0.0, 2.0, 0.5, 0.3), a], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920, (540, 540)).unwrap();
+        let f = window_filter(&[pt(0.0, 2.0, 0.5, 0.3), a], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920, (540, 540), 30.0).unwrap();
         assert!(f.starts_with("crop=w=764:h=764:"), "{f}");
         assert!(f.contains(",rotate=a='st(0,t-0+0);"), "{f}");
         assert!(f.ends_with(":ow=764:oh=764:c=black,crop=540:540"), "{f}");
         // a smaller output: the view is scaled to it
-        let f = window_filter(&[pt(1.0, 2.0, 0.5, 0.3)], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920, (360, 360)).unwrap();
+        let f = window_filter(&[pt(1.0, 2.0, 0.5, 0.3)], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920, (360, 360), 30.0).unwrap();
         assert!(f.ends_with(":exact=1,scale=360:360:flags=lanczos"), "{f}");
+        // zooms that differ: the widest view (1.5x: 720x720) is cut, then zoompan zooms in from its middle
+        let f = window_filter(&[pt(0.0, 1.5, 0.5, 0.5), pt(2.0, 3.0, 0.5, 0.5)], &[(0.0, 5.0)], 1080.0, 1080.0, 1080, 1920, (540, 540), 30.0).unwrap();
+        assert!(f.starts_with("crop=w=720:h=720:"), "{f}");
+        assert!(f.contains(",zoompan=z='st(0,it-0+0);("), "{f}");
+        assert!(f.contains(")/1.5':x='st(0,it-0+0);st(6,"), "{f}");
+        assert!(f.ends_with(":d=1:s=540x540:fps=30,settb=AVTB,setpts=N/30/TB"), "{f}");
     }
 
     #[test]

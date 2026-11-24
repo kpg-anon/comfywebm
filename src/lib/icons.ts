@@ -46,6 +46,8 @@ export const ICONS = {
   zoomIn: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>',
   zoomOut: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>',
   keyboard: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
+  thirds: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>',
+  rotate: '<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 3.5V8h-4.5"/><rect x="9.5" y="8.5" width="5" height="7" rx="1"/>',
   speed: '<path d="M3.5 18a9 9 0 1 1 17 0"/><path d="M12 14l4.5-5"/><circle cx="12" cy="14" r="1.2" fill="currentColor"/>',
   playLine: '<path d="M7 4.5v15l12.5-7.5z"/>',
   stepBack: '<path d="M16 5.5v13l-10-6.5z" fill="currentColor" stroke="none"/>',

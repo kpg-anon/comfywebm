@@ -729,6 +729,23 @@
     </div>
 
     <div class="col">
+      <span>Opening a file again</span>
+      <div class="line">
+        <Select
+          label="Opening a file again"
+          value={app.reopenWith}
+          onchange={(v) => app.setReopenWith(v)}
+          options={[
+            { value: "all", label: "As it was left" },
+            { value: "edit", label: "The edit only" },
+            { value: "none", label: "Start clean" },
+          ]}
+        />
+      </div>
+      <span class="hint">The last 40 files you edited are remembered. As it was left: the edit (ranges, crop, rotation and its keyframes, flips, adjustments, speed ramp, follow path, zoom) and the file's own settings (speed, direction, fades, filters, sound track and volume, subtitles, caption, title, file name, canvas). The edit only: without those settings. Start clean: neither. Applies to the next file opened.</span>
+    </div>
+
+    <div class="col">
       <span>Size limit</span>
       <div class="line cacheline">
         <span>Aim for</span>

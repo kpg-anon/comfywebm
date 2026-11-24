@@ -51,6 +51,7 @@
 >
   <div
     class="dialog wide"
+    class:shown={!!s.path && !s.busy && !s.error}
     role="dialog"
     aria-modal="true"
     aria-labelledby="sample-title"
@@ -84,7 +85,8 @@
           {@const c = app.crop}
           <div class="pane">
             <div class="cap small muted">Source{app.usingProxy ? " (preview copy)" : ""}{c ? ", same crop" : ""}, no filters</div>
-            <div class="cropbox" style:aspect-ratio={c ? `${c.w} / ${c.h}` : `${app.srcW} / ${app.srcH}`} style:--ratio={c ? c.w / c.h : app.srcW / app.srcH}>
+            <div class="fit">
+            <div class="cropbox" style:--ratio={c ? c.w / c.h : app.srcW / app.srcH}>
               <video
                 bind:this={src}
                 src={app.videoSrc}
@@ -99,15 +101,18 @@
                 ontimeupdate={sourceTime}
               ></video>
             </div>
+            </div>
           </div>
         {/if}
         <div class="pane">
           {#if compare}<div class="cap small muted">Sample (encoded)</div>{/if}
-          {#if /\.(gif|webp)$/i.test(s.path)}
-            <img src={convertFileSrc(s.path)} alt="Sample" />
-          {:else}
-            <video src={convertFileSrc(s.path)} autoplay loop controls playsinline ontimeupdate={sampleTime}></video>
-          {/if}
+          <div class="fit">
+            {#if /\.(gif|webp)$/i.test(s.path)}
+              <img src={convertFileSrc(s.path)} alt="Sample" />
+            {:else}
+              <video src={convertFileSrc(s.path)} autoplay loop controls playsinline ontimeupdate={sampleTime}></video>
+            {/if}
+          </div>
         </div>
       </div>
       <label class="small cmp"><input type="checkbox" bind:checked={compare} /> Compare with the source</label>
@@ -150,23 +155,46 @@
   .wide:has(.panes.two) {
     width: min(1500px, calc(100vw - 40px));
   }
-  .panes.two {
+  /* With a sample shown the dialog is the window's height less the margin and does not
+     scroll: the pictures take the room the lines around them leave, scaled to fit. */
+  .wide.shown {
+    height: calc(100vh - 40px);
+    overflow: hidden;
+  }
+  .wide.shown > :not(.panes) {
+    flex: none;
+  }
+  .panes {
+    flex: 1 1 auto;
+    min-height: 0;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 8px;
+  }
+  .panes.two {
+    grid-template-columns: 1fr 1fr;
   }
   .pane {
     display: flex;
     flex-direction: column;
     gap: 4px;
     min-width: 0;
+    min-height: 0;
+  }
+  /* the room for one picture: it is scaled to fit inside, keeping its shape */
+  .fit {
+    flex: 1 1 auto;
+    min-height: 0;
+    container-type: size;
+    display: grid;
+    place-items: center;
   }
   /* the source cut to the crop: the box has the crop's shape, the whole video is moved and scaled inside it */
   .cropbox {
     position: relative;
     overflow: hidden;
-    width: min(100%, calc((100vh - 200px) * var(--ratio)));
-    margin: 0 auto;
+    width: min(100cqw, calc(100cqh * var(--ratio)));
+    height: min(100cqh, calc(100cqw / var(--ratio)));
     background: #000;
     border-radius: var(--radius-sm);
   }
@@ -182,11 +210,12 @@
     align-items: center;
     gap: 6px;
   }
-  video,
-  img {
-    width: 100%;
-    max-height: calc(100vh - 200px);
-    background: #000;
+  /* the box's own units: a percentage height would follow the grid row, which grows with the video */
+  .fit > video,
+  .fit > img {
+    width: 100cqw;
+    height: 100cqh;
+    object-fit: contain;
     border-radius: var(--radius-sm);
   }
   .wait {
@@ -202,8 +231,21 @@
   .small {
     font-size: 11px;
   }
+  /* on the window's bottom edge while the dialog scrolls, as in Settings */
   .actions {
+    position: sticky;
+    bottom: -16px;
+    z-index: 2;
     display: flex;
+    align-items: center;
     justify-content: flex-end;
+    gap: 6px;
+    margin: 0 -18px -16px;
+    padding: 10px 18px;
+    border-top: 1px solid var(--border-muted);
+    background: var(--bg-panel);
+  }
+  .actions .btn {
+    min-width: 96px;
   }
 </style>

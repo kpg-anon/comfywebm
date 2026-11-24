@@ -25,7 +25,13 @@
   const near = $derived(nearestSmooth(app.speed, list));
   // 0.4x and 0.8x are always offered: they turn 60 and 30 fps footage into 24 fps
   // playback, even where that is not smooth on this display
-  const chips = $derived([...new Set([...list, 0.4, 0.8])].sort((a, b) => a - b));
+  // Speeds within 0.5% of a whole number (1.001x, 2.002x, 3.003x: 59.94 fps footage made
+  // exactly 60, 120, 180) are left out of the chips; they look like 1x, 2x, 3x set wrong.
+  const nearWhole = (s: number) => {
+    const r = Math.round(s);
+    return r >= 1 && Math.abs(s - r) > 1e-6 && Math.abs(s - r) / r < 0.005;
+  };
+  const chips = $derived([...new Set([...list, 0.4, 0.8])].filter((s) => !nearWhole(s)).sort((a, b) => a - b));
   const bad = $derived(!smooth(m) && (app.speed !== 1 || m.capped));
 
   const fpsOptions = $derived([

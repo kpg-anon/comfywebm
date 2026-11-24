@@ -8,6 +8,7 @@
   import EditStrip from "./EditStrip.svelte";
   import SpeedLane from "./SpeedLane.svelte";
   import FollowLane from "./FollowLane.svelte";
+  import RotateLane from "./RotateLane.svelte";
 
   import { convertFileSrc } from "@tauri-apps/api/core";
   import * as ipc from "$lib/ipc";
@@ -417,6 +418,9 @@
   {#if app.media && !app.audioOnly && app.rampLane}
     <SpeedLane {viewStart} {viewLen} />
   {/if}
+  {#if app.media && !app.audioOnly && app.rotateLane}
+    <RotateLane {viewStart} {viewLen} />
+  {/if}
   {#if app.media && !app.audioOnly && app.followLane}
     <FollowLane
       {viewStart}
@@ -523,9 +527,18 @@
           <button class="btn" class:on={app.cropMode} disabled={!app.media || app.audioOnly} aria-pressed={app.cropMode} onclick={() => (app.cropMode = !app.cropMode)}>
             <Icon name="crop" size={14} />Crop <kbd>C</kbd>
           </button>
+          <button
+            class="btn"
+            class:on={app.rotateLane}
+            disabled={!app.media || app.audioOnly}
+            aria-pressed={app.rotateLane}
+            title="Rotate: keyframes on a lane under the timeline that turn the picture partway through the clip, at once or smoothly (a phone video that goes sideways). Before the first keyframe the Rotate setting applies."
+            onclick={() => (app.rotateLane = !app.rotateLane)}
+          >
+            <Icon name="rotate" size={14} />Rotate{#if app.rotatePoints.length}<span class="cnt">{app.rotatePoints.length}</span>{/if}
+          </button>
           <button class="btn" disabled={!app.media || app.audioOnly || app.ffmpegMissing || app.findingCuts} title="Find where the picture cuts to a new shot (also jump cuts, and fades through black; flashes and lights are not cuts). Range edges then snap to the cuts, and [ and ] jump between them. Reads the whole video once." onclick={() => app.findCuts()}><Icon name="cut" size={14} />{app.findingCuts ? `Finding ${Math.round(app.cutsFraction * 100)}%` : app.cuts ? `${app.cuts.length} cuts` : "Find cuts"}</button>
           <button class="btn" disabled={!app.media || app.ffmpegMissing} onclick={() => app.runSample()}><Icon name="film" size={14} />Sample <kbd>P</kbd></button>
-          <button class="btn" disabled={!app.media || app.ffmpegMissing} title="Save the frame at the playhead as PNG with the crop. Shift+click (Shift+S): as the encode sees it, with filters, adjustments and the output size." onclick={(e) => app.exportFrame(e.shiftKey)}><Icon name="image" size={14} />Frame <kbd>S</kbd></button>
         </div>
     </div>
   </section>
@@ -540,6 +553,7 @@
       onaspect={(a) => app.setAspect(a)}
       oncrop={(c) => app.setViewCrop(c)}
       ondone={() => (app.cropMode = false)}
+      oncancel={() => app.cancelCrop()}
     />
   {/if}
 </div>
@@ -673,8 +687,7 @@
     align-items: center;
     gap: 6px;
   }
-  /* six equal columns: Speed, Crop and Find cuts take two each, Sample and Frame three each,
-     so the two rows are the same width */
+  /* two rows of three equal buttons: Speed, Follow, Crop / Rotate, Find cuts, Sample */
   .tools {
     display: grid;
     grid-template-columns: repeat(6, 1fr);

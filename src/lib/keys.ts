@@ -40,7 +40,7 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["I / O", "set the start / end of the range at the playhead"],
       ["Shift + I / Shift + O", "jump to the start / end of the selected range"],
       ["N", "add a range at the playhead"],
-      ["Delete / Backspace", "remove the selected Follow keyframes, or the selected range"],
+      ["Delete / Backspace", "remove the open rotation keyframe, the selected Follow keyframes, or the selected range"],
       ["Ctrl + Z", "undo a range, order or crop change"],
       ["Ctrl + Shift + Z / Ctrl + Y", "redo"],
       ["H", "the history: every edit, click one to go back to it"],
@@ -49,13 +49,15 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["Drag a range", "move it, keeping its length (a click seeks)"],
       ["Alt + drag", "move a range or its edge without snapping"],
       ["[ / ]", "previous / next scene cut (after Find cuts)"],
+      ["PgUp / PgDn", "previous / next keyframe on the lanes shown (Follow, Rotate, Speed)"],
     ],
   },
   {
     group: "Crop",
     keys: [
       ["C", "crop mode on / off"],
-      ["Enter or Esc", "leave crop mode (the crop is kept)"],
+      ["Enter", "leave crop mode, keeping the crop"],
+      ["Esc", "leave crop mode, putting the crop back as it was"],
       ["Arrows", "move the crop 1 px (Shift: 10 px)"],
       ["Alt + arrows", "resize the crop"],
     ],
@@ -67,6 +69,7 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["Ctrl + U", "open a web link"],
       ["Ctrl + E", "encode"],
       ["Ctrl + Enter", "add to the queue"],
+      ["Ctrl + W", "close the file and go back to the start page (its edit is kept)"],
       ["P", "sample: encode 3 s at the playhead"],
       ["S", "save the current frame as PNG (source picture with the crop)"],
       ["Shift + S", "save the current frame as the encode sees it: filters, adjustments, rotation and output size"],
@@ -111,6 +114,13 @@ export function installKeys(actions: KeyActions): () => void {
     // F1 is prevented by appfeel.ts (WebView2 help), so it is handled before the check below
     if (e.key === "F1" && !app.settingsOpen && !app.urlOpen && !app.sample) {
       app.keysOpen = !app.keysOpen;
+      return;
+    }
+    // Ctrl+W: close the file. appfeel.ts keeps WebView2 from acting on Ctrl+W, so this
+    // comes before the defaultPrevented check below.
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "w" && !isTextField(e.target) && !app.settingsOpen && !app.urlOpen && !app.sample && !app.keysOpen) {
+      e.preventDefault();
+      app.closeFile();
       return;
     }
     if (e.defaultPrevented) return;
@@ -176,6 +186,12 @@ export function installKeys(actions: KeyActions): () => void {
         case "[":
           app.jumpCut(-1);
           break;
+        case "PageUp":
+          app.jumpKey(-1);
+          break;
+        case "PageDown":
+          app.jumpKey(1);
+          break;
         case "]":
           app.jumpCut(1);
           break;
@@ -202,7 +218,8 @@ export function installKeys(actions: KeyActions): () => void {
           break;
         case "Delete":
         case "Backspace":
-          if (app.followSelected.length) app.removeSelectedFollow();
+          if (app.rotateSel !== null && app.rotatePoints[app.rotateSel]) app.removeRotateKey(app.rotateSel);
+          else if (app.followSelected.length) app.removeSelectedFollow();
           else if (app.segments.length > 1 && app.sel >= 0) app.removeRange();
           else handled = false;
           break;
@@ -240,7 +257,8 @@ export function installKeys(actions: KeyActions): () => void {
         case "Escape":
           if (app.pointsMode) app.cancelPoints();
           else if (app.followMode) app.cancelFollow();
-          else if (app.cropMode) app.cropMode = false;
+          else if (app.cropMode) app.cancelCrop();
+          else if (app.rotateSel !== null) app.rotateSel = null;
           else if (app.followSel.length) app.followSel = [];
           else handled = false;
           break;

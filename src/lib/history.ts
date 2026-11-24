@@ -1,6 +1,6 @@
 // Names for the steps of the History panel: what changed from one edit state
-// to the next (ranges, order, crop, rotation, flips, adjustments, speed ramp).
-import type { Adjust, Crop, Segment, SpeedPoint, ZoomPoint } from "./types";
+// to the next (ranges, order, crop, rotation and its keyframes, flips, adjustments, speed ramp).
+import type { Adjust, Crop, RotatePoint, Segment, SpeedPoint, ZoomPoint } from "./types";
 
 /** The parts of an edit state a step can change. */
 export type EditState = {
@@ -12,6 +12,7 @@ export type EditState = {
   vflip: boolean;
   adjust: Adjust;
   speedRamp: SpeedPoint[];
+  rotatePoints?: RotatePoint[];
   zoom?: ZoomPoint[];
   zoomLevel?: number;
 };
@@ -80,6 +81,14 @@ export function describeEdit(a: EditState, b: EditState): string {
     const n = b.speedRamp.length - a.speedRamp.length;
     parts.push(
       n > 0 ? "Added a speed point" : n < 0 ? (b.speedRamp.length ? "Removed a speed point" : "Removed the speed ramp") : "Moved a speed point",
+    );
+  }
+  const ra = a.rotatePoints ?? [];
+  const rb = b.rotatePoints ?? [];
+  if (JSON.stringify(ra) !== JSON.stringify(rb)) {
+    const n = rb.length - ra.length;
+    parts.push(
+      n > 0 ? "Added a rotation keyframe" : n < 0 ? (rb.length ? "Removed a rotation keyframe" : "Removed the rotation keyframes") : "Changed a rotation keyframe",
     );
   }
   const za = a.zoom ?? [];

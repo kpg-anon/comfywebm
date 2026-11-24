@@ -317,6 +317,38 @@ pub struct SpeedPoint {
     pub speed: f64,
 }
 
+/// The output's frame: `w` x `h` pixels (`exact`), or a shape `w`:`h` that is made
+/// the smallest frame of that shape holding the picture. Resolution limits and Auto
+/// then scale it, keeping its shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Canvas {
+    pub w: u32,
+    pub h: u32,
+    #[serde(default)]
+    pub exact: bool,
+}
+
+/// Around a picture that does not fill the frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Background {
+    #[default]
+    Black,
+    /// the picture itself, scaled to cover the frame and blurred
+    Blur,
+}
+
+/// A rotation keyframe: from `t` seconds of the source file the picture is
+/// turned `angle` degrees clockwise, at once, or (`smooth`) turning from the
+/// previous keyframe's angle over the time between them (rotation.rs).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct RotatePoint {
+    pub t: f64,
+    pub angle: f64,
+    #[serde(default)]
+    pub smooth: bool,
+}
+
 /// A point of the zoom: at `t` seconds of the source file the picture is
 /// zoomed `zoom` times (1 = all of it) around the centre (`x`, `y`), 0..1 of
 /// the picture after crop, rotation and flips (zoom.rs). With a follow window
@@ -525,9 +557,29 @@ pub struct EncodeSpec {
     pub segments: Vec<Segment>,
     /// source display pixels, before rotate
     pub crop: Option<Crop>,
-    /// clockwise: 0, 90, 180 or 270
+    /// clockwise: 0, 90, 180 or 270; with rotation keyframes, the angle before the first
     #[serde(default)]
     pub rotate: u32,
+    /// rotation keyframes in source file time (rotation.rs); empty = `rotate` throughout.
+    /// Ranges of `input` only; not with a follow window.
+    #[serde(default)]
+    pub rotate_points: Vec<RotatePoint>,
+    /// the output's frame when it is not the picture's own shape (canvas.rs); None = the
+    /// picture's shape (with rotation keyframes, its shape at the first output frame)
+    #[serde(default)]
+    pub canvas: Option<Canvas>,
+    /// a picture of another shape than the frame (a canvas, a turned part) covers the frame,
+    /// cut at the edges, instead of showing whole with `background` around it
+    #[serde(default)]
+    pub fill: bool,
+    /// what shows around a picture that does not fill the frame
+    #[serde(default)]
+    pub background: Background,
+    /// with rotation keyframes: the source time whose angle gives the frame its shape;
+    /// None = the start of the first range. Set when a job is cut down to part of the
+    /// clip (a frame export, the quality check) so the part keeps the clip's shape.
+    #[serde(skip)]
+    pub rotate_from: Option<f64>,
     /// horizontal flip, after rotate
     #[serde(default)]
     pub mirror: bool,

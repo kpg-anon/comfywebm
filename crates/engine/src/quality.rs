@@ -61,6 +61,8 @@ pub fn check(ffmpeg: &Path, spec: &EncodeSpec, info: &MediaInfo, zscale: bool, d
     let full = plan::build(&own, info, &Opts { display: true, zscale, ..Opts::new("", "") })?;
     let (ws, we) = window(&own, info);
     let mut probe = own.clone();
+    // rotation keyframes: the window keeps the clip's frame shape
+    probe.rotate_from = Some(own.rotate_from.unwrap_or(own.segments.first().map_or(0.0, |g| g.start)));
     probe.segments = vec![Segment { start: ws, end: we }];
     probe.speed_ramp.clear();
     // Gyroflow runs before an encode (gyro.rs); the check measures compression, so it goes without

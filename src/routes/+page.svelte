@@ -221,6 +221,26 @@
     return () => clearTimeout(t);
   });
 
+  // the open file's own settings (speed, filters, caption, canvas...) are kept with its edit
+  // shortly after they change; not on opening a file, which sets them itself
+  let fileKeyPath: string | null = null;
+  let fileKeyLast = "";
+  $effect(() => {
+    const key = JSON.stringify(app.fileOptions());
+    const path = app.media?.path ?? null;
+    if (!path || path !== fileKeyPath) {
+      fileKeyPath = path;
+      fileKeyLast = key;
+      return;
+    }
+    if (key === fileKeyLast) return;
+    const t = setTimeout(() => {
+      fileKeyLast = key;
+      app.saveFileMemory();
+    }, 400);
+    return () => clearTimeout(t);
+  });
+
   // remember the option values (localStorage) shortly after they change
   $effect(() => {
     void JSON.stringify(app.optionsSnapshot());
@@ -289,6 +309,7 @@
     {#if app.media}
       <span class="file">
         <span class="fname">{app.media.fileName}</span>
+        <button class="btn small icon closefile" title="Close the file and go back to the start page with the recent files (Ctrl+W). Its edit is kept for when you open it again." aria-label="Close the file" onclick={() => app.closeFile()}><Icon name="x" size={12} /></button>
         <span class="mono muted">
           {#if app.media.audioOnly}sound · {app.media.audio[0]?.codec ?? ""}{:else}{app.media.video.width}x{app.media.video.height} · {Math.round(app.media.video.fps * 100) / 100} fps · {app.media.video.codec}{/if}
           · {fmtBytes(app.media.sizeBytes)}{app.media.video.interlaced ? " · interlaced" : ""}
@@ -475,6 +496,14 @@
     text-overflow: ellipsis;
     min-width: 0;
     flex-shrink: 1;
+  }
+  .closefile {
+    align-self: center;
+    flex-shrink: 0;
+    min-width: 22px;
+    height: 22px;
+    padding: 0;
+    justify-content: center;
   }
   .file .mono {
     font-size: 11px;

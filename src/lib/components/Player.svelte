@@ -8,6 +8,7 @@
   import { ratioOf } from "$lib/crop";
   import * as ramp from "$lib/ramp";
   import * as zoomMath from "$lib/zoom";
+  import * as rot from "$lib/rotation";
   import type { Crop, SpeedPoint, ZoomPoint } from "$lib/types";
   import { wbGains } from "$lib/color";
   import Icon from "./Icon.svelte";
@@ -153,7 +154,8 @@
   // and flipped as the output will be. Outside crop mode the stage shows what
   // the output shows (the crop with the zoom, or the follow window at the
   // playhead), as large as it fits; the rest of the picture is off the stage.
-  const turned = $derived(app.rotate === 90 || app.rotate === 270);
+  // with rotation keyframes: the frame's quarter turn (the picture's shape at the first output frame)
+  const turned = $derived(app.viewRotate === 90 || app.viewRotate === 270);
   /** the picture's size as shown, in its own pixels */
   const vsize = $derived.by(() => {
     const m = app.media;
@@ -170,7 +172,7 @@
   let frameT = $state<number | null>(null);
   $effect(() => {
     const v = video as (HTMLVideoElement & { requestVideoFrameCallback?: (cb: (now: number, m: { mediaTime: number }) => void) => number; cancelVideoFrameCallback?: (id: number) => void }) | undefined;
-    if (!v || app.paused || !app.zoomPoints.length || !v.requestVideoFrameCallback) {
+    if (!v || app.paused || !(app.zoomPoints.length || app.rotatePoints.length) || !v.requestVideoFrameCallback) {
       frameT = null;
       return;
     }
@@ -250,26 +252,96 @@
     const k = vsize.w / app.viewW;
     return { x: view.x * k, y: view.y * k, w: Math.max(1, view.w * k), h: Math.max(1, view.h * k) };
   });
-  /** Follow's turn: the picture turns clockwise around the view's middle, which is the stage's middle */
-  const spin = $derived(view?.rot ?? 0);
-  /** the picture's box as shown on screen (may reach past the stage) */
-  const shown = $derived.by(() => {
+  /** a canvas's shape (width over height) while the output is shown; null = the shown part's own */
+  const frameR = $derived(view && !fctx ? app.frameRatio : null);
+  /** the output frame's shape on screen */
+  const rF = $derived(frameR ?? focus.w / Math.max(1e-6, focus.h));
+  /** the output frame on screen, as large as fits the stage */
+  const frameBox = $derived.by(() => {
     if (sw <= 0 || sh <= 0) return { x: 0, y: 0, w: 0, h: 0 };
     // crop mode: a margin, so a crop the size of the picture keeps its corner and edge handles on
     // the stage (on its edge they sat under the timeline's divider and the bar above, and missed)
     const m = app.cropMode ? Math.min(CROP_MARGIN, sw / 6, sh / 6) : 0;
-    const k = Math.min((sw - 2 * m) / focus.w, (sh - 2 * m) / focus.h);
+    const w = Math.min(sw - 2 * m, (sh - 2 * m) * rF);
+    const h = w / rF;
+    return { x: (sw - w) / 2, y: (sh - h) / 2, w, h };
+  });
+  /** the picture's size on screen per pixel of it: the shown part fitted into the frame (or covering it, Fill) */
+  const kPic = $derived.by(() => {
+    const [a, b] = [frameBox.w / focus.w, frameBox.h / focus.h];
+    return frameR && app.frameFill ? Math.max(a, b) : Math.min(a, b);
+  });
+  /** Rotation keyframes, outside crop mode: how far the frame on screen is turned from the
+   *  frame's quarter turn, and how much larger or smaller it then shows (Fit or Fill), as the
+   *  encode does (rotation.rs). The flips come after the turn in the encode; turned after
+   *  them here, the turn goes the other way when one flip is on. */
+  const keyTurn = $derived.by(() => {
+    if (!view || !app.rotating) return null;
+    const q = app.viewRotate;
+    const a = app.rotateAt(frameT ?? app.current);
+    // the picture before turning, in the units of the view (q turned back)
+    const [pw, ph] = q % 180 ? [focus.h, focus.w] : [focus.w, focus.h];
+    const s = rot.windowW(pw, ph, rF, q, app.frameFill) / Math.max(1e-6, rot.windowW(pw, ph, rF, a, app.frameFill));
+    const d = a - q;
+    return { deg: app.mirror !== app.vflip ? -d : d, scale: s };
+  });
+  /** the frame has room around the picture (a canvas, a turned part): black, or a blurred copy */
+  const framed = $derived(!!view && !fctx && (!!keyTurn || !!frameR));
+  const blurBg = $derived(framed && !app.frameFill && app.frameBg === "blur");
+  let blurCanvas = $state<HTMLCanvasElement>();
+  // Blur: the picture drawn small into a canvas behind it, covering the frame, turned as the
+  // output is; CSS blurs it. Drawn on each animation frame while it shows.
+  $effect(() => {
+    const cv = blurCanvas;
+    const v = video;
+    if (!blurBg || !cv || !v) return;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return;
+    let raf = 0;
+    const draw = () => {
+      raf = requestAnimationFrame(draw);
+      const cw = 96;
+      const ch = Math.max(2, Math.round(cw / rF));
+      if (cv.width !== cw || cv.height !== ch) [cv.width, cv.height] = [cw, ch];
+      const c = app.jobCrop ?? { x: 0, y: 0, w: app.srcW, h: app.srcH };
+      if (!v.videoWidth || !c.w || !c.h) return;
+      const a = app.rotating ? app.rotateAt(frameT ?? app.current) : app.viewRotate;
+      // the picture covering the frame at this angle, in canvas pixels per source pixel
+      const s = cw / Math.max(1e-6, rot.windowW(c.w, c.h, rF, a, true));
+      const vk = v.videoWidth / Math.max(1, app.srcW);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, cw, ch);
+      ctx.translate(cw / 2, ch / 2);
+      // flips after the turn, as in the encode
+      ctx.scale(app.mirror ? -1 : 1, app.vflip ? -1 : 1);
+      ctx.rotate((a * Math.PI) / 180);
+      ctx.scale(s, s);
+      try {
+        ctx.drawImage(v, c.x * vk, c.y * vk, c.w * vk, c.h * vk, -c.w / 2, -c.h / 2, c.w, c.h);
+      } catch {
+        // not decoded yet
+      }
+    };
+    draw();
+    return () => cancelAnimationFrame(raf);
+  });
+  /** Follow's turn: the picture turns clockwise around the view's middle, which is the stage's middle */
+  const spin = $derived(view?.rot ?? 0);
+  const spinCss = $derived(
+    keyTurn ? `rotate(${keyTurn.deg}deg) scale(${keyTurn.scale})` : spin ? `rotate(${spin}deg)` : null,
+  );
+  /** the picture's box as shown on screen (may reach past the stage), the shown part in the frame's middle */
+  const shown = $derived.by(() => {
+    if (sw <= 0 || sh <= 0) return { x: 0, y: 0, w: 0, h: 0 };
+    const k = kPic;
     return { x: sw / 2 - (focus.x + focus.w / 2) * k, y: sh / 2 - (focus.y + focus.h / 2) * k, w: vsize.w * k, h: vsize.h * k };
   });
   /** the element's box: it keeps the unrotated shape; the transform turns it */
   const box = $derived(turned ? { x: shown.x + (shown.w - shown.h) / 2, y: shown.y + (shown.h - shown.w) / 2, w: shown.h, h: shown.w } : shown);
-  /** the output's area on screen */
-  const outRect = $derived.by(() => {
-    const k = vsize.w > 0 ? shown.w / vsize.w : 0;
-    return { x: shown.x + focus.x * k, y: shown.y + focus.y * k, w: focus.w * k, h: focus.h * k };
-  });
+  /** the output's area on screen: the frame (with a canvas larger or smaller than the shown part) */
+  const outRect = $derived(frameBox);
   // the flips apply after the rotation, as in the encode (rotate, then hflip, then vflip)
-  const transform = $derived(`${app.vflip ? "scaleY(-1) " : ""}${app.mirror ? "scaleX(-1) " : ""}rotate(${app.rotate}deg)`);
+  const transform = $derived(`${app.vflip ? "scaleY(-1) " : ""}${app.mirror ? "scaleX(-1) " : ""}rotate(${app.viewRotate}deg)`);
 
   // Color adjustments on the picture: an SVG filter close to ffmpeg's eq,
   // hue and curves (not exact: eq works on YUV, this on RGB). Sample shows
@@ -427,7 +499,13 @@
 
 <div class="stage" class:panning={app.zoomPoints.length > 0 && !app.cropMode} bind:clientWidth={sw} bind:clientHeight={sh} onwheel={onWheel} onpointerdown={panDown} onpointermove={panMove} onpointerup={panUp} onpointercancel={panUp} role="presentation">
   {#if app.videoSrc}
-    <div class="spin" style:transform={spin ? `rotate(${spin}deg)` : null}>
+    {#if framed}
+      <!-- a canvas or rotation keyframes: black where the picture does not reach, or a blurred copy of it -->
+      <div class="turnbg" style:left="{outRect.x}px" style:top="{outRect.y}px" style:width="{outRect.w}px" style:height="{outRect.h}px">
+        {#if blurBg}<canvas class="blurbg" bind:this={blurCanvas} style:filter={showAdj ? "url(#cwm-adjust) blur(14px) brightness(0.85)" : "blur(14px) brightness(0.85)"}></canvas>{/if}
+      </div>
+    {/if}
+    <div class="spin" style:transform={spinCss}>
     <div class="pic" style:left="{box.x}px" style:top="{box.y}px" style:width="{box.w}px" style:height="{box.h}px" style:transform={transform}>
       <!-- svelte-ignore a11y_media_has_caption -->
       <video
@@ -466,7 +544,14 @@
     </div>
     {#if !app.cropMode && !app.followMode && !app.audioOnly}
       <!-- outside the output's area: the stage's own colour, as the encode has nothing there -->
-      <div class="outmask" style:left="{outRect.x}px" style:top="{outRect.y}px" style:width="{outRect.w}px" style:height="{outRect.h}px"></div>
+      <div class="outmask" class:edge={framed} style:left="{outRect.x}px" style:top="{outRect.y}px" style:width="{outRect.w}px" style:height="{outRect.h}px"></div>
+    {/if}
+    {#if app.thirds && app.followLane && view && !app.cropMode && !app.followMode && !app.pointsMode}
+      <!-- rule of thirds over the output, for aiming Follow's keyframes -->
+      <div class="thirds" style:left="{outRect.x}px" style:top="{outRect.y}px" style:width="{outRect.w}px" style:height="{outRect.h}px">
+        <span class="v" style:left="33.333%"></span><span class="v" style:left="66.667%"></span>
+        <span class="h" style:top="33.333%"></span><span class="h" style:top="66.667%"></span>
+      </div>
     {/if}
     {#if fctx}
       <!-- crop mode with a follow path: outside the largest view the path can have here, darker
@@ -674,8 +759,27 @@
       <button class="btn small" onclick={() => ipc.proxyCancel().catch(() => {})}>Cancel</button>
     </div>
   {/if}
+  {#if app.videoSrc && app.followLane && !app.audioOnly}
+    <div class="vctl left">
+      <button
+        class="spk ovbtn"
+        class:on={app.thirds}
+        aria-pressed={app.thirds}
+        aria-label="Rule of thirds lines"
+        title="Rule of thirds: lines at a third and two thirds of the output, for placing the subject while you aim Follow's keyframes"
+        onclick={() => app.toggleThirds()}
+      ><Icon name="thirds" size={16} /></button>
+    </div>
+  {/if}
   {#if app.videoSrc}
     <div class="vctl">
+    <button
+      class="spk ovbtn"
+      disabled={!app.media || app.ffmpegMissing}
+      aria-label="Save the frame at the playhead (S)"
+      title="Save the frame at the playhead as PNG with the crop (S). Shift+click (Shift+S): as the encode sees it, with filters, adjustments, rotation and the output size."
+      onclick={(e) => app.exportFrame(e.shiftKey)}
+    ><Icon name="image" size={16} /></button>
     {#if hasSound}
     <div class="sound" class:off={app.muted} onwheel={soundWheel}>
       <input
@@ -698,7 +802,7 @@
     </div>
     {/if}
     <button
-      class="spk loopbtn"
+      class="spk ovbtn"
       class:on={app.loop}
       aria-pressed={app.loop}
       aria-label="Loop the selected range (L)"
@@ -883,6 +987,20 @@
     inset: 0;
     pointer-events: none;
   }
+  .turnbg {
+    position: absolute;
+    overflow: hidden;
+    background: #000;
+    pointer-events: none;
+  }
+  /* a little larger than the frame, so the blur's faded edge is outside it */
+  .blurbg {
+    position: absolute;
+    left: -6%;
+    top: -6%;
+    width: 112%;
+    height: 112%;
+  }
   .spin > :global(*) {
     pointer-events: auto;
   }
@@ -923,6 +1041,10 @@
     box-shadow: 0 0 0 9999px var(--bg-stage);
     pointer-events: none;
   }
+  /* a canvas or turned parts: the frame's edge, so black bars are told from the stage */
+  .outmask.edge {
+    outline: 1px solid rgb(255 255 255 / 0.28);
+  }
   .outmask.soft {
     box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.7);
   }
@@ -930,35 +1052,66 @@
     cursor: grab;
   }
   /* the corner controls, bottom right: the speaker, and Loop in the corner */
+  .vctl.left {
+    right: auto;
+    left: 10px;
+  }
+  .thirds {
+    position: absolute;
+    pointer-events: none;
+  }
+  /* a light line with a dark edge, seen on bright and dark pictures */
+  .thirds .v,
+  .thirds .h {
+    position: absolute;
+    background: rgb(255 255 255 / 0.55);
+    box-shadow: 0 0 0 1px rgb(0 0 0 / 0.25);
+  }
+  .thirds .v {
+    top: 0;
+    bottom: 0;
+    width: 1px;
+  }
+  .thirds .h {
+    left: 0;
+    right: 0;
+    height: 1px;
+  }
   .vctl {
     position: absolute;
     right: 10px;
     bottom: 10px;
     display: flex;
-    align-items: center;
+    /* the sound's slider grows upward; the buttons stay on the bottom line */
+    align-items: flex-end;
     gap: 6px;
   }
-  .loopbtn {
+  /* the round buttons over the picture: frame, loop */
+  .ovbtn {
     background: rgb(0 0 0 / 0.55) !important;
     color: #fff;
     opacity: 0.7;
   }
-  .loopbtn:hover {
+  .ovbtn:hover {
     opacity: 1;
   }
-  .loopbtn.on {
+  .ovbtn:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+  .ovbtn.on {
     opacity: 1;
     color: var(--accent);
     box-shadow: inset 0 0 0 2px var(--accent);
   }
-  /* the preview's sound, bottom right: the speaker, and the volume slider beside it while the pointer is over it */
+  /* the preview's sound, bottom right: the speaker, and the volume slider above it while the pointer is over it */
   .sound {
     position: relative;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 6px;
-    padding: 4px;
-    border-radius: 18px;
+    padding: 0;
+    border-radius: 14px;
     background: rgb(0 0 0 / 0.55);
     color: #fff;
     opacity: 0.7;
@@ -970,18 +1123,23 @@
   .sound.off {
     opacity: 0.95;
   }
+  /* upright, loud at the top */
   .sound input {
-    width: 0;
+    writing-mode: vertical-lr;
+    direction: rtl;
+    width: 16px;
+    height: 0;
     opacity: 0;
     margin: 0;
     transition:
-      width 0.15s,
-      opacity 0.15s;
+      height 0.15s,
+      opacity 0.15s,
+      margin 0.15s;
   }
   .sound:hover input {
-    width: 90px;
+    height: 90px;
     opacity: 1;
-    margin-left: 6px;
+    margin: 10px 0 4px;
   }
   .spk {
     display: flex;

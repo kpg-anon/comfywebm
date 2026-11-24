@@ -36,6 +36,15 @@ export type Segment = { start: number; end: number; id?: number };
 /** A point of a speed ramp: at `t` seconds of the source file the speed is `speed`. */
 export type SpeedPoint = { t: number; speed: number };
 
+/** The output's frame: `w` x `h` pixels (`exact`), or the shape w:h made the smallest frame
+ *  of that shape that holds the picture (engine canvas.rs). */
+export type Canvas = { w: number; h: number; exact: boolean };
+export type Background = "black" | "blur";
+
+/** A rotation keyframe: from `t` seconds of the source the picture is turned `angle` degrees
+ *  clockwise, at once, or (`smooth`) turning from the previous keyframe's angle (engine rotation.rs). */
+export type RotatePoint = { t: number; angle: number; smooth: boolean };
+
 /** A zoom point: at `t` seconds of the source the picture is zoomed `zoom` times (1 = all of it)
  *  around (`x`, `y`), 0..1 of the picture after crop, rotation and flips (engine zoom.rs). */
 /** With a follow window, x and y are 0..1 of the whole picture as shown and `rot` turns the
@@ -120,7 +129,15 @@ export type EncodeSpec = {
   input: string;
   segments: Segment[]; // empty = whole file; several = joined in order
   crop: Crop | null; // source display pixels, before rotate
-  rotate: Rotate; // clockwise
+  rotate: Rotate; // clockwise; with rotation keyframes, the angle before the first
+  /** rotation keyframes (file time, engine rotation.rs); empty = `rotate` throughout */
+  rotatePoints: RotatePoint[];
+  /** the output's frame when it is not the picture's shape (engine canvas.rs); null = the picture's */
+  canvas: Canvas | null;
+  /** a picture of another shape than the frame covers it (cut at the edges) instead of fitting in it */
+  fill: boolean;
+  /** around a picture that does not fill the frame */
+  background: Background;
   mirror: boolean; // horizontal flip, after rotate
   vflip: boolean; // vertical flip, after rotate
   adjust: Adjust | null;

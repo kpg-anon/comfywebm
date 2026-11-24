@@ -4,7 +4,7 @@
   // motion, audio, file) and Advanced (encoder, filters, audio level,
   // subtitles, metadata, the ffmpeg command). The Advanced tab shows how many
   // of its settings are changed, so nothing set there goes unnoticed.
-  import { app, isNeutral, fmtPct } from "$lib/state.svelte";
+  import { app, isNeutral, fmtPct, type CanvasMode } from "$lib/state.svelte";
   import { batch } from "$lib/batch.svelte";
   import { splits } from "$lib/splits.svelte";
   import { pickAudio, pickFolder, pickImage, pickSubtitle } from "$lib/dialogs";
@@ -166,6 +166,8 @@
       app.smoothSlowmo && "interpolation",
       app.tonemap !== hdrAuto && "tone map",
       app.rotate !== 0 && `${app.rotate}°`,
+      app.rotatePoints.length > 0 && "rotation keyframes",
+      app.canvasSpec && `canvas ${app.canvas === "size" ? "size" : app.canvas === "ratio" ? "ratio" : app.canvas}`,
       app.mirror && "flip horizontal",
       app.vflip && "flip vertical",
       !isNeutral(app.adjust) && "adjustments",
@@ -184,6 +186,15 @@
     ].filter((x): x is string => !!x),
   );
 
+  const canvasNote = $derived(
+    [
+      app.canvasSpec ? (app.canvas === "size" ? `${app.canvasSpec.w}x${app.canvasSpec.h}` : app.canvas === "ratio" ? `${app.canvasRW}:${app.canvasRH}` : app.canvas) : "auto",
+      (app.canvasSpec || app.rotatePoints.length) && (app.frameFill ? "fill" : app.frameBg === "blur" ? "fit, blur" : "fit"),
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  );
+
   const filterNote = $derived(
     [
       app.deinterlace && "deinterlace",
@@ -192,6 +203,7 @@
       app.smoothSlowmo && app.speed < 1 && "interpolation",
       app.tonemap && "tone map",
       app.rotate && `${app.rotate}°`,
+      app.rotating && "turns",
       app.mirror && "flip H",
       app.vflip && "flip V",
       app.playback !== "forward" && app.playback,
@@ -378,6 +390,80 @@
         <div class="path small muted">{app.outputPath ?? "Beside each source file"}</div>
       </Group>
     {:else}
+      <Group id="canvas" title="Canvas" note={canvasNote}>
+        <div class="row">
+          <span title="The output's frame. Auto: the picture's own shape (the crop's, turned). A shape or ratio makes the smallest frame of that shape that holds the picture; Size sets it in pixels. The resolution settings and the size limit then scale it, keeping its shape.">Frame</span>
+          <Select
+            label="Canvas"
+            value={app.canvas}
+            onchange={(v) => (app.canvas = v as CanvasMode)}
+            disabled={app.audioOnly}
+            options={[
+              { value: "auto", label: "Auto (the picture's shape)" },
+              { value: "9:16", label: "9:16 upright" },
+              { value: "16:9", label: "16:9 wide" },
+              { value: "1:1", label: "1:1 square" },
+              { value: "4:5", label: "4:5 upright" },
+              { value: "ratio", label: "Custom ratio" },
+              { value: "size", label: "Custom size (pixels)" },
+            ]}
+          />
+        </div>
+        {#if app.canvas === "ratio"}
+          <div class="row">
+            <span>Ratio</span>
+            <span class="canvas-size">
+              <input class="field mono s" type="number" min="0.01" step="any" aria-label="Ratio width" bind:value={app.canvasRW} />
+              <span class="muted">:</span>
+              <input class="field mono s" type="number" min="0.01" step="any" aria-label="Ratio height" bind:value={app.canvasRH} />
+            </span>
+          </div>
+        {:else if app.canvas === "size"}
+          <div class="row">
+            <span>Size</span>
+            <span class="canvas-size">
+              <input class="field mono s" type="number" min="16" max="8192" step="2" aria-label="Canvas width" bind:value={app.canvasW} />
+              <span class="muted">x</span>
+              <input class="field mono s" type="number" min="16" max="8192" step="2" aria-label="Canvas height" bind:value={app.canvasH} />
+              <span class="muted small">px</span>
+            </span>
+          </div>
+        {/if}
+        {#if app.canvas !== "auto" && !app.canvasSpec}
+          <div class="muted small">Enter a ratio above 0, or a size from 16 to 8192 pixels; until then the picture's shape is used.</div>
+        {/if}
+        <div class="row">
+          <span title="A picture of another shape than the frame (the canvas, or a part turned by rotation keyframes): Fit shows all of it, Fill covers the frame and cuts the edges.">Picture</span>
+          <Seg
+            label="Picture in the frame"
+            value={app.frameFill ? "fill" : "fit"}
+            onchange={(v) => (app.frameFill = v === "fill")}
+            options={[
+              { value: "fit", label: "Fit", title: "All of the picture, with the background around it." },
+              { value: "fill", label: "Fill", title: "Covers the frame; the edges are cut." },
+            ]}
+          />
+        </div>
+        {#if !app.frameFill}
+          <div class="row">
+            <span title="What shows around a picture that does not fill the frame.">Background</span>
+            <Seg
+              label="Background"
+              value={app.frameBg}
+              onchange={(v) => (app.frameBg = v)}
+              options={[
+                { value: "black", label: "Black" },
+                { value: "blur", label: "Blur", title: "The picture itself, scaled to cover the frame, blurred and a little darker. Costs some encode time and bitrate." },
+              ]}
+            />
+          </div>
+        {/if}
+        <div class="muted small">
+          {app.canvasSpec && app.zoomPoints.length
+            ? "The canvas is not used while Follow has keyframes: the output is Follow's view."
+            : "Picture and Background apply when the frame and the picture differ in shape: a canvas, or parts turned by rotation keyframes."}
+        </div>
+      </Group>
       <Group id="zoom" title="Global zoom" note={zoomNote}>
         <div class="row">
           <span title="Zoom in on the picture (right) or, with a crop, show more of the picture around it (left). 1x in the middle is the crop, or the whole picture. Double-click the slider for 1x. Follow (Video tools) has its own zoom.">Level</span>
@@ -453,7 +539,7 @@
           </div>
         </div>
         <div class="row">
-          <span title="Turns the picture clockwise. Crop mode shows the picture turned, and the crop is drawn on it as shown.">Rotate</span>
+          <span title="Turns the picture clockwise. Crop mode shows the picture turned, and the crop is drawn on it as shown. With keyframes on the Rotate lane, this is the angle before the first keyframe.">Rotate</span>
           <Seg
             label="Rotate"
             value={app.rotate}
@@ -466,6 +552,13 @@
             ]}
           />
         </div>
+        {#if app.rotatePoints.length}
+          <div class="muted small">
+            {app.zoomPoints.length
+              ? "The Rotate lane's keyframes are not used while Follow has keyframes; Follow turns its own view."
+              : "The Rotate lane has keyframes: the setting above is the angle before the first one. Advanced > Canvas > Picture sets how a turned part fits the frame."}
+          </div>
+        {/if}
         <div class="row">
           <span title="Reverse plays the clip backwards. Boomerang plays it forward and then backwards (and has no sound). Both hold every frame in memory, so keep them short.">Direction</span>
           <Seg
@@ -969,5 +1062,13 @@
   .btn kbd {
     font-size: 10px;
     padding: 0 3px;
+  }
+  .canvas-size {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .canvas-size input {
+    width: 72px;
   }
 </style>

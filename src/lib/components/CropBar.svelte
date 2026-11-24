@@ -15,13 +15,15 @@
     onaspect: (a: AspectLock) => void;
     oncrop: (c: Crop | null) => void;
     ondone: () => void;
+    /** shows a Cancel button: leave without the changes */
+    oncancel?: () => void;
     /** buttons before the usual aspects, for example Splits' "Part" */
     lead?: { value: AspectLock; label: string; title?: string }[];
     hint?: string;
     /** more controls after the numbers (zoom, warnings) */
     children?: Snippet;
   }
-  let { aspect, crop, W, H, onaspect, oncrop, ondone, lead = [], hint = "Drag on the picture. Arrows move, Shift+arrows 10 px, Alt+arrows resize.", children }: Props = $props();
+  let { aspect, crop, W, H, onaspect, oncrop, ondone, oncancel, lead = [], hint = "Drag on the picture. Arrows move, Shift+arrows 10 px, Alt+arrows resize.", children }: Props = $props();
 
   const inMore = $derived(MORE_ASPECTS.some((m) => m.value === aspect));
   const custom = $derived(!ASPECTS.includes(aspect) && !inMore && !lead.some((l) => l.value === aspect));
@@ -111,6 +113,7 @@
 
   {@render children?.()}
   <button class="btn small" onclick={() => oncrop(null)} disabled={!crop}>Clear</button>
+  {#if oncancel}<button class="btn small" onclick={oncancel}>Cancel <kbd>Esc</kbd></button>{/if}
   <button class="btn small" onclick={ondone}>Done <kbd>Enter</kbd></button>
   {#if hint}<span class="hint muted">{hint}</span>{/if}
 </div>

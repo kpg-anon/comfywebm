@@ -204,6 +204,9 @@ pub fn prepare(ffmpeg: &Path, gyro: &Gyro, spec: &EncodeSpec, info: &MediaInfo, 
     s.segments = segs.iter().map(|(a, b)| crate::spec::Segment { start: (a - s0).max(0.0), end: (b - s0).max(0.0) }).collect();
     s.speed_ramp = spec.speed_ramp.iter().map(|p| crate::spec::SpeedPoint { t: p.t - s0, ..*p }).collect();
     s.zoom = spec.zoom.iter().map(|p| crate::spec::ZoomPoint { t: p.t - s0, ..*p }).collect();
+    // rotation keyframes before the span keep their (negative) times: they set the angle at its start
+    s.rotate_points = spec.rotate_points.iter().map(|p| crate::spec::RotatePoint { t: p.t - s0, ..*p }).collect();
+    s.rotate_from = Some(spec.rotate_from.unwrap_or(spec.segments.first().map_or(0.0, |g| g.start)) - s0);
     // the subtitles keep the source's times; the filter shows them `delay` later
     s.subs = subs;
     s.subs_delay = spec.subs_delay - s0;

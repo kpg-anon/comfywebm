@@ -16,6 +16,12 @@
     "volumeDb": 0.0
   },
   "autoScale": false,
+  "background": "black",
+  "canvas": {
+    "exact": false,
+    "h": 16,
+    "w": 9
+  },
   "caption": null,
   "codec": "vp9",
   "container": "webm",
@@ -28,6 +34,7 @@
   "extraArgs": [],
   "fadeIn": 0.0,
   "fadeOut": 0.0,
+  "fill": false,
   "followWindow": null,
   "fps": null,
   "input": "in.mp4",
@@ -60,6 +67,7 @@
     "mode": "size"
   },
   "rotate": 0,
+  "rotatePoints": [],
   "segmentSources": [],
   "segments": [
     {

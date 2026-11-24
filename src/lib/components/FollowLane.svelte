@@ -18,6 +18,7 @@
   import * as zoomMath from "$lib/zoom";
   import { showMenu, type MenuItem } from "$lib/menu.svelte";
   import { fmtTime } from "$lib/time";
+  import KeyBar from "./KeyBar.svelte";
 
   let {
     viewStart,
@@ -62,6 +63,10 @@
     return {
       x: at.map(([t, p]) => `${pct(t)},${yOf(p.x)}`).join(" "),
       y: at.map(([t, p]) => `${pct(t)},${yOf(p.y)}`).join(" "),
+      // the zoom, higher is closer (1x at the bottom, 4x at the top); drawn when the keyframes' zooms differ
+      z: c.some((q) => Math.abs(q.zoom - c[0].zoom) > 1e-6)
+        ? at.map(([t, p]) => `${pct(t)},${yOf(1 - (p.zoom - zoomMath.MIN_ZOOM) / (zoomMath.MAX_ZOOM - zoomMath.MIN_ZOOM))}`).join(" ")
+        : "",
     };
   });
 
@@ -174,6 +179,29 @@
     drag = null;
   }
 
+  /** the keyframe open in the row under the lane (one selected), or null */
+  const ki = $derived.by(() => {
+    if (app.followSelected.length !== 1) return null;
+    const k = app.zoomPoints.findIndex((q) => Math.abs(q.t - app.followSelected[0]) < 1e-6);
+    return k >= 0 ? k : null;
+  });
+  const kp = $derived(ki === null ? null : app.zoomPoints[ki]);
+
+  /** changes keyframe i and keeps it selected (the selection is by time); a new time shows its frame */
+  function setKey(i: number, ch: { t?: number; zoom?: number; rot?: number }) {
+    app.setZoomPoint(i, ch);
+    const q = app.zoomPoints[i];
+    if (!q) return;
+    app.followSel = [q.t];
+    if (ch.t !== undefined) app.seek(q.t);
+  }
+  function goKey(k: number) {
+    const q = app.zoomPoints[k];
+    if (!q) return;
+    app.followSel = [q.t];
+    app.seek(q.t);
+  }
+
   function keyMenu(e: MouseEvent, i: number) {
     const p = pts[i];
     if (!p) return;
@@ -199,8 +227,26 @@
   function laneMenu(e: MouseEvent) {
     const t = timeAt(e);
     showMenu(e, [
-      { label: `Add a keyframe here (${fmtTime(t)})`, action: () => app.seek(app.zoomPoints[app.addFollowKey(t)].t) },
-      { label: "Add a keyframe at the playhead", action: () => app.addFollowKey(app.current) },
+      {
+        label: `Add a keyframe here (${fmtTime(t)})`,
+        action: () => {
+          // the index is in the new list: read the list after adding (indexing the old one gave the next keyframe)
+          const i = app.addFollowKey(t);
+          const k = app.zoomPoints[i];
+          if (k) {
+            app.followSel = [k.t];
+            app.seek(k.t);
+          }
+        },
+      },
+      {
+        label: "Add a keyframe at the playhead",
+        action: () => {
+          const i = app.addFollowKey(app.current);
+          const k = app.zoomPoints[i];
+          if (k) app.followSel = [k.t];
+        },
+      },
       { label: "Track a person from the playhead (box)...", disabled: app.following !== null, action: ontrack },
       { label: "Track a face from the playhead...", disabled: app.following !== null, action: () => app.startPoints("face") },
       { label: "Track points from the playhead...", disabled: app.following !== null, action: () => app.startPoints() },
@@ -245,6 +291,7 @@
     <svg class="curve" viewBox="0 0 100 {H}" preserveAspectRatio="none" aria-hidden="true">
       <polyline class="cx" points={lines.x} vector-effect="non-scaling-stroke" />
       <polyline class="cy" points={lines.y} vector-effect="non-scaling-stroke" />
+      {#if lines.z}<polyline class="cz" points={lines.z} vector-effect="non-scaling-stroke" />{/if}
     </svg>
   {:else if app.following === null}
     <span class="hint">Follow: click to add a keyframe, then drag the picture to aim the zoomed view. Or Track a person to add keyframes that follow them. The wheel zooms the timeline.</span>
@@ -292,8 +339,8 @@
     {:else}
       {#if pts.length}
         <span class="mono small muted" title="Drag on the lane to select several (Ctrl+click, Shift+click also); Backspace or Delete removes them. The wheel zooms the timeline.">{app.followSelected.length > 1 ? `${app.followSelected.length} of ${pts.length} selected` : `${pts.length} key${pts.length === 1 ? "" : "s"}`}</span>
-        <label class="fz" title="Follow's own zoom, for all its keyframes (the sidebar's zoom is for the picture without Follow). Double-click for 2x.">
-          <span class="small">Zoom</span>
+        <label class="fz" title="Follow's own zoom, set for all its keyframes at once (the sidebar's zoom is for the picture without Follow). Click a keyframe to give it a zoom of its own in its panel. Double-click for 2x.">
+          <span class="small">Zoom (all)</span>
           <input
             type="range"
             min="1"
@@ -313,6 +360,49 @@
     {/if}
   </div>
 </div>
+<!-- always there while the lane is, so opening a keyframe does not move the lane -->
+<KeyBar
+  i={ki}
+  n={pts.length}
+  t={kp?.t ?? null}
+  onprev={() => ki !== null && goKey(ki - 1)}
+  onnext={() => ki !== null && goKey(ki + 1)}
+  ontime={(v) => ki !== null && setKey(ki, { t: v })}
+  onstep={(f) => ki !== null && kp && setKey(ki, { t: kp.t + f / app.fpsSrc })}
+  onremove={() => ki !== null && app.removeFollowKey(ki)}
+  onclose={() => (app.followSel = [])}
+>
+  <span class="kpart" title="How close the view is at this keyframe; it zooms smoothly to the next one">
+    <span class="klbl">Zoom</span>
+    <input class="kz" type="range" disabled={!kp} min={zoomMath.MIN_ZOOM} max={zoomMath.MAX_ZOOM} step="0.05" value={kp?.zoom ?? 1} aria-label="Zoom of this keyframe" oninput={(e) => ki !== null && setKey(ki, { zoom: Number((e.currentTarget as HTMLInputElement).value) })} />
+    <input
+      class="field mono kn"
+      type="number"
+      disabled={!kp}
+      min={zoomMath.MIN_ZOOM}
+      max={zoomMath.MAX_ZOOM}
+      step="0.05"
+      value={kp ? Math.round(kp.zoom * 100) / 100 : ""}
+      aria-label="Zoom of this keyframe, exactly"
+      onchange={(e) => ki !== null && setKey(ki, { zoom: Number((e.currentTarget as HTMLInputElement).value) })}
+    />x
+  </span>
+  <span class="kpart" title="Turns the view clockwise (negative: counterclockwise), -90° to 90°">
+    <span class="klbl">Turn</span>
+    <input
+      class="field mono kn"
+      type="number"
+      disabled={!kp}
+      min="-90"
+      max="90"
+      step="1"
+      value={kp ? Math.round((kp.rot ?? 0) * 10) / 10 : ""}
+      aria-label="Turn in degrees, clockwise"
+      onchange={(e) => ki !== null && setKey(ki, { rot: Math.max(-90, Math.min(90, Number((e.currentTarget as HTMLInputElement).value) || 0)) })}
+    />°
+  </span>
+  <span class="muted aim">{app.followSelected.length > 1 ? `${app.followSelected.length} keyframes selected: drag the picture to move them all` : kp ? "Drag the picture to aim it" : "Click a keyframe on the lane to edit it"}</span>
+</KeyBar>
 
 <style>
   .lane {
@@ -351,6 +441,20 @@
     stroke: var(--text-secondary);
     stroke-dasharray: 4 3;
     opacity: 0.8;
+  }
+  .kz {
+    width: 120px;
+  }
+  .kn {
+    width: 60px;
+  }
+  .aim {
+    font-size: 11px;
+  }
+  .cz {
+    stroke: var(--yellow);
+    stroke-dasharray: 1 3;
+    stroke-linecap: round;
   }
   .hint {
     position: absolute;

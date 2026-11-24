@@ -7,6 +7,66 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- Rotation keyframes: a Rotate lane under the timeline turns the picture
+  partway through the clip, for a phone video that goes from upright to
+  sideways. A keyframe changes the angle on its frame, or turns smoothly from
+  the previous keyframe; before the first one the Rotate setting applies. The
+  lane is an angle graph whose scale fits the keyframes (a turn past 180°
+  is drawn on to 270°), and a row under the lane sets a keyframe's exact time
+  and angle and At once or Smoothly. The
+  output has the picture's shape at its first frame (or the Canvas's), and a
+  part at another angle fits in it, or fills it (Advanced > Canvas > Picture).
+  The encode turns the picture with ffmpeg's `rotate` on a
+  frame-shaped canvas and cuts and scales it with `zoompan`; the frames before
+  the first turn come out the same as without keyframes.
+- Follow keyframes each have their own zoom: the view zooms smoothly between
+  them (a dotted line on the Follow lane), and a row under the lane (click a
+  keyframe) sets one keyframe's time, zoom and turn exactly. The Rotate and
+  Follow rows stay in place, greyed out with no keyframe open, so the lanes
+  do not move. The Zoom
+  (all) slider still sets every keyframe. The output is the size of the widest
+  view; the encode cuts it and zooms in from it with `zoompan`, centred on the
+  path.
+- Close the file: the × beside the file name at the top, or Ctrl+W, goes
+  back to the start page with the recent files. The file's edit and settings
+  are saved first.
+- PgUp / PgDn move the playhead to the previous / next keyframe on the lanes
+  shown (Follow, Rotate, Speed).
+- Rule-of-thirds lines over the output: the grid button at the bottom left of
+  the picture, while the Follow lane is shown.
+- Advanced > Canvas: the output's frame as the picture's own shape (Auto),
+  9:16, 16:9, 1:1, 4:5, a custom ratio (such as 2.39 : 1), or a custom size
+  in pixels. A picture of
+  another shape fits in it with black or a blurred copy of itself around it
+  (Background), or fills it with the edges cut (Picture: Fill). The preview
+  shows the frame's edge.
+
+### Changed
+
+- The preview's volume slider stands upright above the speaker.
+- Frame (save the frame at the playhead) moved from Video tools to a button
+  at the bottom right of the picture, beside the speaker and Loop. Video
+  tools: Speed, Follow, Crop on the first row; Rotate, Find cuts, Sample on
+  the second.
+- Follow lane, right-click > "Add a keyframe here": the playhead goes to the
+  new keyframe and selects it (it went to the keyframe after it).
+- Opening a file you edited before brings back Rotate, the flips and the
+  adjustments with the rest of its edit (Rotate was kept only with rotation
+  keyframes), and its own settings as they were left: speed, direction,
+  fades, filters, sound track and volume, subtitles, caption, title, file
+  name and canvas. Settings > Files > Opening a file again: As it was left
+  (the default), The edit only, or Start clean.
+- Sample starts at the selected range's In point, wherever the playhead is.
+  The dialog is the window's height and its pictures (and the side-by-side
+  comparison) are scaled to fit, without scrolling; Close stays at the bottom.
+- The speed chips leave out speeds within 0.5% of a whole number (1.001x,
+  2.002x, 3.003x for 59.94 fps footage on a 60 Hz display).
+- Esc in crop mode leaves it without the changes made there (the crop, the
+  aspect lock, and a follow path the crop moved go back to how they were);
+  Enter and Done keep them. The crop bar has a Cancel button.
+
 ## [1.2.1] - 2026-11-23
 
 ### Added

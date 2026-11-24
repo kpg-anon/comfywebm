@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-11-24
+
 ### Added
 
 - Rotation keyframes: a Rotate lane under the timeline turns the picture

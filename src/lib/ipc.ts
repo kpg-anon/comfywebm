@@ -30,7 +30,7 @@ export type TrackTest = { method: string; seconds: number; frames: number; meanP
 export const trackTest = (method: string) => invoke<TrackTest>("track_test", { method });
 
 /** A tool the app can download and set up itself (src-tauri install.rs) */
-export type InstallTool = "ffmpeg" | "ytdlp" | "gyroflow" | "vittrack" | "sam2";
+export type InstallTool = "ffmpeg" | "ytdlp" | "gyroflow" | "vittrack" | "sam2" | "rife";
 export type InstallProgress = { tool: InstallTool; phase: "find" | "download" | "unpack" | "check" | "brew" | "pip"; done: number; total: number | null; text: string | null };
 export type Installed = { tool: InstallTool; path: string; release: string };
 export const toolInstall = (tool: InstallTool) => invoke<Installed>("tool_install", { tool });

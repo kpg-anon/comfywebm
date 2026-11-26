@@ -55,6 +55,7 @@ export const ICONS = {
   range: '<path d="M7 5H4v14h3"/><path d="M17 5h3v14h-3"/><path d="M8.5 12h7"/>',
   history: '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/>',
   full:'<path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/>',
+  fullExit: '<path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/>',
   eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   volume: '<path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor" stroke-linejoin="round"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19.5 5.5a9 9 0 0 1 0 13"/>',
   volumeLow: '<path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor" stroke-linejoin="round"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/>',

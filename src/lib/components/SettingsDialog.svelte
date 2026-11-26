@@ -239,6 +239,14 @@
       trackTesting = false;
     }
   }
+  // Interpolation's method: the built-in minterpolate, or RIFE once installed (src-tauri install.rs)
+  let interpChoice = $state<string>(app.settings.interpMethod ?? "minterpolate");
+  let rifeHave = $state(false);
+  async function refreshRife() {
+    rifeHave = !!(await ipc.toolInstalled("rife").catch(() => null));
+    void app.refreshRife();
+  }
+  void refreshRife();
   const hasVidstab = $derived(!!app.tools?.filters.vidstab);
   const hasGyroflow = $derived(!!app.settings.gyroflowPath);
   /** the method shown and tested: Gyroflow as chosen even before it is installed (the install button shows) */
@@ -285,6 +293,7 @@
       nameTemplate: nameTemplate.trim() || "{name}_{start}-{end}",
       stabMethod: stabChoice === "auto" ? null : (stabChoice as StabMethod),
       trackMethod: trackChoice === "builtin" ? null : trackChoice,
+      interpMethod: interpChoice === "rife" ? "rife" : null,
     });
     saving = false;
     if (err) {
@@ -579,6 +588,39 @@
       {#if stabResult && stabResult.method === stabUsed}
         <span class="hint" class:err={stabResult.bad}>{stabResult.text}</span>
       {/if}
+    </div>
+
+    <div class="col">
+      <span>Interpolation</span>
+      <div class="line stabline">
+        <Select
+          label="Method for Interpolation (slow motion)"
+          value={interpChoice}
+          onchange={(v) => (interpChoice = v)}
+          options={[
+            { value: "minterpolate", label: "Built-in (minterpolate)", hint: "nothing to install" },
+            { value: "rife", label: "RIFE *", hint: rifeHave ? "installed, best results" : "not installed, best results" },
+          ]}
+        />
+      </div>
+      {#if interpChoice === "rife"}
+        <span class="hint">
+          <b>RIFE</b> (a neural network for in-between frames, model 4.26, run by rife-ncnn-vulkan on the graphics card). Before the encode it fills the slow parts with new
+          frames, then the encode uses them; fast motion, arms and turning heads hold together far better than with the built-in method. Measured on an RTX 4070 laptop
+          GPU: about 30 new frames a second at 1080p, 6 at 4K. Needs a graphics card with Vulkan (NVIDIA, AMD, Intel or Apple) and some temporary disk space (about 1 GB
+          at a time, plus a near-lossless copy of the span). HDR clips need Tone map on. Splits and joined files use the built-in method.
+        </span>
+        <ToolInstall tool="rife" label="Install RIFE" note={rifeHave ? "" : "downloads TNTwise's rife-ncnn-vulkan release from GitHub (about 830 MB, every model) and keeps the program and one model, about 20 MB"} oninstalled={() => void refreshRife()} />
+        {#if !rifeHave}
+          <span class="hint">Until it is installed, a job with Interpolation on stops with an error; choose the built-in method or install RIFE.</span>
+        {/if}
+      {:else}
+        <span class="hint">
+          <b>Built-in</b> (ffmpeg's minterpolate). Works out the motion between frames in blocks and moves them to make the new frames, in the encode itself. Slow (minutes per
+          second of output at 1080p), and fast motion shows warped and torn edges.
+        </span>
+      {/if}
+      <span class="hint">* best results. This is the method for Interpolation in the Advanced tab: new in-between frames for slow motion (speeds below 1x and slow parts of a speed ramp).</span>
     </div>
 
     <div class="col">

@@ -57,7 +57,8 @@ pub fn install<R: Runtime>(win: &WebviewWindow<R>, path: PathBuf) {
     let w = win.clone();
     win.on_window_event(move |e| match e {
         WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
-            if !w.is_maximized().unwrap_or(false) && !w.is_minimized().unwrap_or(false) {
+            // full screen (the picture's full-screen view) is not the window's own size either
+            if !w.is_maximized().unwrap_or(false) && !w.is_minimized().unwrap_or(false) && !w.is_fullscreen().unwrap_or(false) {
                 if let Some(b) = current(&w) {
                     *normal.lock().unwrap() = Some(b);
                 }

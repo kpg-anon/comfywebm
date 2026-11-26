@@ -209,6 +209,11 @@ export type SampleState = {
 class AppState {
   // tools and settings
   tools = $state<ToolsStatus | null>(null);
+  /** RIFE (Settings > Tools > Interpolation) is installed; null until known */
+  rifeInstalled = $state<boolean | null>(null);
+  async refreshRife() {
+    this.rifeInstalled = !!(await ipc.toolInstalled("rife").catch(() => null));
+  }
   settings = $state<Settings>({ ...DEFAULT_SETTINGS });
   jobs = $state<Job[]>([]);
   settingsOpen = $state(false);
@@ -663,6 +668,8 @@ class AppState {
         w.push("Stabilize is set to vid.stab (Settings > Tools), but this ffmpeg has no vid.stab, so deshake is used.");
       if (this.stabilize && this.settings.stabMethod === "gyroflow" && !this.settings.gyroflowPath)
         w.push(`Stabilize is set to Gyroflow (Settings > Tools), but Gyroflow is not installed, so ${this.stabFallback === "vidstab" ? "vid.stab" : "deshake"} is used.`);
+      if (this.smoothSlowmo && this.settings.interpMethod === "rife" && this.rifeInstalled === false)
+        w.push("Interpolation is set to RIFE (Settings > Tools), but RIFE is not installed; the encode will stop with an error. Install it there, or choose the built-in method.");
     }
     const p = this.preset;
     if (this.media && p?.maxDuration && this.outLen > p.maxDuration + 1e-6)
@@ -728,6 +735,7 @@ class AppState {
       stabilize: this.stabilize,
       stabMethod: this.stabMethod,
       smoothSlowmo: this.smoothSlowmo,
+      interpMethod: this.settings.interpMethod ?? "minterpolate",
       tonemap: own ? this.tonemap : m.video.hdr && !!this.tools?.filters.zscale,
       fadeIn: Math.max(0, this.fadeIn || 0),
       fadeOut: Math.max(0, this.fadeOut || 0),
@@ -1015,6 +1023,7 @@ class AppState {
     const [tools, jobs] = await Promise.allSettled([toolsP, jobsP]);
     if (tools.status === "fulfilled") {
       this.tools = tools.value;
+      void this.refreshRife();
       // the preset's (or remembered) codec was chosen before the encoders were known
       if (!this.codecAvailable(this.codec)) this.setContainer(this.container);
     } else this.error = ipc.errText(tools.reason);
@@ -1080,6 +1089,7 @@ class AppState {
       // an install from Settings changes settings.json too (the tool's path)
       this.settings = { ...this.settings, ...(await ipc.settingsGet()) };
       this.tools = await ipc.toolsStatus();
+      void this.refreshRife();
     } catch (e) {
       this.error = ipc.errText(e);
     }
@@ -1163,6 +1173,7 @@ class AppState {
     this.cancelFollow();
     if (this.proxyFraction !== null) ipc.proxyCancel().catch(() => {});
     this.video?.pause();
+    this.fullView = false;
     this.openSeq++; // a probe still running for this file is ignored
     this.media = null;
     this.videoSrc = null;
@@ -1659,6 +1670,13 @@ class AppState {
   toggleLoop() {
     this.loopTouched = true;
     this.loop = !this.loop;
+  }
+
+  /** The picture fills the screen (the button at the top right of the picture, F; Esc or F
+   *  leaves). +page.svelte makes the window full screen while it is on. */
+  fullView = $state(false);
+  toggleFullView(on = !this.fullView) {
+    this.fullView = on && !!this.media && this.view === "editor";
   }
 
   // ---------- crop ----------
@@ -2811,6 +2829,7 @@ class AppState {
 
   setView(v: View) {
     this.view = v;
+    if (v !== "editor") this.fullView = false;
     if (v === "queue") this.unseen = { done: 0, failed: 0 };
   }
 

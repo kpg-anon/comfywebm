@@ -434,7 +434,8 @@ fn run_one(app: &AppHandle, queue: &Queue, job: Job, cancel: &Cancel) {
     let mut last_emit = Instant::now() - PROGRESS_INTERVAL;
     let sources = state.sources(&job.spec).unwrap_or_default();
     let gyro = state.gyro();
-    let res = run::run_job(&ffmpeg, &job.spec, &info, &out, state.zscale(), Some(&sources), gyro.as_ref(), cancel, |p| {
+    let rife = crate::install::rife_tool(&app.state::<crate::install::ToolsDir>().0, state.tools().0.ffprobe);
+    let res = run::run_job(&ffmpeg, &job.spec, &info, &out, state.zscale(), Some(&sources), gyro.as_ref(), rife.as_ref(), cancel, |p| {
         let job = queue.update(id, |j| j.progress = Some(p.clone()));
         if last_emit.elapsed() >= PROGRESS_INTERVAL {
             last_emit = Instant::now();

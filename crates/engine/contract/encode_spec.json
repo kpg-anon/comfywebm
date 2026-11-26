@@ -38,6 +38,7 @@
   "followWindow": null,
   "fps": null,
   "input": "in.mp4",
+  "interpMethod": "minterpolate",
   "layout": {
     "columns": 0,
     "crops": [],

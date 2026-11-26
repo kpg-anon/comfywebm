@@ -169,18 +169,7 @@ pub fn prepare(ffmpeg: &Path, gyro: &Gyro, spec: &EncodeSpec, info: &MediaInfo, 
     }
 
     // embedded subtitles do not survive Gyroflow: take the chosen track out as a file first
-    let mut subs = spec.subs.clone();
-    if let Some(SubsSel::Embedded { track }) = &spec.subs {
-        let mut cmd = command(ffmpeg);
-        cmd.args(["-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i", &spec.input, "-map", &format!("0:s:{track}")]).arg(&subs_file);
-        match output_within(cmd, std::time::Duration::from_secs(120), "Extracting the subtitles") {
-            Ok(o) if o.status.success() && subs_file.is_file() => {
-                files.push(subs_file.clone());
-                subs = Some(SubsSel::File { path: subs_file.to_string_lossy().into_owned() });
-            }
-            _ => subs = None,
-        }
-    }
+    let subs = subs_for_cut(ffmpeg, spec, &subs_file, &mut files);
 
     // 2. Gyroflow
     if let Err(e) = run_gyroflow(&gyro.gyroflow, &cut, &steady, audio.is_some(), cancel, |f| on_fraction(0.2 + f * 0.8)) {
@@ -199,8 +188,32 @@ pub fn prepare(ffmpeg: &Path, gyro: &Gyro, spec: &EncodeSpec, info: &MediaInfo, 
     };
 
     // 3. the job on Gyroflow's file: every source time moves back by the span's start
-    let mut s = spec.clone();
+    let mut s = shifted(spec, &segs, s0, subs, audio);
     s.input = steady_s;
+    s.deinterlace = false;
+    s.stabilize = false;
+    Ok(Prepared { spec: s, info: new_info, files })
+}
+
+/// The chosen subtitles for a job moved onto a cut of its span (Gyroflow, RIFE): embedded
+/// ones do not survive the cut, so the track is taken out to `file` first (added to `files`).
+pub(crate) fn subs_for_cut(ffmpeg: &Path, spec: &EncodeSpec, file: &Path, files: &mut Vec<PathBuf>) -> Option<SubsSel> {
+    let Some(SubsSel::Embedded { track }) = &spec.subs else { return spec.subs.clone() };
+    let mut cmd = command(ffmpeg);
+    cmd.args(["-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i", &spec.input, "-map", &format!("0:s:{track}")]).arg(file);
+    match output_within(cmd, std::time::Duration::from_secs(120), "Extracting the subtitles") {
+        Ok(o) if o.status.success() && file.is_file() => {
+            files.push(file.to_path_buf());
+            Some(SubsSel::File { path: file.to_string_lossy().into_owned() })
+        }
+        _ => None,
+    }
+}
+
+/// `spec` on a file cut from its span: every source time moves back by `s0` (the span's
+/// start), the sound is the cut's only track. The caller sets the input.
+pub(crate) fn shifted(spec: &EncodeSpec, segs: &[(f64, f64)], s0: f64, subs: Option<SubsSel>, audio: Option<crate::spec::AudioSel>) -> EncodeSpec {
+    let mut s = spec.clone();
     s.segments = segs.iter().map(|(a, b)| crate::spec::Segment { start: (a - s0).max(0.0), end: (b - s0).max(0.0) }).collect();
     s.speed_ramp = spec.speed_ramp.iter().map(|p| crate::spec::SpeedPoint { t: p.t - s0, ..*p }).collect();
     s.zoom = spec.zoom.iter().map(|p| crate::spec::ZoomPoint { t: p.t - s0, ..*p }).collect();
@@ -211,10 +224,8 @@ pub fn prepare(ffmpeg: &Path, gyro: &Gyro, spec: &EncodeSpec, info: &MediaInfo, 
     s.subs = subs;
     s.subs_delay = spec.subs_delay - s0;
     s.audio = audio.map(|au| crate::spec::AudioSel { track: 0, ..au });
-    s.deinterlace = false;
-    s.stabilize = false;
     s.segment_sources.clear();
-    Ok(Prepared { spec: s, info: new_info, files })
+    s
 }
 
 #[cfg(test)]

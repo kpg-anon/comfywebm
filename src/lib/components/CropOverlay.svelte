@@ -21,8 +21,29 @@
     onchange: (c: Crop | null) => void;
     /** when the pointer is released */
     oncommit: (c: Crop | null) => void;
+    /** the largest the rectangle may be (Follow: the view at its zoom), in the same pixels as W and H */
+    max?: { w: number; h: number } | null;
   }
-  let { rect, W, H, crop, ratio, active, onchange, oncommit }: Props = $props();
+  let { rect, W, H, crop, ratio, active, onchange, oncommit, max = null }: Props = $props();
+
+  /** Shrinks c to `max` (with an aspect lock keeping its shape, else each side on its own),
+   *  holding the side or corner opposite the one dragged. */
+  function cap(c: Crop, from: { x: number; y: number }): Crop {
+    if (!max || (c.w <= max.w + 0.5 && c.h <= max.h + 0.5)) return c;
+    const k = Math.min(max.w / c.w, max.h / c.h);
+    const [w, h] = ratio ? [c.w * k, c.h * k] : [Math.min(c.w, max.w), Math.min(c.h, max.h)];
+    // `from` is the fixed point: the far edge of a resize, the start of a new box
+    const x = Math.abs(from.x - (c.x + c.w)) <= 1 ? c.x + c.w - w : Math.abs(from.x - c.x) <= 1 ? c.x : c.x + (c.w - w) / 2;
+    const y = Math.abs(from.y - (c.y + c.h)) <= 1 ? c.y + c.h - h : Math.abs(from.y - c.y) <= 1 ? c.y : c.y + (c.h - h) / 2;
+    return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
+  }
+  /** the point a resize keeps still: the start rectangle's side or corner opposite the handle */
+  function anchorOf(c: Crop, h: Handle) {
+    return {
+      x: h.includes("w") ? c.x + c.w : h.includes("e") ? c.x : NaN,
+      y: h.includes("n") ? c.y + c.h : h.includes("s") ? c.y : NaN,
+    };
+  }
 
   const sx = $derived(rect.w > 0 ? W / rect.w : 1);
   const sy = $derived(rect.h > 0 ? H / rect.h : 1);
@@ -64,9 +85,9 @@
     const dx = (e.clientX - drag.x0) * sx;
     const dy = (e.clientY - drag.y0) * sy;
     let c: Crop;
-    if (drag.kind === "new") c = draw(drag.px, drag.py, dx, dy, ratio, W, H);
+    if (drag.kind === "new") c = cap(draw(drag.px, drag.py, dx, dy, ratio, W, H), { x: drag.px, y: drag.py });
     else if (drag.kind === "move") c = move(drag.start, dx, dy, W, H);
-    else c = resize(drag.start, drag.handle, dx, dy, ratio, W, H);
+    else c = cap(resize(drag.start, drag.handle, dx, dy, ratio, W, H), anchorOf(drag.start, drag.handle));
     live = c;
     onchange(c);
   }

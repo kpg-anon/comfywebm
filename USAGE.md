@@ -78,8 +78,9 @@ building it yourself. For an overview and the downloads, see
   and keep it, without a look-up first. It goes to your Downloads folder (or the
   folder set in Settings) in its own container (MP4, WebM, else MKV).
 - **Ranges**: one or more ranges on the timeline, set with `I` / `O` at the
-  playhead or by dragging handles; drag a range itself to move it with its
-  length kept (a click on it seeks). Several ranges are joined into one file, or
+  playhead or by dragging handles; Ctrl+drag a range itself to move it with
+  its length kept. A click or drag on a range (or anywhere on the track) seeks,
+  and the picture follows while you drag; a plain drag never moves a range. Several ranges are joined into one file, or
   sent as separate jobs with "Separate files". Play plays the selected range:
   from its start when the playhead is outside it, stopping at its end (with
   Loop, `L`, again from its start). Click past the end while playing to keep
@@ -186,21 +187,25 @@ building it yourself. For an overview and the downloads, see
   is selected), then drag the picture to aim the view. Dragging the picture
   moves the selected keyframes' view, or the whole path when none are selected
   (after a track nothing is selected, so a drag reframes the whole track
-  without bending it); Shift+drag always moves the whole path. Drag a keyframe to move it in time; double-click or
+  without bending it); Ctrl+drag always moves the whole path, and Shift (held
+  at any point in the drag) moves the view across only, keeping its height.
+  "Go to this keyframe" (right-click a keyframe) moves the playhead there and
+  selects it. The lane's own controls (Zoom (all), Track box, Track face,
+  Track points) are in a row above it. Drag a keyframe to move it in time; double-click or
   right-click it to remove it. To work on several: drag on the lane to draw a
   box around them (Ctrl+drag adds to the selection), Ctrl+click adds a
   keyframe or takes it out, Shift+click selects from the last one clicked;
   then dragging one of them moves them all in time, dragging the picture moves
   their view, Backspace or Delete removes them and Esc clears the selection.
   The wheel over the lane zooms the timeline at the pointer (Shift+wheel pans).
-  Crop (`C`) with a follow path works on the output as you see it: the
-  dashed area is the largest view the path can have at the playhead (the
-  picture over Follow's zoom), held still while you crop, and the crop box is
-  the view as it is now. Shrink it, drag it back out to the whole area, or
-  pick an aspect such as 1:1 (the largest box of that shape, around the
-  view's middle); moving the box moves the whole path by the same amount, so
-  the tracking is kept. The area moves only with the playhead, or when the
-  view would leave it. Between keyframes the view moves on a smooth
+  Crop (`C`) with a follow path shows the whole picture (turned as the view
+  is at the playhead), held still while you crop, and the crop box is the
+  view as it is now. Move it anywhere on the picture, shrink it, grow it up to
+  the largest view Follow's zoom allows (the picture over the zoom), or pick
+  an aspect such as 1:1 (the largest box of that shape, around the view's
+  middle); moving the box moves the whole path by the same amount, so the
+  tracking is kept. The area moves only with the playhead, or when the view
+  would leave it. Between keyframes the view moves on a smooth
   curve that does not stop at each keyframe, and nothing overshoots a turning
   point. The lane's solid line is the view's centre across, the dashed line its
   centre down. Follow's view has the crop's shape (or the picture's, without a
@@ -333,6 +338,27 @@ building it yourself. For an overview and the downloads, see
   1 GB per minute of 1080p) and a step about as long as the stretch; it removed
   about two thirds of the test shake. Splits use vid.stab or deshake instead;
   Frame (S) and the quality check show the picture without it.
+- **Interpolation** (Settings > Tools > Interpolation) chooses how the
+  Interpolation filter makes the in-between frames of slow motion (speeds
+  below 1x, and the slow parts of a speed ramp):
+  - **Built-in** (ffmpeg's minterpolate): block motion estimation in the
+    encode itself. Nothing to install; slow, and fast motion shows warped
+    edges.
+  - **RIFE** (model 4.26, run by TNTwise's rife-ncnn-vulkan, MIT): a neural
+    network for in-between frames, on the graphics card through Vulkan.
+    Install RIFE downloads the release from GitHub (about 830 MB, it holds
+    every model) and keeps the program and one model (about 20 MB). The check
+    after installing makes one in-between picture and lists the graphics cards
+    it found. Before the encode, the stretch from the first range's start to
+    the last range's end is decoded, RIFE fills it to the rate the slowest
+    part needs (2x at 0.5x speed, 5 frames for every 2 at 0.4x), and the
+    encode takes its frames from that near-lossless copy, as from a faster
+    camera. The source frames come through unchanged; only the new ones are
+    made by the model. Pictures are passed to RIFE about 1 GB at a time, so
+    long clips do not need more temporary space than short ones (plus the
+    copy). On an RTX 4070 laptop GPU: about 30 frames a second at 1080p, 6 at
+    4K; a 3 s 720p range at 0.5x took 21 s including the encode. HDR clips
+    need Tone map on. Splits and joined files use the built-in method.
 - **Tracking** (Settings > Tools > Tracking) chooses what Follow's Track uses:
   - **Built-in**: compares the box's picture frame by frame on a small grey
     copy. Nothing to install.
@@ -467,10 +493,11 @@ Keys do nothing while a text field has focus.
 | Delete / Backspace | remove the selected Follow keyframes, or the selected range (when there is more than one) |
 | `L` | loop the selected range |
 | `M` | mute / unmute the preview (also the speaker at the bottom right of the picture; its slider above it, or the wheel over it, sets the volume) |
+| `F` | full screen: the picture over the whole screen, without the sidebar and timeline (also the button at the top right of the picture); `F` or Esc leaves |
 | `\` (hold) | adjustments: the original picture while held (also the eye in Advanced > Adjustments) |
 | `C` | crop mode on / off |
 | Enter | leave crop mode, keeping the crop |
-| Esc | leave crop mode, putting the crop (and the aspect lock and a follow path it moved) back as it was |
+| Esc | leave crop mode, putting the crop (and the aspect lock and a follow path it moved) back as it was; otherwise leave full screen |
 | Arrows (crop mode) | move the crop 1 px; with Shift 10 px |
 | Alt + arrows (crop mode) | resize the crop |
 | `P` | sample: encode 3 s at the playhead |
@@ -479,6 +506,9 @@ Keys do nothing while a text field has focus.
 | `H` | the History panel: every edit, click one to go back to it |
 | Ctrl + Shift + Z, Ctrl + Y | redo |
 | Ctrl + wheel over the timeline | zoom the timeline; the wheel alone pans while zoomed |
+| Ctrl + drag a range | move it, keeping its length (a plain click or drag seeks) |
+| Shift + drag the picture (Follow) | move the view across only |
+| Ctrl + drag the picture (Follow) | move the whole path |
 | `Z` / Shift + `Z` | zoom the timeline to the selected Follow keyframes or range / show the whole file |
 | `?`, F1 | list of keys |
 | `Q` | switch between the editor and the queue |
@@ -502,6 +532,14 @@ best practices page on `docs.x.com`. 4chan's 2048x2048 picture limit and whether
 
 MiB limits are binary: 1 MiB = 1,048,576 bytes.
 
+Mokachan takes files up to 100 MiB (`"maxSize": 100` in
+`https://mokachan.cafe/json/config`, checked 2026-11-26; meguca counts it in
+MiB) with any codec, sound and length; awoo takes up to 512 MB (from the
+owner). A size limit preset would fill those limits even for a short clip, so
+both are quality presets; a normal clip comes out far under the limit, but a
+very long one at a large size can pass 100 MiB. Both are added once to an
+existing presets folder; delete one and it stays deleted.
+
 | preset | container, codec | limit | audio | picture | longest clip |
 | --- | --- | --- | --- | --- | --- |
 | 4chan (4 MiB, no sound) | WebM, VP9 | 4,194,304 bytes | none | at most 2048x2048, auto size | 120 s |
@@ -509,6 +547,8 @@ MiB limits are binary: 1 MiB = 1,048,576 bytes.
 | 4chan /gif/ (4 MiB, sound) | WebM, VP9 | 4,194,304 bytes | Opus 96 kbps | at most 2048x2048, auto size | 300 s |
 | 4chan /r/ /wsr/ (4 MiB, sound) | WebM, VP9 | 4,194,304 bytes | Opus 96 kbps | at most 2048x2048, auto size | 120 s |
 | 4chan /wsg/ (6 MiB, sound) | WebM, VP9 | 6,291,456 bytes | Opus 96 kbps | at most 2048x2048, auto size | 400 s |
+| Mokachan (quality, sound) | WebM, VP9 | CRF 30 | Opus 128 kbps | source | none |
+| awoo (quality, sound) | WebM, VP9 | CRF 30 | Opus 128 kbps | source | none |
 | Discord (20 MB) | MP4, H.264 | 20,000,000 bytes | AAC 128 kbps | auto size | none |
 | Discord Nitro Basic (50 MB) | MP4, H.264 | 50,000,000 bytes | AAC 128 kbps | auto size | none |
 | X / Twitter | MP4, H.264 | CRF 20 | AAC 128 kbps | at most 1280x1280, 60 fps | 1200 s |

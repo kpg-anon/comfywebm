@@ -216,7 +216,14 @@
       return;
     }
     const items: MenuItem[] = [
-      { label: "Go to this keyframe", action: () => app.seek(p.t) },
+      {
+        label: "Go to this keyframe",
+        action: () => {
+          // it becomes the selected keyframe too, so its row opens and the picture drag aims it
+          goKey(i);
+          anchor = p.t;
+        },
+      },
       { label: "Move to the playhead", action: () => app.setZoomPoint(i, { t: app.current }) },
       "sep",
       { label: "Remove this keyframe", danger: true, action: () => app.removeFollowKey(i) },
@@ -272,6 +279,42 @@
   });
 </script>
 
+<!-- the lane's own controls, in a row above it so they do not cover the lines -->
+<div class="lhead">
+  <span class="ltitle">Follow</span>
+  <div class="bar">
+    {#if app.following !== null}
+      <span class="mono small" title="Tracking with {app.trackingWith}">Tracking {Math.round(app.following * 100)}%</span>
+      <button class="btn small" onclick={() => app.cancelFollow()}>Stop</button>
+    {:else if app.followMode}
+      <span class="small">Draw a box on the picture</span>
+      <button class="btn small" onclick={() => app.cancelFollow()}>Cancel</button>
+    {:else if app.pointsMode}
+      <span class="small">Click points on the picture</span>
+    {:else}
+      {#if pts.length}
+        <span class="mono small muted" title="Drag on the lane to select several (Ctrl+click, Shift+click also); Backspace or Delete removes them. The wheel zooms the timeline.">{app.followSelected.length > 1 ? `${app.followSelected.length} of ${pts.length} selected` : `${pts.length} key${pts.length === 1 ? "" : "s"}`}</span>
+        <label class="fz" title="Follow's own zoom, set for all its keyframes at once (the sidebar's zoom is for the picture without Follow). Click a keyframe to give it a zoom of its own in its panel. Double-click for 2x.">
+          <span class="small">Zoom (all)</span>
+          <input
+            type="range"
+            min="1"
+            max="4"
+            step="0.05"
+            aria-label="Follow zoom"
+            value={app.followZoom}
+            oninput={(e) => app.setFollowZoom(Number((e.currentTarget as HTMLInputElement).value))}
+            ondblclick={() => app.setFollowZoom(2)}
+          />
+          <span class="mono small">{app.followZoom.toFixed(2)}x</span>
+        </label>
+      {/if}
+      <button class="btn small" disabled={!app.media || app.audioOnly} title="Draw a box around a person; the app follows them from the playhead to the end of the range and adds keyframes along the way, with a steady camera" onclick={ontrack}>Track box...</button>
+      <button class="btn small" disabled={!app.media || app.audioOnly} title="Click on a face: the view stays on it and turns to keep the eyes level, found afresh in every frame (OpenCV's face finder; needs VitTrack from Settings > Tools > Tracking)" onclick={() => app.startPoints("face")}>Track face...</button>
+      <button class="btn small" disabled={!app.media || app.audioOnly} title="Click one point to follow (the view stays centred on it), or two to also turn the view so the line between them stays level. For a face, Track face holds better." onclick={() => app.startPoints()}>Track points...</button>
+    {/if}
+  </div>
+</div>
 <div
   class="lane"
   bind:this={lane}
@@ -327,38 +370,6 @@
       {/if}
     {/if}
   {/each}
-  <div class="bar" role="presentation" onpointerdown={(e) => e.stopPropagation()} oncontextmenu={(e) => e.stopPropagation()}>
-    {#if app.following !== null}
-      <span class="mono small" title="Tracking with {app.trackingWith}">Tracking {Math.round(app.following * 100)}%</span>
-      <button class="btn small" onclick={() => app.cancelFollow()}>Stop</button>
-    {:else if app.followMode}
-      <span class="small">Draw a box on the picture</span>
-      <button class="btn small" onclick={() => app.cancelFollow()}>Cancel</button>
-    {:else if app.pointsMode}
-      <span class="small">Click points on the picture</span>
-    {:else}
-      {#if pts.length}
-        <span class="mono small muted" title="Drag on the lane to select several (Ctrl+click, Shift+click also); Backspace or Delete removes them. The wheel zooms the timeline.">{app.followSelected.length > 1 ? `${app.followSelected.length} of ${pts.length} selected` : `${pts.length} key${pts.length === 1 ? "" : "s"}`}</span>
-        <label class="fz" title="Follow's own zoom, set for all its keyframes at once (the sidebar's zoom is for the picture without Follow). Click a keyframe to give it a zoom of its own in its panel. Double-click for 2x.">
-          <span class="small">Zoom (all)</span>
-          <input
-            type="range"
-            min="1"
-            max="4"
-            step="0.05"
-            aria-label="Follow zoom"
-            value={app.followZoom}
-            oninput={(e) => app.setFollowZoom(Number((e.currentTarget as HTMLInputElement).value))}
-            ondblclick={() => app.setFollowZoom(2)}
-          />
-          <span class="mono small">{app.followZoom.toFixed(2)}x</span>
-        </label>
-      {/if}
-      <button class="btn small" disabled={!app.media || app.audioOnly} title="Draw a box around a person; the app follows them from the playhead to the end of the range and adds keyframes along the way, with a steady camera" onclick={ontrack}>Track box...</button>
-      <button class="btn small" disabled={!app.media || app.audioOnly} title="Click on a face: the view stays on it and turns to keep the eyes level, found afresh in every frame (OpenCV's face finder; needs VitTrack from Settings > Tools > Tracking)" onclick={() => app.startPoints("face")}>Track face...</button>
-      <button class="btn small" disabled={!app.media || app.audioOnly} title="Click one point to follow (the view stays centred on it), or two to also turn the view so the line between them stays level. For a face, Track face holds better." onclick={() => app.startPoints()}>Track points...</button>
-    {/if}
-  </div>
 </div>
 <!-- always there while the lane is, so opening a keyframe does not move the lane -->
 <KeyBar
@@ -405,9 +416,23 @@
 </KeyBar>
 
 <style>
+  .lhead {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    min-height: 20px;
+  }
+  .ltitle {
+    color: var(--text-secondary);
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
   .lane {
     position: relative;
-    margin-top: 6px;
+    margin-top: 3px;
     border-radius: var(--radius-sm);
     background: var(--bg-input);
     overflow: hidden;
@@ -459,7 +484,7 @@
   .hint {
     position: absolute;
     left: 8px;
-    right: 150px;
+    right: 8px;
     top: 50%;
     transform: translateY(-50%);
     font-size: 11px;
@@ -514,16 +539,12 @@
     pointer-events: none;
   }
   .bar {
-    position: absolute;
-    top: 3px;
-    right: 4px;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
+    justify-content: flex-end;
     gap: 6px;
-    padding: 0 0 0 6px;
-    border-radius: 4px;
-    background: var(--bg-input);
-    cursor: default;
+    margin-left: auto;
   }
   .fz {
     display: flex;

@@ -69,7 +69,7 @@
   let drag = $state<
     | { kind: "seek" }
     | { kind: "start" | "end"; i: number; snaps: number[] }
-    // a range's body: a click seeks; past a few pixels the drag moves the range, keeping its length
+    // Ctrl + drag on a range's body moves the range, keeping its length (past a few pixels)
     | { kind: "move"; i: number; x0: number; t0: number; start0: number; moved: boolean; snaps: number[] }
     | null
   >(null);
@@ -78,6 +78,20 @@
   let trackW = $state(0);
   /** Time under the pointer while it is over the track. */
   let hoverT = $state<number | null>(null);
+  /** Ctrl is held: a range shows the move cursor (Ctrl + drag moves it) */
+  let ctrlHeld = $state(false);
+  $effect(() => {
+    const set = (e: KeyboardEvent) => (ctrlHeld = e.ctrlKey || e.metaKey);
+    const off = () => (ctrlHeld = false);
+    window.addEventListener("keydown", set);
+    window.addEventListener("keyup", set);
+    window.addEventListener("blur", off);
+    return () => {
+      window.removeEventListener("keydown", set);
+      window.removeEventListener("keyup", set);
+      window.removeEventListener("blur", off);
+    };
+  });
 
   const dur = $derived(app.duration || 0);
   const many = $derived(app.segments.length > 1);
@@ -236,7 +250,12 @@
     // working on the ranges: Delete is for them again, not the Follow keyframes
     app.followSel = [];
     track.setPointerCapture(e.pointerId);
-    if (kind === "body") {
+    if (kind === "body" && !(e.ctrlKey || e.metaKey)) {
+      // a range stays put: a click or drag on it selects it and scrubs, as on the rest of the track
+      app.sel = i;
+      drag = { kind: "seek" };
+      app.seek(timeAt(e));
+    } else if (kind === "body") {
       app.sel = i;
       const t = timeAt(e);
       app.seek(t);
@@ -364,6 +383,7 @@
     style:height="{app.trackH}px"
     class:disabled={!app.media}
     class:zoomed
+    class:ctrl={ctrlHeld}
     bind:this={track}
     bind:clientWidth={trackW}
     role="presentation"
@@ -880,11 +900,15 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    cursor: grab;
+    cursor: pointer;
     border-radius: 4px;
     background: color-mix(in srgb, var(--range) 12%, transparent);
     border: 2px solid color-mix(in srgb, var(--range) 50%, transparent);
     overflow: hidden;
+  }
+  /* Ctrl + drag moves a range */
+  .track.ctrl .sel {
+    cursor: grab;
   }
   .sel.active {
     background: color-mix(in srgb, var(--range) 22%, transparent);

@@ -14,6 +14,7 @@ pub mod proxy;
 pub mod pytrack;
 pub mod quality;
 pub mod ramp;
+pub mod rife;
 pub mod rotation;
 pub mod run;
 pub mod scenes;

@@ -1175,7 +1175,8 @@ pub fn build(spec: &EncodeSpec, info: &MediaInfo, opts: &Opts) -> Result<Planned
         Some((fps, _)) => *fps,
         None => interpolate.unwrap_or(fps_cap.unwrap_or(if src_fps_out > 0.0 { src_fps_out } else { 30.0 })),
     };
-    if interpolate.is_some() && duration_out > 20.0 {
+    // (RIFE makes the frames before the encode, on the graphics card: rife.rs)
+    if interpolate.is_some() && duration_out > 20.0 && crate::rife::need(spec, info).is_none() {
         warnings.push("Interpolation computes every new frame and is slow: expect minutes per second of output.".into());
     }
     if codec.is_image() && out_fps > 25.0 {
@@ -2474,6 +2475,7 @@ mod tests {
             stabilize: false,
             stab_method: StabMethod::Deshake,
             smooth_slowmo: false,
+            interp_method: Default::default(),
             tonemap: false,
             fade_in: 0.0,
             fade_out: 0.0,

@@ -10,6 +10,7 @@
     "core:window:allow-set-progress-bar",
     "core:window:allow-request-user-attention",
     "core:window:allow-set-title",
+    "core:window:allow-set-fullscreen",
     "dialog:allow-open",
     "clipboard-manager:allow-read-text",
     "updater:default",

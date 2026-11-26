@@ -6,6 +6,10 @@
 //! at the tool is set to it. Unpacking uses the system's tar (Windows 10 and
 //! later ship one that reads zip files), so no archive code is added.
 //!
+//! RIFE (engine rife.rs) is rife-ncnn-vulkan from TNTwise's GitHub releases. The
+//! release file holds every RIFE model (about 830 MB); only the program and the
+//! model the engine uses (rife.rs MODEL) are unpacked, about 20 MB.
+//!
 //! The Python trackers (VitTrack, SAM 2; engine pytrack.rs) get their own
 //! environment each, `<tools dir>/<tool>/current/env`, made by uv (Astral's
 //! single-file Python installer, fetched into `<tools dir>/uv`), with a Python
@@ -38,6 +42,7 @@ pub enum Tool {
     Gyroflow,
     Vittrack,
     Sam2,
+    Rife,
 }
 
 impl Tool {
@@ -48,6 +53,7 @@ impl Tool {
             Tool::Gyroflow => "gyroflow",
             Tool::Vittrack => "vittrack",
             Tool::Sam2 => "sam2",
+            Tool::Rife => "rife",
         }
     }
     fn is_python(self) -> bool {
@@ -181,10 +187,107 @@ fn run_ok(mut cmd: std::process::Command, what: &str) -> Result<String, String> 
 }
 
 fn unpack(archive: &Path, into: &Path) -> Result<(), String> {
+    unpack_only(archive, into, &[])
+}
+
+/// Unpacks the files of `archive` whose paths match one of `members` (tar wildcards; all when empty).
+fn unpack_only(archive: &Path, into: &Path, members: &[&str]) -> Result<(), String> {
     std::fs::create_dir_all(into).map_err(|e| format!("Cannot create {}: {e}", into.display()))?;
     let mut cmd = comfywebm_engine::tools::command(&tar());
-    cmd.arg("-xf").arg(archive).arg("-C").arg(into);
+    cmd.arg("-xf").arg(archive).arg("-C").arg(into).args(members);
     run_ok(cmd, "Unpacking").map(|_| ())
+}
+
+/// What RIFE's release file is unpacked to: the program (and on Windows the OpenMP library
+/// beside it), its licence, and the model the engine uses.
+fn rife_members() -> Vec<String> {
+    let mut v = vec![format!("*/{}/*", comfywebm_engine::rife::MODEL), "*/LICENSE".to_string()];
+    if cfg!(windows) {
+        v.extend(["*/rife-ncnn-vulkan.exe".into(), "*/vcomp140.dll".into()]);
+    } else {
+        v.push("*/rife-ncnn-vulkan".into());
+    }
+    v
+}
+
+fn rife_exe_name() -> &'static str {
+    if cfg!(windows) {
+        "rife-ncnn-vulkan.exe"
+    } else {
+        "rife-ncnn-vulkan"
+    }
+}
+
+/// The installed RIFE (`<tools>/rife/current`), with ffprobe for reading its files; None when
+/// it is not installed or ffprobe is not found.
+pub fn rife_tool(tools: &Path, ffprobe: Option<PathBuf>) -> Option<comfywebm_engine::rife::Rife> {
+    let exe = find_file(&tools.join("rife").join("current"), &[rife_exe_name()], 4)?;
+    let model = exe.parent()?.join(comfywebm_engine::rife::MODEL);
+    if !model.join("flownet.bin").is_file() {
+        return None;
+    }
+    Some(comfywebm_engine::rife::Rife { exe, model, ffprobe: ffprobe? })
+}
+
+/// A 24-bit BMP of one colour.
+fn plain_bmp(w: u32, h: u32, rgb: [u8; 3]) -> Vec<u8> {
+    let row = (w * 3).div_ceil(4) * 4;
+    let size = 54 + row * h;
+    let mut b = Vec::with_capacity(size as usize);
+    b.extend_from_slice(b"BM");
+    b.extend_from_slice(&size.to_le_bytes());
+    b.extend_from_slice(&[0, 0, 0, 0]);
+    b.extend_from_slice(&54u32.to_le_bytes());
+    b.extend_from_slice(&40u32.to_le_bytes());
+    b.extend_from_slice(&(w as i32).to_le_bytes());
+    b.extend_from_slice(&(h as i32).to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.extend_from_slice(&24u16.to_le_bytes());
+    b.extend_from_slice(&[0u8; 24]);
+    for _ in 0..h {
+        for _ in 0..w {
+            b.extend_from_slice(&[rgb[2], rgb[1], rgb[0]]);
+        }
+        b.extend(std::iter::repeat_n(0u8, (row - w * 3) as usize));
+    }
+    b
+}
+
+/// Makes one in-between picture of two test pictures: the program runs and a graphics
+/// card takes the model. Returns the graphics cards it lists.
+fn rife_check(exe: &Path) -> Result<String, String> {
+    let model = exe.parent().map(|d| d.join(comfywebm_engine::rife::MODEL)).ok_or("RIFE has no folder")?;
+    let dir = std::env::temp_dir().join(format!("comfywebm-rife-check-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let (a, b, out) = (dir.join("a.bmp"), dir.join("b.bmp"), dir.join("c.png"));
+    let res = (|| {
+        std::fs::write(&a, plain_bmp(64, 64, [200, 40, 40])).map_err(|e| e.to_string())?;
+        std::fs::write(&b, plain_bmp(64, 64, [40, 40, 200])).map_err(|e| e.to_string())?;
+        let mut cmd = comfywebm_engine::tools::command(exe);
+        cmd.arg("-0").arg(&a).arg("-1").arg(&b).arg("-o").arg(&out).arg("-m").arg(&model);
+        if let Some(d) = exe.parent() {
+            cmd.current_dir(d);
+        }
+        cmd.stdin(std::process::Stdio::null());
+        let o = comfywebm_engine::tools::output_within(cmd, Duration::from_secs(120), "RIFE")?;
+        let text = String::from_utf8_lossy(&o.stderr).into_owned();
+        if !o.status.success() || !out.is_file() {
+            let why = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("no message");
+            return Err(format!("RIFE did not run on this computer: {why}. It needs a graphics card with Vulkan (an up-to-date graphics driver)."));
+        }
+        // "[1 NVIDIA GeForce RTX 4070 Laptop GPU]  queueC=..." several lines per card
+        let mut cards: Vec<String> = Vec::new();
+        for l in text.lines() {
+            let Some(inner) = l.strip_prefix('[').and_then(|r| r.split_once(']')).map(|(n, _)| n) else { continue };
+            let name = inner.split_once(' ').map_or(inner, |(_, x)| x).to_string();
+            if !cards.contains(&name) {
+                cards.push(name);
+            }
+        }
+        Ok(cards.join(", "))
+    })();
+    let _ = std::fs::remove_dir_all(&dir);
+    res
 }
 
 /// macOS: copies the .app out of a disk image.
@@ -277,6 +380,15 @@ async fn pick_asset(c: &reqwest::Client, tool: Tool) -> Result<Asset, String> {
             };
             latest_asset(c, "gyroflow/gyroflow", |n| (n == want).then(Vec::new)).await
         }
+        Tool::Rife => {
+            let want = match (os, arch) {
+                ("windows", "x86_64") => "windows.zip",
+                ("linux", "x86_64") => "ubuntu.zip",
+                ("macos", _) => "macos.zip",
+                _ => return Err(format!("No RIFE download for {os} {arch}.")),
+            };
+            latest_asset(c, "TNTwise/rife-ncnn-vulkan", |n| (n == want).then(Vec::new)).await
+        }
         Tool::Vittrack | Tool::Sam2 => Err("The trackers are installed with uv, not from a release file.".into()),
     }
 }
@@ -343,6 +455,14 @@ async fn install_inner(app: &AppHandle, tool: Tool, cancel: Arc<AtomicBool>) -> 
 
     let c = client()?;
     let asset = pick_asset(&c, tool).await?;
+    // the release file and its unpacked part, with room to spare
+    if let Some(free) = free_bytes(&root) {
+        let need = asset.size + (300 << 20);
+        if free < need {
+            let gb = |b: u64| format!("{:.1} GB", b as f64 / (1u64 << 30) as f64);
+            return Err(format!("This needs about {} free on the drive of {}, and it has {}.", gb(need), root.display(), gb(free)));
+        }
+    }
     let file = root.join(format!("download-{}", asset.name));
     let res = download(app, tool, &c, &asset, &file, &cancel).await;
     if let Err(e) = res {
@@ -368,6 +488,10 @@ async fn install_inner(app: &AppHandle, tool: Tool, cancel: Arc<AtomicBool>) -> 
             return unpack_dmg(&f2, &n2);
         }
         let _ = &name;
+        if tool == Tool::Rife {
+            let m = rife_members();
+            return unpack_only(&f2, &n2, &m.iter().map(String::as_str).collect::<Vec<_>>());
+        }
         unpack(&f2, &n2)
     })
     .await
@@ -399,6 +523,11 @@ async fn install_inner(app: &AppHandle, tool: Tool, cancel: Arc<AtomicBool>) -> 
             make_executable(&exe);
             exe
         }
+        Tool::Rife => {
+            let exe = find_file(&current, &[rife_exe_name()], 4).ok_or("The download holds no RIFE program.")?;
+            make_executable(&exe);
+            exe
+        }
         Tool::Vittrack | Tool::Sam2 => return Err("The trackers are installed with uv.".into()),
     };
     if tool == Tool::Ffmpeg {
@@ -412,6 +541,15 @@ async fn install_inner(app: &AppHandle, tool: Tool, cancel: Arc<AtomicBool>) -> 
 /// Checks the tool runs, then points its setting at it.
 fn finish(app: &AppHandle, tool: Tool, target: &Path, release: String) -> Result<Installed, String> {
     emit(app, InstallProgress { tool, phase: "check", done: 0, total: None, text: None });
+    if tool == Tool::Rife {
+        // found by its folder, as the trackers are; no setting points at it
+        let cards = rife_check(target)?;
+        // the release file is named after the system only ("windows.zip"), so it is not shown
+        let _ = release;
+        let label = format!("RIFE {} (rife-ncnn-vulkan)", comfywebm_engine::rife::MODEL.trim_start_matches("rife-v"));
+        let release = if cards.is_empty() { label } else { format!("{label}; graphics: {cards}") };
+        return Ok(Installed { tool, path: target.to_string_lossy().into_owned(), release });
+    }
     let exe = match tool {
         Tool::Ffmpeg => target.join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" }),
         _ => target.to_path_buf(),
@@ -430,7 +568,7 @@ fn finish(app: &AppHandle, tool: Tool, target: &Path, release: String) -> Result
         Tool::Ffmpeg => s.ffmpeg_path = Some(path.clone()),
         Tool::Ytdlp => s.ytdlp_path = Some(path.clone()),
         Tool::Gyroflow => s.gyroflow_path = Some(path.clone()),
-        Tool::Vittrack | Tool::Sam2 => {}
+        Tool::Vittrack | Tool::Sam2 | Tool::Rife => {}
     }
     state.save_settings(s)?;
     state.forget_tools();

@@ -175,7 +175,7 @@
       p.smooth
         ? { label: "Change at once on this frame", action: () => app.setRotateKey(i, { smooth: false }) }
         : { label: i > 0 ? "Turn smoothly from the previous keyframe" : "Turn smoothly (needs a keyframe before it)", disabled: i === 0, action: () => app.setRotateKey(i, { smooth: true }) },
-      { label: "Go to this keyframe", action: () => app.seek(p.t) },
+      { label: "Go to this keyframe", action: () => goKey(i) },
       { label: "Move to the playhead", action: () => app.setRotateKey(i, { t: app.current }) },
       { label: "Remove this keyframe", danger: true, action: () => app.removeRotateKey(i) },
     ];

@@ -191,11 +191,11 @@
   /** px around the picture in crop mode, for the crop's handles */
   const CROP_MARGIN = 16;
 
-  // Crop mode with a follow path: the stage shows the largest view the path can have at the
-  // playhead (the whole picture over Follow's zoom, no crop), held still while cropping, and
-  // the crop box is the view as it is now inside it. The box can shrink, grow back to the
-  // whole area and move; letting go applies it (applyFollowCrop). The area is taken again
-  // only when the playhead moves.
+  // Crop mode with a follow path: the stage shows the whole picture (turned as the view is at
+  // the playhead), held still while cropping, and the crop box is the view as it is now on
+  // it. The box can move anywhere on the picture, shrink, and grow up to the largest view
+  // Follow's zoom allows there (cropMax); letting go applies it (applyFollowCrop). The area
+  // is taken again only when the playhead moves.
   let fctx = $state<(Crop & { rot: number }) | null>(null);
   /** the box while it is being dragged */
   let fdraft = $state<Crop | null>(null);
@@ -209,8 +209,25 @@
       fdraft = null;
       return;
     }
-    fctx = untrack(() => zoomMath.viewAt(app.zoomPoints, t, app.viewW, app.viewH, app.viewW, app.viewH));
+    fctx = untrack(() => areaAt(t));
     fdraft = null;
+  });
+  /** the whole picture at 1x, turned by the path's turn at t (the area the crop box moves on) */
+  function areaAt(t: number) {
+    return zoomMath.viewAt(
+      app.zoomPoints.map((p) => ({ ...p, zoom: 1 })),
+      t,
+      app.viewW,
+      app.viewH,
+      app.viewW,
+      app.viewH,
+    );
+  }
+  /** the largest crop box: the view at Follow's zoom at the playhead (the crop is the box times the zoom) */
+  const cropMax = $derived.by(() => {
+    if (!fctx) return null;
+    const z = Math.max(1, zoomMath.at(app.zoomPoints, app.current).zoom);
+    return { w: app.viewW / z, h: app.viewH / z };
   });
   /** the view as it is now, in the held area's own (upright) pixels */
   function viewInCtx(c: Crop & { rot: number }): Crop {
@@ -231,7 +248,7 @@
     if (!c || untrack(() => fdraft)) return;
     const b = untrack(() => viewInCtx(c));
     if (b.x < -0.5 || b.y < -0.5 || b.x + b.w > c.w + 0.5 || b.y + b.h > c.h + 0.5)
-      fctx = untrack(() => zoomMath.viewAt(app.zoomPoints, app.current, app.viewW, app.viewH, app.viewW, app.viewH));
+      fctx = untrack(() => areaAt(app.current));
   });
   function commitFollowCrop(c: Crop | null) {
     const ctx = fctx;
@@ -357,8 +374,9 @@
   // With follow keyframes, dragging the picture moves the view (the picture moves with the
   // pointer, the view the other way): the keyframes selected on the Follow lane (a click on
   // the lane adds one and selects it), or the whole path when none are selected, so a
-  // tracked face can be framed higher or lower without bending the path. Shift + drag
-  // always moves the whole path. A click without a drag plays and pauses as before.
+  // tracked face can be framed higher or lower without bending the path. Ctrl + drag
+  // always moves the whole path. Shift (held at any time during the drag) moves the view
+  // across only, keeping its height. A click without a drag plays and pauses as before.
   let pan: { x0: number; y0: number; i: number; cx: number; cy: number; moved: boolean; all: ZoomPoint[] | null; only: number[] | null } | null = null;
   let panned = false;
   function panDown(e: PointerEvent) {
@@ -366,12 +384,13 @@
     const i = app.followKeyAt(app.current);
     const p = i >= 0 ? app.zoomPoints[i] : zoomMath.at(app.zoomPoints, app.current);
     const sel = app.followSelected;
-    pan = { x0: e.clientX, y0: e.clientY, i, cx: p.x, cy: p.y, moved: false, all: app.zoomPoints.map((q) => ({ ...q })), only: e.shiftKey || !sel.length ? null : sel };
+    pan = { x0: e.clientX, y0: e.clientY, i, cx: p.x, cy: p.y, moved: false, all: app.zoomPoints.map((q) => ({ ...q })), only: e.ctrlKey || e.metaKey || !sel.length ? null : sel };
   }
   function panMove(e: PointerEvent) {
     if (!pan) return;
     const dx = e.clientX - pan.x0;
-    const dy = e.clientY - pan.y0;
+    // Shift: across only (on the screen), from where the drag began
+    const dy = e.shiftKey ? 0 : e.clientY - pan.y0;
     if (!pan.moved) {
       if (Math.abs(dx) + Math.abs(dy) < 4) return;
       pan.moved = true;
@@ -554,8 +573,7 @@
       </div>
     {/if}
     {#if fctx}
-      <!-- crop mode with a follow path: outside the largest view the path can have here, darker
-           (the crop box cannot reach it) -->
+      <!-- crop mode with a follow path: outside the picture, darker (the crop box cannot reach it) -->
       <div class="outmask soft" style:left="{outRect.x}px" style:top="{outRect.y}px" style:width="{outRect.w}px" style:height="{outRect.h}px"></div>
     {/if}
     {#if app.followMode}
@@ -612,13 +630,14 @@
     <!-- over the picture as shown (turned and flipped), so the crop is drawn on what you see;
          outside crop mode the stage shows the crop itself -->
     {#if app.cropMode && !app.followMode && fctx && fbox}
-    <!-- with a follow path: the view as it is now, inside the largest it can be here -->
+    <!-- with a follow path: the view as it is now, on the whole picture -->
     <CropOverlay
       rect={outRect}
       W={fctx.w}
       H={fctx.h}
       crop={fbox}
       ratio={ratioOf(app.aspect)}
+      max={cropMax}
       active
       onchange={(c) => (fdraft = c)}
       oncommit={commitFollowCrop}
@@ -818,8 +837,21 @@
   {#if app.adjustHold && !isNeutral(adj) && app.media && !app.audioOnly}
     <span class="before">Original (without the adjustments)</span>
   {/if}
-  {#if app.usingProxy}
-    <span class="badge" title={app.proxyRemuxed ? "The source's own video and audio, copied into an MP4 the player can read" : "A 480p H.264 copy for the player; encoding uses the original"}>{app.proxyRemuxed ? "Preview copy (full quality)" : "Preview copy (480p)"}</span>
+  {#if app.videoSrc}
+    <!-- top right: the preview copy's badge, and full screen -->
+    <div class="vtop">
+      {#if app.usingProxy}
+        <span class="badge" title={app.proxyRemuxed ? "The source's own video and audio, copied into an MP4 the player can read" : "A 480p H.264 copy for the player; encoding uses the original"}>{app.proxyRemuxed ? "Preview copy (full quality)" : "Preview copy (480p)"}</span>
+      {/if}
+      <button
+        class="spk ovbtn"
+        class:on={app.fullView}
+        aria-pressed={app.fullView}
+        aria-label={app.fullView ? "Leave full screen (F or Esc)" : "Full screen (F)"}
+        title={app.fullView ? "Leave full screen (F or Esc)" : "Full screen: the picture over the whole screen (F; F or Esc leaves)"}
+        onclick={() => app.toggleFullView()}
+      ><Icon name={app.fullView ? "fullExit" : "full"} size={16} /></button>
+    </div>
   {/if}
 </div>
 
@@ -1169,10 +1201,15 @@
     font-size: 11px;
     pointer-events: none;
   }
-  .badge {
+  .vtop {
     position: absolute;
-    right: 8px;
-    top: 8px;
+    right: 10px;
+    top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .badge {
     padding: 1px 6px;
     border-radius: 3px;
     background: rgba(0, 0, 0, 0.6);

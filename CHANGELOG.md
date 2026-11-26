@@ -7,6 +7,38 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- Interpolation with RIFE: Settings > Tools > Interpolation chooses between
+  the built-in method (ffmpeg's minterpolate) and RIFE, a neural network for
+  in-between frames (model 4.26, rife-ncnn-vulkan, on the graphics card).
+  Install RIFE downloads it from GitHub (about 830 MB) and keeps about 20 MB.
+  Before the encode, RIFE fills the ranges' span with the new frames the slow
+  motion needs, and the encode uses them.
+- Presets for Mokachan and awoo: VP9 WebM in quality mode (CRF 30) with
+  Opus sound. Their limits (100 MiB and 512 MB) are far above a normal clip.
+- Full screen: a button at the top right of the picture, or `F`, shows the
+  picture over the whole screen; `F` or Esc leaves.
+- Follow: Shift while dragging the picture moves the view across only,
+  keeping its height.
+
+### Changed
+
+- The timeline: a click or drag on a range seeks like the rest of the track,
+  and the picture follows while you drag. Ctrl+drag moves a range; a plain
+  drag no longer does.
+- Follow: Ctrl+drag on the picture moves the whole path (it was Shift).
+- The Follow lane's controls (Zoom (all), Track box, Track face, Track
+  points) are in a row above the lane, so they no longer cover its lines.
+- Crop mode with Follow keyframes shows the whole picture: the crop box can
+  move anywhere on it, not only inside the largest view at the playhead. Its
+  size is still capped at that view.
+
+### Fixed
+
+- "Go to this keyframe" in a Follow keyframe's menu also selects the
+  keyframe.
+
 ## [1.2.2] - 2026-11-24
 
 ### Added

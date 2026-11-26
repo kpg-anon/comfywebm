@@ -66,7 +66,13 @@ fn real_main() -> Result<(), String> {
     let out = Path::new(&output);
     // CWM_GYROFLOW=<Gyroflow program>: Stabilize with Gyroflow can run
     let gyro = std::env::var_os("CWM_GYROFLOW").map(|g| comfywebm_engine::gyro::Gyro { gyroflow: g.into(), ffprobe: ffprobe.clone() });
-    match run::run_job(&ffmpeg, &spec, &info, out, st.filters.zscale, Some(&sources), gyro.as_ref(), &cancel, |_| {}) {
+    // CWM_RIFE: the RIFE program; its model folder beside it (rife.rs MODEL)
+    let rife = std::env::var_os("CWM_RIFE").map(|r| {
+        let exe = std::path::PathBuf::from(r);
+        let model = exe.parent().map(|d| d.join(comfywebm_engine::rife::MODEL)).unwrap_or_default();
+        comfywebm_engine::rife::Rife { exe, model, ffprobe: ffprobe.clone() }
+    });
+    match run::run_job(&ffmpeg, &spec, &info, out, st.filters.zscale, Some(&sources), gyro.as_ref(), rife.as_ref(), &cancel, |_| {}) {
         Ok(o) => {
             println!("output: {}", o.output.display());
             println!("result: {}", serde_json::to_string(&o.result).unwrap());

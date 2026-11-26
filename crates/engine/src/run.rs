@@ -246,6 +246,7 @@ fn better(new: u64, old: u64, max: Option<f64>) -> bool {
 /// A higher bitrate that grows the file by less than 3% stops the loop.
 /// Retries repeat only pass 2 where the pass 1 log does not depend on the
 /// bitrate (libvpx, x264).
+#[allow(clippy::too_many_arguments)]
 pub fn run_job(
     ffmpeg: &Path,
     spec: &EncodeSpec,
@@ -254,6 +255,7 @@ pub fn run_job(
     zscale: bool,
     sources: Option<&std::collections::HashMap<String, MediaInfo>>,
     gyro: Option<&crate::gyro::Gyro>,
+    rife: Option<&crate::rife::Rife>,
     cancel: &Cancel,
     mut on_progress: impl FnMut(&Progress),
 ) -> Result<Outcome, RunError> {
@@ -275,6 +277,25 @@ pub fn run_job(
         (spec, info, 0.0)
     };
     let _gyro_cleanup = Cleanup { passlog: PathBuf::from("comfywebm-no-such-prefix"), files: gyro_files };
+    // Interpolation with RIFE: the job moves onto RIFE's denser file (after Gyroflow's, when
+    // both), shown as pass 1 with the next part of the bar
+    let mut rife_files: Vec<PathBuf> = Vec::new();
+    let rife_prepared;
+    let (spec, info, gyro_len) = match crate::rife::need(spec, info) {
+        Some(need) => {
+            let r = rife.ok_or_else(|| RunError::Failed("Interpolation is set to RIFE, but RIFE is not installed (Settings > Tools).".into()))?;
+            let work = passlog_prefix();
+            let encode_passes = plan::build(spec, info, &Opts { zscale, sources, ..Opts::new("", "") }).map(|p| p.passes.len() as u32).unwrap_or(1);
+            let (start, len) = if gyro_len > 0.0 { (gyro_len, 0.3) } else { (0.0, 0.5) };
+            rife_prepared = crate::rife::prepare(ffmpeg, r, spec, info, &need, zscale, &work, cancel, |f| {
+                on_progress(&Progress { fraction: start + f * len, pass: 1, passes: encode_passes + 1, attempt: 1, speed: None, eta_secs: None })
+            })?;
+            rife_files = rife_prepared.files.clone();
+            (&rife_prepared.spec, &rife_prepared.info, start + len)
+        }
+        None => (spec, info, gyro_len),
+    };
+    let _rife_cleanup = Cleanup { passlog: PathBuf::from("comfywebm-no-such-prefix"), files: rife_files };
     let part = naming::part_path(final_path);
     let best_path = {
         let mut s = final_path.as_os_str().to_owned();
@@ -398,6 +419,7 @@ pub fn run_job(
 
 /// A 3-second encode from `at` with the job's filters, in one pass at the
 /// bitrate the full job would get. Written to `out`.
+#[allow(clippy::too_many_arguments)]
 pub fn sample(
     ffmpeg: &Path,
     spec: &EncodeSpec,
@@ -407,6 +429,7 @@ pub fn sample(
     zscale: bool,
     secs: f64,
     gyro: Option<&crate::gyro::Gyro>,
+    rife: Option<&crate::rife::Rife>,
     cancel: &Cancel,
 ) -> Result<(), RunError> {
     // a joined spec: the sample uses the first file's ranges only
@@ -450,6 +473,20 @@ pub fn sample(
         (s, info)
     };
     let _gyro_cleanup = Cleanup { passlog: PathBuf::from("comfywebm-no-such-prefix"), files: if s.input.ends_with("-gyro.mov") { vec![PathBuf::from(&s.input)] } else { Vec::new() } };
+    // RIFE: the sample's few seconds filled first (rife.rs)
+    let rife_prepared;
+    let mut rife_files = Vec::new();
+    let (s, info) = match crate::rife::need(&s, info) {
+        Some(need) => {
+            let r = rife.ok_or_else(|| RunError::Failed("Interpolation is set to RIFE, but RIFE is not installed (Settings > Tools).".into()))?;
+            let work = passlog_prefix();
+            rife_prepared = crate::rife::prepare(ffmpeg, r, &s, info, &need, zscale, &work, cancel, |_| {})?;
+            rife_files = rife_prepared.files.clone();
+            (rife_prepared.spec.clone(), &rife_prepared.info)
+        }
+        None => (s, info),
+    };
+    let _rife_cleanup = Cleanup { passlog: PathBuf::from("comfywebm-no-such-prefix"), files: rife_files };
     let opts = Opts { video_kbps: full.video_kbps, zscale, single_pass: true, ..Opts::new(&out_s, &passlog_s) };
     let planned = plan::build(&s, info, &opts)?;
     let res = run_prepasses(ffmpeg, &planned, cancel, |_, _| {}).and_then(|()| run_ffmpeg(ffmpeg, &planned.passes[0], planned.duration_out, cancel, |_| {}));

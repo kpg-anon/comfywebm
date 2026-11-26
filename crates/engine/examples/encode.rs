@@ -108,6 +108,12 @@ fn real_main() -> Result<(), String> {
     let ffprobe = t.ffprobe.ok_or("ffprobe not found")?;
 
     let info = probe::probe(&ffprobe, &input)?;
+    // CWM_RIFE: the RIFE program (its model folder beside it); with CWM_SMOOTH, slow motion uses it
+    let rife = std::env::var_os("CWM_RIFE").map(|r| {
+        let exe = std::path::PathBuf::from(r);
+        let model = exe.parent().map(|d| d.join(comfywebm_engine::rife::MODEL)).unwrap_or_default();
+        comfywebm_engine::rife::Rife { exe, model, ffprobe: ffprobe.clone() }
+    });
     println!("probe: {}", serde_json::to_string(&info).unwrap());
 
     // CWM_JOIN=<file>: append that whole file as one more range (joined)
@@ -197,6 +203,7 @@ fn real_main() -> Result<(), String> {
         // CWM_STAB=vidstab: vid.stab, any other value: deshake
         stab_method: if std::env::var("CWM_STAB").as_deref() == Ok("vidstab") { comfywebm_engine::StabMethod::Vidstab } else { comfywebm_engine::StabMethod::Deshake },
         smooth_slowmo: std::env::var("CWM_SMOOTH").is_ok(),
+        interp_method: if std::env::var_os("CWM_RIFE").is_some() { comfywebm_engine::InterpMethod::Rife } else { comfywebm_engine::InterpMethod::Minterpolate },
         output_dir: None,
         cover,
         cover_size,
@@ -206,7 +213,7 @@ fn real_main() -> Result<(), String> {
     println!("plan: {}", serde_json::to_string_pretty(&shown).unwrap());
 
     let cancel = run::Cancel::new();
-    let outcome = run::run_job(&ffmpeg, &spec, &info, Path::new(&output), zscale, Some(&sources), None, &cancel, |p| {
+    let outcome = run::run_job(&ffmpeg, &spec, &info, Path::new(&output), zscale, Some(&sources), None, rife.as_ref(), &cancel, |p| {
         print!(
             "\rattempt {} pass {}/{} {:5.1}% speed {:?} eta {:?}      ",
             p.attempt,

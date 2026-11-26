@@ -157,6 +157,9 @@ fn fourchan(name: &str, order: i64, max_bytes: f64, audio: bool, max_duration: f
     )
 }
 
+/// Platform presets added in a later version: written once into an existing platform folder.
+const ADDED_LATER: &[&str] = &["mokachan.toml", "awoo.toml"];
+
 /// The platform presets written on first start (USAGE.md, "Built-in presets").
 fn default_platform() -> Vec<(&'static str, i64, Preset)> {
     let discord = |name: &str, max_bytes: f64| Preset {
@@ -197,6 +200,11 @@ fn default_platform() -> Vec<(&'static str, i64, Preset)> {
     ] {
         v.push((file, order, p));
     }
+    // Mokachan takes 100 MiB per file (https://mokachan.cafe/json/config "maxSize": 100, MiB in
+    // meguca) with any codec and sound; awoo takes 512 MB. A size limit would fill those, so
+    // these are quality presets: normal clips come out far under either limit.
+    v.push(("mokachan.toml", 55, quality("Mokachan (quality, sound)", Container::Webm, Codec::Vp9, 30.0, 128.0)));
+    v.push(("awoo.toml", 57, quality("awoo (quality, sound)", Container::Webm, Codec::Vp9, 30.0, 128.0)));
     v.push(("discord-20mb.toml", 60, discord("Discord (20 MB)", 20_000_000.0)));
     v.push(("discord-nitro-basic-50mb.toml", 70, discord("Discord Nitro Basic (50 MB)", 50_000_000.0)));
     v.push((
@@ -375,6 +383,7 @@ impl Config {
         } else {
             self.update_platform();
         }
+        self.add_new_platform();
         for p in legacy {
             let _ = self.save(p, None);
         }
@@ -386,6 +395,27 @@ impl Config {
         let _ = std::fs::create_dir_all(&dir);
         for (file, order, p) in default_platform() {
             let _ = std::fs::write(dir.join(file), preset_toml(&p, Some(order)));
+        }
+    }
+
+    /// Writes the platform presets added after the folder was made (ADDED_LATER) once: a
+    /// marker file (no .toml extension, so it is not listed) remembers it, so one you
+    /// delete stays deleted.
+    fn add_new_platform(&self) {
+        let dir = self.presets_dir().join("platform");
+        for (file, order, p) in default_platform() {
+            if !ADDED_LATER.contains(&file) {
+                continue;
+            }
+            let mark = dir.join(format!(".added-{}", file.trim_end_matches(".toml")));
+            if mark.exists() {
+                continue;
+            }
+            let path = dir.join(file);
+            if !path.exists() {
+                let _ = std::fs::write(&path, preset_toml(&p, Some(order)));
+            }
+            let _ = std::fs::write(&mark, "");
         }
     }
 
@@ -592,6 +622,27 @@ mod tests {
         assert_eq!((webm.effort, webm.two_pass), (Effort::Best, true));
         let mp4 = read("quality-mp4.toml");
         assert_eq!((mp4.effort, mp4.two_pass), (Effort::Balanced, false), "an edited file is kept");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn presets_added_later_are_written_once() {
+        let dir = std::env::temp_dir().join(format!("cwm-added-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let c = Config::new(dir.clone());
+        let plat = dir.join("presets").join("platform");
+        // a platform folder from before: no Mokachan or awoo
+        std::fs::create_dir_all(&plat).unwrap();
+        std::fs::write(plat.join("quality-webm.toml"), "x").unwrap();
+        c.ensure(&[]);
+        assert!(plat.join("mokachan.toml").exists() && plat.join("awoo.toml").exists());
+        // deleted by hand: not written again
+        std::fs::remove_file(plat.join("awoo.toml")).unwrap();
+        c.ensure(&[]);
+        assert!(!plat.join("awoo.toml").exists());
+        // the markers are not listed as presets
+        let names: Vec<String> = c.load().presets.iter().map(|p| p.file.clone()).collect();
+        assert!(names.iter().all(|n| n.ends_with(".toml")), "{names:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

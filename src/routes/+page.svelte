@@ -37,6 +37,15 @@
     const t = winTitle;
     getCurrentWindow().setTitle(t).catch(() => {});
   });
+  // the picture's full-screen view: the window goes full screen with it (only on a change,
+  // so a start does not touch the window)
+  let wasFull = false;
+  $effect(() => {
+    const on = app.fullView;
+    if (on === wasFull) return;
+    wasFull = on;
+    getCurrentWindow().setFullscreen(on).catch(() => {});
+  });
 
   // Sidebar width: dragged on the splitter, double-click resets; remembered.
   // Only with Settings > Look > "Resizable sidebar"; otherwise the default width.
@@ -355,7 +364,7 @@
 
   <div class="main" bind:this={mainEl} style:--side-w="{app.sideResize ? sideW : SIDE_DEFAULT}px">
     <div class="left" class:hidden={app.view !== "editor"}>
-      <div class="preview" bind:this={preview}>
+      <div class="preview" class:full={app.fullView} bind:this={preview}>
         {#if app.media}
           <Player />
         {:else}
@@ -481,6 +490,13 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+  /* the picture alone over the whole window (the window is full screen meanwhile); under dialogs */
+  .preview.full {
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    background: var(--bg-stage);
   }
   .file {
     flex: 1;

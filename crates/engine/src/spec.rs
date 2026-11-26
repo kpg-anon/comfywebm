@@ -503,6 +503,18 @@ pub enum StabMethod {
     Gyroflow,
 }
 
+/// How Interpolation makes slow motion's in-between frames (Settings > Tools).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InterpMethod {
+    /// ffmpeg's minterpolate (motion compensation), in the encode's filter graph
+    #[default]
+    Minterpolate,
+    /// RIFE (rife.rs): the span filled with in-between frames on the graphics card before
+    /// the encode; ranges from several files fall back to minterpolate
+    Rife,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Effort {
@@ -619,10 +631,12 @@ pub struct EncodeSpec {
     pub stabilize: bool,
     #[serde(default)]
     pub stab_method: StabMethod,
-    /// slow motion (speed below 1) gets new in-between frames (minterpolate)
+    /// slow motion (speed below 1) gets new in-between frames (with `interp_method`)
     /// instead of repeated ones
     #[serde(default)]
     pub smooth_slowmo: bool,
+    #[serde(default)]
+    pub interp_method: InterpMethod,
     #[serde(default)]
     pub tonemap: bool,
     #[serde(default)]
@@ -850,6 +864,8 @@ pub struct Settings {
     /// installed (src-tauri install.rs); None or anything else = the built-in one (track.rs).
     /// A plain string, so older builds read a settings file that has a new name in it.
     pub track_method: Option<String>,
+    /// Interpolation's method (Settings > Tools); None = minterpolate
+    pub interp_method: Option<InterpMethod>,
     /// presets kept in settings.json by older builds; moved to presets/saved/*.toml on start
     pub presets: Vec<Preset>,
 }
@@ -870,6 +886,7 @@ impl Default for Settings {
             stab_method: None,
             gyroflow_path: None,
             track_method: None,
+            interp_method: None,
             presets: Vec::new(),
         }
     }

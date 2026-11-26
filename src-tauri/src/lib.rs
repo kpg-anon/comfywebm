@@ -813,7 +813,8 @@ async fn preview_sample(app: AppHandle, spec: EncodeSpec, at: f64, secs: Option<
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
         let out = dir.join(format!("sample-{}-{n}.{}", std::process::id(), spec.ext()));
         let gyro = state.gyro();
-        let res = run::sample(&ffmpeg, &spec, &info, at, &out, state.zscale(), secs.unwrap_or(run::SAMPLE_SECS), gyro.as_ref(), &cancel);
+        let rife = install::rife_tool(&app.state::<install::ToolsDir>().0, state.tools().0.ffprobe);
+        let res = run::sample(&ffmpeg, &spec, &info, at, &out, state.zscale(), secs.unwrap_or(run::SAMPLE_SECS), gyro.as_ref(), rife.as_ref(), &cancel);
         {
             let mut r = samples.running.lock().unwrap();
             if r.as_ref().is_some_and(|c| Arc::ptr_eq(c, &cancel)) {

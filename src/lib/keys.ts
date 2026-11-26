@@ -31,6 +31,7 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       [", / .", "one frame back / forward (or the mouse wheel over the picture)"],
       ["L", "loop the selected range"],
       ["M", "mute / unmute the preview (the speaker at the bottom right of the picture)"],
+      ["F", "full screen: the picture over the whole screen (F or Esc leaves; also the button at its top right)"],
       ["\\ (hold)", "adjustments: the original picture while held (also the eye in Advanced > Adjustments)"],
     ],
   },
@@ -46,7 +47,8 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["H", "the history: every edit, click one to go back to it"],
       ["Ctrl + wheel", "zoom the timeline (wheel pans while zoomed)"],
       ["Z / Shift + Z", "zoom the timeline to the selected Follow keyframes or range / show the whole file (or drag across the ruler)"],
-      ["Drag a range", "move it, keeping its length (a click seeks)"],
+      ["Click or drag on the timeline", "seek; the picture follows while you drag (also over a range)"],
+      ["Ctrl + drag a range", "move it, keeping its length"],
       ["Alt + drag", "move a range or its edge without snapping"],
       ["[ / ]", "previous / next scene cut (after Find cuts)"],
       ["PgUp / PgDn", "previous / next keyframe on the lanes shown (Follow, Rotate, Speed)"],
@@ -60,6 +62,14 @@ export const KEY_HELP: { group: string; keys: [string, string][] }[] = [
       ["Esc", "leave crop mode, putting the crop back as it was"],
       ["Arrows", "move the crop 1 px (Shift: 10 px)"],
       ["Alt + arrows", "resize the crop"],
+    ],
+  },
+  {
+    group: "Follow",
+    keys: [
+      ["Drag the picture", "aim the selected keyframes' view (the whole path when none are selected)"],
+      ["Shift + drag the picture", "across only: the view keeps its height"],
+      ["Ctrl + drag the picture", "move the whole path"],
     ],
   },
   {
@@ -233,6 +243,10 @@ export function installKeys(actions: KeyActions): () => void {
         case "m":
           app.toggleMute();
           break;
+        case "f":
+          if (app.media) app.toggleFullView();
+          else handled = false;
+          break;
         case "\\":
           // held: the original; key-up (below) shows the adjustments again
           app.adjustHold = true;
@@ -258,6 +272,7 @@ export function installKeys(actions: KeyActions): () => void {
           if (app.pointsMode) app.cancelPoints();
           else if (app.followMode) app.cancelFollow();
           else if (app.cropMode) app.cancelCrop();
+          else if (app.fullView) app.toggleFullView(false);
           else if (app.rotateSel !== null) app.rotateSel = null;
           else if (app.followSel.length) app.followSel = [];
           else handled = false;

@@ -103,6 +103,8 @@ export type Codec = "vp9" | "vp8" | "av1" | "h264" | "hevc" | "gif" | "webp" | "
 export type Effort = "fast" | "balanced" | "best";
 /** Stabilize's method (engine spec.rs StabMethod) */
 export type StabMethod = "deshake" | "vidstab" | "gyroflow";
+/** Interpolation's method (engine spec.rs InterpMethod) */
+export type InterpMethod = "minterpolate" | "rife";
 export type Rotate = 0 | 90 | 180 | 270;
 export type Playback = "forward" | "reverse" | "boomerang";
 
@@ -158,6 +160,7 @@ export type EncodeSpec = {
   stabilize?: boolean;
   stabMethod?: StabMethod;
   smoothSlowmo?: boolean;
+  interpMethod?: InterpMethod;
   tonemap: boolean;
   fadeIn: number;
   fadeOut: number;
@@ -300,6 +303,8 @@ export type Settings = {
   gyroflowPath?: string | null;
   /** Follow > Track's tracker: "vittrack" or "sam2" when installed; null = the built-in one */
   trackMethod?: string | null;
+  /** Interpolation's method; null = minterpolate (built in) */
+  interpMethod?: InterpMethod | null;
   presets: Preset[];
 };
 
